@@ -1,0 +1,6508 @@
+================================================================================
+CGL_OS — FINAL IMPLEMENTATION & ARCHITECTURE SPECIFICATION
+================================================================================
+
+PROJECT:
+SSC CGL Intelligence OS
+
+PURPOSE:
+Upgrade the EXISTING CGL_OS application without rebuilding it from scratch.
+
+PRIMARY RULE:
+DO NOT CREATE A NEW APP.
+
+Modify the existing:
+- index.html
+- app.js
+- style.css
+- existing IndexedDB database structure
+- existing Console command system
+- existing UI components
+- existing backup/restore system
+
+while preserving all existing user data.
+
+================================================================================
+0. ABSOLUTE NON-NEGOTIABLE REQUIREMENTS
+================================================================================
+
+These requirements override convenience.
+
+1. EXISTING DATA MUST NOT BE LOST.
+
+The application currently contains valuable user-created data:
+- questions
+- knowledge sheets / living compendium sheets
+- flashcards / Anki assets
+- attempts
+- saved mocks / blueprints
+- notes
+- configuration
+- taxonomy
+- AI consultation records
+- active-session information where applicable
+
+This data is more important than the UI changes.
+
+Never perform a destructive migration merely because it is easier.
+
+Never:
+- clear the database
+- recreate the database from scratch
+- delete an object store unnecessarily
+- regenerate all IDs
+- replace existing questions with newly generated questions
+- replace knowledge sheets with newly generated sheets
+- silently overwrite existing records
+- reset taxonomy to a hardcoded default
+- clear attempts
+- clear saved mocks
+- remove backup/restore functionality
+
+2. THE EXISTING DATABASE IS THE SOURCE OF TRUTH.
+
+The current app uses IndexedDB with:
+
+DB_NAME:
+cgl_os_db
+
+Current schema:
+15
+
+Existing stores include:
+
+store_questions
+store_attempts
+store_flashcards
+store_concepts
+store_notes
+store_saved_mocks
+store_ai_consultations
+store_active_session
+store_config
+
+Do not change this conceptual architecture unless there is a genuine technical requirement.
+
+3. BACKUP/RESTORE MUST SURVIVE THE ENTIRE REDESIGN.
+
+Existing:
+- Export Full Backup
+- Restore Backup
+- backup preview
+- restore hydration
+- data sanitization
+- database restoration
+
+must remain available.
+
+Do not remove or hide these functions.
+
+4. EVERY NEW FEATURE MUST WORK WITH THE EXISTING DATABASE.
+
+Do not create a second question database.
+
+Do not create a second knowledge-sheet database.
+
+Do not create a second mock database.
+
+Do not create a second Console database.
+
+5. HUMAN UI AND AI CONSOLE MUST USE THE SAME UNDERLYING ENGINE.
+
+If a feature exists in the UI, the Console should eventually be able to invoke the same capability.
+
+If the Console can create a mock, it should use the same mock-generation engine as the UI.
+
+If the UI can search questions, the Console should be able to search questions.
+
+If the UI can create a question, the Console should be able to create a question.
+
+Do not implement separate logic paths that behave differently.
+
+6. FLASHCARDS ARE NOT A TRAINING ENGINE.
+
+The Vault/flashcard functionality exists primarily as an Anki-export utility.
+
+Do NOT build:
+- spaced repetition
+- in-app flashcard training analytics
+- flashcard scheduling
+- flashcard review engine
+- flashcard weakness engine
+
+The existing flashcard/Vault functionality should remain usable and searchable, but it is not the focus of the new practice engine.
+
+7. DO NOT BREAK EXISTING FEATURES JUST TO MAKE NEW FEATURES WORK.
+
+Existing functionality should continue to work:
+- Dashboard
+- Dojo
+- Knowledge Studio / Compendium
+- Synapse
+- Console
+- Vault
+- question editing
+- knowledge-sheet editing
+- backup
+- restore
+- saved mocks
+- mock review
+- attempts
+- exports
+
+8. DO NOT ASSUME THAT THE CURRENT TAXONOMY IS PERFECT.
+
+The application must support user-controlled taxonomy.
+
+The user must be able to:
+- add chapters
+- edit chapter names
+- delete chapters
+- add subjects
+- edit subjects
+- delete subjects where safe
+- reorganize content
+
+The system must not force obsolete hardcoded chapters to remain forever.
+
+However:
+
+Deleting a taxonomy entry must NOT automatically delete the questions or knowledge sheets associated with it.
+
+Taxonomy deletion and data deletion are separate operations.
+
+================================================================================
+1. WHAT THE EXISTING SYSTEM IS
+================================================================================
+
+CGL_OS is a local-first SSC CGL study/intelligence application.
+
+Its fundamental model is:
+
+DATABASE
+    ↓
+Questions
+Knowledge Sheets
+Flashcards
+Attempts
+Mocks
+Taxonomy
+Notes
+AI records
+    ↓
+APPLICATION ENGINE
+    ↓
+Dashboard
+Dojo
+Knowledge Studio
+Synapse
+Console
+Vault
+    ↓
+USER / AI
+
+The current system already has substantial functionality.
+
+Do NOT interpret the current interface as a prototype that should be discarded.
+
+It is a functioning application whose:
+- data model
+- IndexedDB storage
+- existing question bank
+- knowledge sheets
+- mock records
+- backup system
+- Console
+- editing systems
+
+must be preserved.
+
+The task is to make the existing system substantially more usable and intelligent.
+
+================================================================================
+2. CORE PROBLEM WITH THE CURRENT SYSTEM
+================================================================================
+
+The current system is data-rich but interaction-poor.
+
+There are now many:
+- questions
+- chapters
+- concepts
+- knowledge sheets
+- patterns
+- mocks
+- records
+
+Therefore the original UI assumptions no longer scale.
+
+The application was initially usable with a smaller database.
+
+It now needs to behave like a genuine study operating system.
+
+The primary goals are:
+
+A. Better CRUD
+B. Better navigation
+C. Better search
+D. Better knowledge-sheet viewing
+E. Better taxonomy management
+F. Better mock generation
+G. Better randomization
+H. Better weakness-based practice
+I. Better AI/Console control
+J. Better dashboard
+K. Better graph navigation
+L. Stronger data safety
+M. No loss of existing information
+
+================================================================================
+3. IMPLEMENTATION STRATEGY
+================================================================================
+
+Do the work in layers.
+
+DO NOT attempt a blind rewrite of app.js.
+
+Recommended implementation order:
+
+PHASE 1
+Data safety and migration infrastructure
+
+PHASE 2
+Shared data-access / service layer
+
+PHASE 3
+Question CRUD
+
+PHASE 4
+Taxonomy management
+
+PHASE 5
+Search engine
+
+PHASE 6
+Knowledge Studio redesign
+
+PHASE 7
+Synapse redesign
+
+PHASE 8
+Practice selection engine
+
+PHASE 9
+Mock engine
+
+PHASE 10
+Mock management
+
+PHASE 11
+Console command architecture
+
+PHASE 12
+Dashboard redesign
+
+PHASE 13
+Vault usability improvements
+
+PHASE 14
+UI polish and responsive behavior
+
+PHASE 15
+Backup/restore validation
+
+PHASE 16
+Regression testing
+
+Do not move to the next phase if the previous phase breaks existing functionality.
+
+================================================================================
+4. DATA SAFETY PROTOCOL
+================================================================================
+
+Before changing any database behavior:
+
+Create a full backup.
+
+The existing full-backup function should remain functional.
+
+The backup must include at minimum:
+
+store_questions
+store_attempts
+store_flashcards
+store_concepts
+store_notes
+store_saved_mocks
+store_ai_consultations
+store_active_session
+store_config
+
+The backup should include:
+- records
+- IDs
+- timestamps
+- metadata
+- taxonomy
+- question relationships
+- concept relationships
+- saved mock definitions
+
+Before migration:
+
+Record baseline counts.
+
+Example:
+
+QUESTIONS BEFORE = X
+CONCEPTS BEFORE = Y
+FLASHCARDS BEFORE = Z
+ATTEMPTS BEFORE = A
+SAVED MOCKS BEFORE = B
+NOTES BEFORE = C
+
+After every migration:
+
+QUESTIONS AFTER = X
+CONCEPTS AFTER = Y
+FLASHCARDS AFTER = Z
+ATTEMPTS AFTER = A
+SAVED MOCKS AFTER = B
+NOTES AFTER = C
+
+If an operation changes a count intentionally, log exactly why.
+
+No unexplained decrease is acceptable.
+
+Also verify:
+
+- sample question IDs before/after
+- sample concept IDs before/after
+- sample mock IDs before/after
+- taxonomy before/after
+- question-to-concept relationships
+- question-to-chapter relationships
+
+================================================================================
+5. DATABASE MIGRATION RULE
+================================================================================
+
+If a schema change is genuinely necessary:
+
+INCREMENT DB_VERSION.
+
+Use IndexedDB's normal onupgradeneeded mechanism.
+
+Never:
+- delete all records
+- recreate all stores
+- rebuild everything from JSON unless explicitly restoring
+
+Migration should be additive whenever possible.
+
+For example:
+
+OLD:
+store_saved_mocks
+
+NEW:
+same store
++
+new optional properties
+
+rather than:
+
+DELETE store_saved_mocks
+CREATE store_saved_mocks again
+
+Existing records should continue to deserialize safely.
+
+All new fields should have sensible defaults.
+
+Example:
+
+old record:
+{
+  id,
+  title,
+  questions
+}
+
+new record:
+{
+  id,
+  title,
+  questions,
+  selectionRule: null,
+  randomize: false,
+  generatedBy: "manual"
+}
+
+Old records must continue working.
+
+================================================================================
+6. SHARED DATA ACCESS LAYER
+================================================================================
+
+The application currently has low-level functions such as:
+
+getDB
+runTx
+getAllRecords
+getRecord
+putRecord
+deleteRecordFromStore
+clearStore
+
+Keep these.
+
+Build a higher-level service layer above them.
+
+Conceptually:
+
+QuestionService
+ConceptService
+TaxonomyService
+SearchService
+MockService
+PerformanceService
+BackupService
+ConsoleService
+
+Do not necessarily create separate files if the current application is intentionally single-file.
+
+The important thing is logical separation.
+
+For example:
+
+QuestionService.create()
+QuestionService.update()
+QuestionService.delete()
+QuestionService.get()
+QuestionService.search()
+
+MockService.build()
+MockService.selectQuestions()
+MockService.randomize()
+MockService.save()
+MockService.delete()
+MockService.launch()
+
+TaxonomyService.addChapter()
+TaxonomyService.renameChapter()
+TaxonomyService.deleteChapter()
+
+ConsoleService.execute()
+
+This makes the application easier to maintain.
+
+================================================================================
+7. QUESTION CRUD — MAJOR NEW FEATURE
+================================================================================
+
+CURRENT PROBLEM:
+
+The application can edit questions.
+
+It cannot properly create a new question manually through the normal UI.
+
+This is unacceptable.
+
+The user must be able to create a question manually.
+
+Add:
+
+"ADD QUESTION"
+
+to the relevant Question/Dojo management area.
+
+The Add Question editor should use the same editor infrastructure as Edit Question.
+
+FIELDS:
+
+Question ID
+Subject
+Chapter
+Subtopic
+Method
+Concept ID
+Concept IDs
+Question Text
+Image
+Option 1
+Option 2
+Option 3
+Option 4
+Correct Answer
+Explanation
+Source
+Tags
+Annotation
+
+But the editor must NOT force every source question to be an MCQ if the existing schema supports other formats.
+
+If the system is currently optimized for four-option MCQs, support the existing format while allowing future question types.
+
+Do not fabricate missing options.
+
+QUESTION ID:
+
+Manual creation should generate a collision-safe ID.
+
+Preferred:
+
+q_manual_<timestamp/random suffix>
+
+or another stable deterministic format.
+
+If the user explicitly supplies an ID:
+- validate it
+- reject duplicates
+- do not silently overwrite an existing question
+
+SAVE:
+
+On save:
+1. validate
+2. sanitize
+3. write to store_questions
+4. refresh UI
+5. update search index/cache
+6. update counts
+7. invalidate dependent graph caches
+8. show success
+
+The user must not need to use the Console to create a question.
+
+================================================================================
+8. QUESTION EDITING
+================================================================================
+
+Improve the existing question editor.
+
+Editing must allow:
+
+- question text
+- image
+- options
+- correct answer
+- explanation
+- source
+- subject
+- chapter
+- subtopic
+- method
+- concept links
+- tags
+- annotation
+
+The editor should make relationships visible.
+
+For example:
+
+Chapter:
+[QA_PERCENTAGE]
+
+Pattern:
+[Percentage Increase/Decrease]
+
+Knowledge Sheets:
+[Percentage Basics]
+[Successive Percentage Change]
+
+Question source:
+[Source Book — Set 2 Q14]
+
+This makes the database understandable.
+
+================================================================================
+9. QUESTION DELETION
+================================================================================
+
+Allow manual question deletion.
+
+Deletion must be explicit.
+
+Show:
+
+Delete Question?
+
+Question:
+<ID>
+
+This will permanently remove the question from the question bank.
+
+It will NOT automatically delete:
+- knowledge sheets
+- concepts
+- chapters
+- mock definitions
+- historical attempts
+
+Historical attempts should retain a snapshot/reference of the question if they already contain it.
+
+If a question is referenced by a saved mock:
+
+show:
+
+"This question is currently referenced by X saved mock(s)."
+
+Allow deletion only after confirmation.
+
+Saved mocks should handle missing/deleted questions gracefully.
+
+================================================================================
+10. QUESTION DUPLICATION
+================================================================================
+
+Add:
+
+Duplicate Question
+
+Useful for creating variants.
+
+Duplicate should:
+- copy content
+- generate new ID
+- preserve chapter
+- preserve concept links
+- preserve tags
+- mark source/annotation appropriately
+
+Do not duplicate attempt history.
+
+================================================================================
+11. TAXONOMY MANAGEMENT
+================================================================================
+
+CURRENT PROBLEM:
+
+Some chapters are hardcoded into the original structure.
+
+The user may see duplicate-looking chapters such as two versions of Simple Interest where one is empty.
+
+The user needs genuine control.
+
+The taxonomy must become configurable.
+
+Conceptually:
+
+SUBJECT
+    ↓
+CHAPTER
+    ↓
+SUBTOPIC / METHOD / CONCEPT
+
+Subjects and chapters should not be permanently frozen into HTML.
+
+Existing default taxonomy can remain as initial configuration.
+
+But runtime taxonomy must be authoritative.
+
+Use:
+
+store_config
+
+for persistent taxonomy.
+
+The existing mechanism already stores:
+
+system_taxonomy
+
+Continue using that concept.
+
+================================================================================
+12. CHAPTER MANAGEMENT
+================================================================================
+
+Provide a proper Taxonomy Manager.
+
+Actions:
+
+ADD SUBJECT
+EDIT SUBJECT
+DELETE SUBJECT
+
+ADD CHAPTER
+EDIT CHAPTER
+DELETE CHAPTER
+
+REORDER CHAPTERS
+
+Chapter fields:
+
+id/key
+displayName
+subject
+order
+description (optional)
+active
+createdAt
+updatedAt
+
+IMPORTANT:
+
+Deleting a chapter does NOT delete questions.
+
+Example:
+
+DELETE:
+QA_SIMPLE_INTEREST_OLD
+
+Questions belonging to it remain in the database.
+
+They should become:
+
+"Unassigned / Orphaned Chapter"
+
+or be offered for reassignment.
+
+The user can then move them.
+
+Never silently delete them.
+
+================================================================================
+13. CHAPTER MERGE / REASSIGNMENT
+================================================================================
+
+Add optional:
+
+Merge Chapter
+
+Example:
+
+Simple Interest (old)
+→
+Simple Interest
+
+The system should:
+
+1. show affected question count
+2. show affected knowledge-sheet count
+3. show affected flashcard count
+4. show affected saved mocks
+5. require confirmation
+6. update references
+7. preserve IDs of records
+8. delete only the obsolete taxonomy entry
+
+This solves duplicate taxonomy without losing data.
+
+================================================================================
+14. ARITHMETIC TAXONOMY
+================================================================================
+
+The source/database taxonomy should remain canonical.
+
+Do NOT artificially merge the source's 22 Arithmetic chapters merely to fit an old UI.
+
+The app should support:
+
+Quantitative Aptitude
+├── Percentage
+├── Profit & Loss
+├── Discount
+├── Simple Interest
+├── Compound Interest
+├── SI & CI Installment
+├── Ratio & Proportion
+├── Age
+├── Partnership
+├── Average
+├── Mixture & Alligation
+├── Time & Work
+├── Work & Wages
+├── Pipe & Cistern
+├── Time, Speed & Distance
+├── Boat & Stream
+├── Race
+├── Number System
+├── Sequence & Series
+├── Simplification
+├── Surds & Indices
+└── LCM & HCF
+
+Existing Number System content must be reconciled rather than duplicated.
+
+================================================================================
+15. GLOBAL SEARCH ENGINE
+================================================================================
+
+This is one of the most important changes.
+
+The database is now too large for manual scrolling.
+
+Search must become a first-class system.
+
+The user should be able to search:
+
+QUESTIONS
+KNOWLEDGE SHEETS
+CHAPTERS
+CONCEPTS
+METHODS
+TAGS
+SOURCES
+MOCKS
+
+Search should be global.
+
+Example:
+
+Search:
+"successive discount"
+
+Results:
+
+Questions
+Knowledge Sheets
+Methods
+Chapters
+Mocks containing matches
+
+================================================================================
+16. QUESTION SEARCH
+================================================================================
+
+Question search fields:
+
+questionText
+Hindi text
+chapter
+subject
+subtopic
+method
+tags
+source
+ID
+conceptId
+conceptIds
+
+Support:
+
+contains
+exact ID
+prefix ID
+chapter
+tag
+method
+source
+
+Search should be fast.
+
+Do not scan/render the entire database into the DOM for every keystroke.
+
+Use:
+- debouncing
+- in-memory cache where appropriate
+- filtering before rendering
+- result limits
+- pagination/virtual rendering if needed
+
+================================================================================
+17. ADVANCED QUESTION FILTERS
+================================================================================
+
+Add filters:
+
+Subject
+Chapter
+Subtopic
+Method
+Concept
+Difficulty
+Source
+Tag
+Correctness history
+Attempted
+Unattempted
+Incorrect
+Slow
+Weak
+Recently practiced
+Never practiced
+
+Possible UI:
+
+SEARCH
+[____________________________]
+
+Filters:
+[Subject]
+[Chapter]
+[Pattern]
+[Method]
+[Difficulty]
+[Performance]
+[Source]
+
+Sort:
+Relevance
+Random
+Newest
+Oldest
+Weakest
+Most incorrect
+Slowest
+Least practiced
+
+================================================================================
+18. QUESTION RESULT CARD
+================================================================================
+
+Each search result should show:
+
+Question ID
+Subject
+Chapter
+Pattern/method
+Short question preview
+Source
+Performance indicator
+Knowledge-sheet link
+
+Actions:
+
+Open
+Edit
+Practice
+Add to Mock
+Copy ID
+Delete
+
+This makes the bank usable.
+
+================================================================================
+19. KNOWLEDGE SHEET PROBLEM
+================================================================================
+
+CURRENT PROBLEM:
+
+Knowledge sheets are visually cramped.
+
+Large sheets require scrolling.
+
+But horizontal swiping is also being interpreted as:
+
+NEXT SHEET
+
+Therefore the user cannot comfortably inspect a large sheet.
+
+This must be fixed.
+
+================================================================================
+20. KNOWLEDGE SHEET NAVIGATION
+================================================================================
+
+Do NOT use global horizontal touch/swipe navigation when the gesture starts inside the scrollable content area.
+
+The rule should be:
+
+IF gesture begins inside sheet content:
+    prioritize content scrolling
+
+IF gesture begins on explicit navigation zone:
+    allow next/previous sheet
+
+OR:
+
+Use explicit navigation buttons:
+
+< Previous Sheet
+        4 / 12
+Next Sheet >
+
+This is more reliable.
+
+Mobile users should never accidentally switch sheets while trying to scroll.
+
+================================================================================
+21. KNOWLEDGE SHEET VIEWER
+================================================================================
+
+Redesign the sheet viewer.
+
+Goals:
+
+More content visible
+Less wasted space
+Better hierarchy
+Better readability
+Less unnecessary vertical scrolling
+
+Suggested structure:
+
+┌───────────────────────────────────────┐
+│ Chapter                     4 / 12    │
+│ Sheet Title                           │
+│ Subtitle                              │
+├───────────────────────────────────────┤
+│                                       │
+│ Knowledge content                     │
+│                                       │
+│ formulas                              │
+│ examples                              │
+│ traps                                 │
+│                                       │
+├───────────────────────────────────────┤
+│ Linked Questions: 14                  │
+│ [Practice Linked Questions]           │
+├───────────────────────────────────────┤
+│ ← Previous              Next →        │
+└───────────────────────────────────────┘
+
+Use the available viewport efficiently.
+
+On desktop:
+- wider reading area
+- optional side metadata panel
+
+On mobile:
+- full-width reading area
+- sticky compact header
+- explicit navigation controls
+
+================================================================================
+22. KNOWLEDGE SHEET CONTENT AREA
+================================================================================
+
+The content itself should remain untouched unless explicitly edited.
+
+Do not rewrite the mathematical content.
+
+Improve presentation only:
+
+- typography
+- spacing
+- formula rendering
+- headings
+- callouts
+- trap boxes
+- examples
+- collapsible sections where appropriate
+
+Do not destroy Markdown/KaTeX support.
+
+================================================================================
+23. KNOWLEDGE SHEET INDEX
+================================================================================
+
+Instead of forcing the user to scroll through all sheets:
+
+provide:
+
+Sheet Navigator
+
+Example:
+
+[1] Percentage Basics
+[2] Successive Change
+[3] Income & Expenditure
+[4] Population
+[5] Election
+...
+
+Allow:
+- click sheet
+- search sheet
+- jump to sheet
+- filter by chapter
+- filter by topic
+
+For many sheets, use a searchable drawer rather than a giant scroll.
+
+================================================================================
+24. KNOWLEDGE SHEET SEARCH
+================================================================================
+
+Search title
+subtitle
+content
+chapter
+
+Example:
+
+"election"
+
+should return all relevant sheets.
+
+Result should show:
+
+Title
+Chapter
+short snippet
+
+Click → open exact sheet.
+
+================================================================================
+25. KNOWLEDGE SHEET ↔ QUESTION CONNECTION
+================================================================================
+
+Every sheet should expose:
+
+Linked Questions: N
+
+Click:
+
+View Questions
+
+This should use the question search/filter engine.
+
+Do not duplicate questions.
+
+Use concept IDs and chapter relationships.
+
+Where possible:
+
+question
+↕
+concept
+↕
+knowledge sheet
+
+This creates the reusable knowledge graph.
+
+================================================================================
+26. SYNAPSE KNOWLEDGE GRAPH
+================================================================================
+
+CURRENT STATE:
+
+The current Synapse is visually attractive but behaves more like a hierarchical tree than a true scalable graph.
+
+That is acceptable visually.
+
+The problem is scalability.
+
+With many chapters and concepts, scrolling becomes impractical.
+
+Do not simply add more nodes to the same scrolling surface.
+
+================================================================================
+27. SYNAPSE REDESIGN
+================================================================================
+
+Use a zoomable/navigation-oriented graph.
+
+The user should start at:
+
+SUBJECTS
+
+Example:
+
+QA
+REAS
+ENG
+GA
+
+Click QA:
+
+show chapters.
+
+Click Percentage:
+
+show concepts/patterns.
+
+Click a concept:
+
+show:
+- knowledge sheets
+- linked questions
+- related concepts
+
+This is a progressive disclosure system.
+
+Do not render every node at once.
+
+================================================================================
+28. SYNAPSE LEVELS
+================================================================================
+
+LEVEL 1:
+
+Subjects
+
+LEVEL 2:
+
+Chapters
+
+LEVEL 3:
+
+Concepts / patterns
+
+LEVEL 4:
+
+Knowledge sheets / questions
+
+Only render the current level plus relevant relationships.
+
+Provide:
+
+Zoom In
+Zoom Out
+Back
+Home
+Search
+
+================================================================================
+29. SYNAPSE SEARCH
+================================================================================
+
+Add graph search.
+
+Example:
+
+Search:
+"successive percentage"
+
+Graph jumps directly to:
+
+QA
+→ Percentage
+→ Successive Percentage Change
+
+This eliminates massive scrolling.
+
+================================================================================
+30. SYNAPSE DETAIL PANEL
+================================================================================
+
+Clicking a node should open a side panel/modal.
+
+Example:
+
+SUCCESSIVE PERCENTAGE CHANGE
+
+Chapter:
+Percentage
+
+Knowledge Sheets:
+2
+
+Questions:
+18
+
+Methods:
+Multiplier Method
+Net Percentage Change
+
+Actions:
+
+Open Sheet
+Practice Questions
+Add to Mock
+View Related Concepts
+
+================================================================================
+31. PRACTICE SELECTOR — MAJOR REDESIGN
+================================================================================
+
+CURRENT PROBLEM:
+
+Selecting a specific chapter sometimes shows only one knowledge sheet rather than properly exposing all questions.
+
+This is a fundamental practice-selector problem.
+
+The selector must separate:
+
+CONTENT SCOPE
+from
+SELECTION LOGIC
+from
+ORDERING
+from
+MOCK CONFIGURATION
+
+Do not make "chapter selected" automatically mean "first sheet".
+
+================================================================================
+32. PRACTICE SELECTION MODEL
+================================================================================
+
+The user should be able to define:
+
+WHAT?
+
+Subject
+Chapter
+Concept
+Method
+Question type
+
+WHO?
+
+All
+Weak
+Incorrect
+Unattempted
+Slow
+New
+Previously seen
+
+HOW MANY?
+
+5
+10
+15
+20
+25
+50
+100
+Custom
+
+HOW?
+
+Random
+Sequential
+Difficulty-balanced
+Weakness-weighted
+Pattern-balanced
+
+ORDER:
+
+Random
+Difficulty
+Chapter
+Original order
+
+================================================================================
+33. PRACTICE MODES
+================================================================================
+
+Implement at least:
+
+1. ALL QUESTIONS
+
+2. RANDOM QUESTIONS
+
+3. WEAK QUESTIONS
+
+4. INCORRECT QUESTIONS
+
+5. UNATTEMPTED QUESTIONS
+
+6. SLOW QUESTIONS
+
+7. NEW QUESTIONS
+
+8. CHAPTER PRACTICE
+
+9. CONCEPT PRACTICE
+
+10. METHOD PRACTICE
+
+11. MIXED SUBJECT
+
+12. FULL MOCK
+
+13. CUSTOM QUESTION IDS
+
+================================================================================
+34. RANDOMIZATION
+================================================================================
+
+Randomization must be genuine.
+
+Do not use:
+
+questions.slice(0, count)
+
+as the primary random mode.
+
+Implement Fisher-Yates or equivalent unbiased shuffle.
+
+Example:
+
+pool = eligible questions
+
+shuffle(pool)
+
+selected = pool.slice(0, requestedCount)
+
+Randomization must happen on each new mock generation.
+
+Two identical mock configurations should not necessarily produce the same questions.
+
+================================================================================
+35. RANDOM SEED
+================================================================================
+
+Optionally support a seed.
+
+Normal user:
+
+random seed generated automatically.
+
+AI/debug mode:
+
+seed may be specified.
+
+This helps reproduce a mock if needed.
+
+Example:
+
+seed:
+"20260929_1730"
+
+If seed is preserved in the mock metadata, the exact generated set can be reproduced if required.
+
+================================================================================
+36. WEAKNESS ENGINE
+================================================================================
+
+The system already stores attempts.
+
+Use those attempts to calculate:
+
+Question accuracy
+Chapter accuracy
+Concept accuracy
+Method accuracy
+Average time
+Recent performance
+Attempt count
+Incorrect count
+Slow count
+Unattempted count
+
+Do not create fake weakness scores.
+
+Use actual recorded performance.
+
+================================================================================
+37. WEAK QUESTION DEFINITION
+================================================================================
+
+A question can become weak based on measurable signals.
+
+Example signals:
+
+Incorrect repeatedly
+Low accuracy
+Slow response
+Recently incorrect
+Repeatedly skipped
+
+Do not make weakness a single arbitrary number without transparency.
+
+Store or calculate:
+
+accuracy
+attempts
+incorrect
+averageTime
+lastAttempt
+difficulty if known
+
+Then selection logic can weight accordingly.
+
+================================================================================
+38. WEAK CHAPTER MOCK
+================================================================================
+
+Example:
+
+User selects:
+
+WEAK CHAPTERS
+
+System:
+
+1. calculate chapter performance
+2. identify weak chapters
+3. gather eligible questions
+4. optionally exclude recently seen questions
+5. randomize
+6. balance chapters if requested
+7. create mock
+
+Example:
+
+QA:
+Percentage — weak
+Time & Work — weak
+Geometry — strong
+
+Mock should preferentially select from Percentage and Time & Work.
+
+================================================================================
+39. WEAK QUESTION MOCK
+================================================================================
+
+Same concept at question level.
+
+Possible selection:
+
+- questions with repeated incorrect attempts
+- questions with high time
+- questions never answered correctly
+- questions recently missed
+
+Allow user to choose:
+
+Weakness type:
+[Incorrect]
+[Slow]
+[Repeated Errors]
+[Combined]
+
+================================================================================
+40. SMART MIXING
+================================================================================
+
+A mixed mock should not simply randomly pick from the entire database.
+
+It should support quotas.
+
+Example:
+
+25-question Quant mock:
+
+Percentage: 3
+Profit & Loss: 2
+Ratio: 2
+Time & Work: 2
+TSD: 2
+Geometry: 3
+Mensuration: 3
+Trigonometry: 2
+Algebra: 2
+Number System: 2
+etc.
+
+The exact quota should be configurable.
+
+Do not hardcode a questionable SSC distribution as absolute truth.
+
+Allow blueprint configuration.
+
+================================================================================
+41. PATTERN COVERAGE MOCK
+================================================================================
+
+This is especially important for the growing Arithmetic bank.
+
+A user/AI can request:
+
+"Give me 20 Percentage questions covering as many different patterns as possible."
+
+Selection engine should:
+
+1. group questions by concept/pattern
+2. choose representative questions
+3. maximize pattern diversity
+4. randomize within patterns
+5. avoid excessive duplication
+
+This is different from pure random.
+
+================================================================================
+42. ANTI-REPETITION
+================================================================================
+
+Support:
+
+exclude recently attempted
+
+exclude questions from last N mocks
+
+exclude questions answered correctly recently
+
+This prevents the mock engine from repeatedly showing the same questions.
+
+Allow:
+
+recentExclusionCount
+
+Example:
+
+exclude questions attempted in last 3 mocks.
+
+================================================================================
+43. MOCK BLUEPRINT
+================================================================================
+
+Separate a mock definition from a mock attempt.
+
+MOCK BLUEPRINT:
+
+What should be generated?
+
+MOCK INSTANCE:
+
+What was actually generated?
+
+This distinction is essential.
+
+Example:
+
+Blueprint:
+"25 weak Quant questions"
+
+Instance:
+Mock #8392
+Questions:
+q1
+q17
+q52
+q89
+...
+
+The blueprint can generate different instances.
+
+================================================================================
+44. MOCK DATA MODEL
+================================================================================
+
+A saved mock should support:
+
+id
+title
+type
+createdAt
+updatedAt
+createdBy
+selectionRule
+questionIds
+sections
+duration
+isSectionLocked
+randomize
+seed
+metadata
+
+Potential:
+
+generatedFromBlueprint
+source
+version
+
+Existing saved mock records must remain compatible.
+
+================================================================================
+45. MOCK TYPES
+================================================================================
+
+Support:
+
+FIXED_PAPER
+
+A fixed set of exact questions.
+
+DYNAMIC_BLUEPRINT
+
+A rule that generates a new set.
+
+GENERATED_INSTANCE
+
+An actual generated mock.
+
+AI_GENERATED
+
+Generated by Console/AI.
+
+MANUAL
+
+Created manually.
+
+Do not force existing records into new types if migration isn't necessary.
+
+Use defaults.
+
+================================================================================
+46. EDIT MOCK
+================================================================================
+
+User must be able to edit saved mocks.
+
+Possible actions:
+
+Rename
+Change duration
+Change number of questions
+Change selection rule
+Add/remove section
+Change randomization
+Regenerate
+Duplicate
+Delete
+
+For fixed mocks:
+
+allow direct question management.
+
+For dynamic mocks:
+
+edit selection criteria.
+
+================================================================================
+47. DELETE MOCK
+================================================================================
+
+User explicitly requested this.
+
+A mock should be deletable.
+
+Deletion must mean:
+
+remove the saved mock/blueprint/instance record.
+
+It must NOT mean:
+
+delete the questions used in the mock.
+
+It must NOT delete the user's historical question bank.
+
+If an attempt already exists from that mock:
+
+do not automatically erase the attempt unless the user explicitly chooses a separate destructive action.
+
+Historical data should remain safe.
+
+================================================================================
+48. MOCK REVIEW
+================================================================================
+
+After completion, preserve:
+
+mock ID
+attempt/session ID
+question IDs
+responses
+timing
+score
+section information
+
+Mock review should still work even if a question later disappears from the active bank.
+
+Therefore the attempt record should contain sufficient question snapshot information, which the current system already partially supports.
+
+Do not break this.
+
+================================================================================
+49. MOCK GENERATION PIPELINE
+================================================================================
+
+Every mock should follow:
+
+REQUEST
+ ↓
+VALIDATE
+ ↓
+BUILD ELIGIBLE POOL
+ ↓
+APPLY FILTERS
+ ↓
+APPLY EXCLUSIONS
+ ↓
+APPLY QUOTAS
+ ↓
+APPLY PATTERN BALANCING
+ ↓
+RANDOMIZE
+ ↓
+SELECT N QUESTIONS
+ ↓
+BUILD SECTIONS
+ ↓
+SAVE INSTANCE/BLUEPRINT
+ ↓
+OPTIONALLY LAUNCH
+ ↓
+TRACK ATTEMPT
+
+This must be implemented centrally.
+
+================================================================================
+50. SHARED MOCK ENGINE
+================================================================================
+
+Create one central logical function:
+
+MockService.generate()
+
+It should accept a configuration object.
+
+Example conceptual configuration:
+
+{
+  title,
+  count,
+  durationMin,
+
+  subjects: [],
+  chapters: [],
+  conceptIds: [],
+  methods: [],
+
+  mode: "random",
+
+  weakOnly: false,
+  incorrectOnly: false,
+  unattemptedOnly: false,
+  slowOnly: false,
+
+  excludeRecentlyAttempted: false,
+  recentMockCount: 3,
+
+  patternBalanced: false,
+  chapterBalanced: false,
+
+  randomizeQuestions: true,
+
+  questionIds: [],
+
+  sections: []
+}
+
+The UI calls this.
+
+The Console calls this.
+
+The AI calls this.
+
+================================================================================
+51. CONSOLE — MAJOR REDESIGN
+================================================================================
+
+The Console is not just an ingestion box.
+
+It is the AI's control interface to CGL_OS.
+
+Therefore the Console must expose the same underlying capabilities as the UI.
+
+The AI should be able to:
+
+READ
+CREATE
+UPDATE
+DELETE
+SEARCH
+SELECT
+GENERATE
+PRACTICE
+ANALYZE
+
+within controlled boundaries.
+
+================================================================================
+52. CONSOLE COMMAND ARCHITECTURE
+================================================================================
+
+Keep backward compatibility with existing commands.
+
+Existing commands include concepts such as:
+
+BATCH_INGEST_QUESTIONS
+BATCH_INGEST_COMPENDIUM
+BATCH_INGEST_FLASHCARDS
+INGEST_AND_LAUNCH_MOCK
+AI_PRESCRIBE_REMEDY
+SAVE_MOCK_PRESET
+MODIFY_TAXONOMY
+RAW_DB_OPERATION
+REQUEST_HISTORICAL_DUMP
+
+Do NOT simply delete them.
+
+Instead:
+
+create a versioned command dispatcher.
+
+Example:
+
+COMMAND_VERSION:
+"2"
+
+Existing commands remain accepted.
+
+New commands are added.
+
+================================================================================
+53. CONSOLE COMMAND SAFETY
+================================================================================
+
+The Console must distinguish:
+
+SAFE OPERATIONS
+
+READ
+SEARCH
+CREATE
+UPDATE
+
+from:
+
+DESTRUCTIVE OPERATIONS
+
+DELETE
+CLEAR
+RAW DB CLEAR
+BULK DELETE
+
+Destructive operations should require explicit confirmation.
+
+AI should not accidentally wipe data because it generated:
+
+{
+  "action": "RAW_DB_OPERATION",
+  "operation": "CLEAR"
+}
+
+Therefore:
+
+CLEAR
+
+must not execute silently.
+
+For especially destructive actions:
+
+require confirmation token or UI confirmation.
+
+================================================================================
+54. CONSOLE QUESTION COMMANDS
+================================================================================
+
+Support:
+
+GET_QUESTION
+
+SEARCH_QUESTIONS
+
+CREATE_QUESTION
+
+UPDATE_QUESTION
+
+DELETE_QUESTION
+
+Example:
+
+{
+  "action": "CREATE_QUESTION",
+  "payload": {
+    "question": {...}
+  }
+}
+
+Or:
+
+{
+  "action": "SEARCH_QUESTIONS",
+  "payload": {
+    "subject": "QA",
+    "chapter": "QA_PERCENTAGE",
+    "method": "Successive Percentage",
+    "limit": 20
+  }
+}
+
+Return structured results.
+
+================================================================================
+55. CONSOLE KNOWLEDGE COMMANDS
+================================================================================
+
+Support:
+
+GET_KNOWLEDGE_SHEET
+
+SEARCH_KNOWLEDGE_SHEETS
+
+CREATE_KNOWLEDGE_SHEET
+
+UPDATE_KNOWLEDGE_SHEET
+
+DELETE_KNOWLEDGE_SHEET
+
+LINK_SHEET_TO_QUESTION
+
+================================================================================
+56. CONSOLE TAXONOMY COMMANDS
+================================================================================
+
+Support:
+
+GET_TAXONOMY
+
+ADD_SUBJECT
+
+EDIT_SUBJECT
+
+DELETE_SUBJECT
+
+ADD_CHAPTER
+
+EDIT_CHAPTER
+
+DELETE_CHAPTER
+
+MOVE_QUESTION_TO_CHAPTER
+
+MOVE_SHEET_TO_CHAPTER
+
+MERGE_CHAPTERS
+
+Do not let taxonomy deletion destroy associated content.
+
+================================================================================
+57. CONSOLE SEARCH
+================================================================================
+
+AI should be able to ask:
+
+SEARCH_QUESTIONS
+
+SEARCH_CONCEPTS
+
+SEARCH_MOCKS
+
+SEARCH_TAXONOMY
+
+SEARCH_ALL
+
+Example:
+
+{
+  "action": "SEARCH_ALL",
+  "payload": {
+    "query": "successive percentage",
+    "limit": 50
+  }
+}
+
+Return structured data.
+
+================================================================================
+58. CONSOLE MOCK COMMANDS
+================================================================================
+
+This is a critical requirement.
+
+Support:
+
+CREATE_MOCK
+
+GENERATE_MOCK
+
+UPDATE_MOCK
+
+DELETE_MOCK
+
+GET_MOCK
+
+LIST_MOCKS
+
+LAUNCH_MOCK
+
+DUPLICATE_MOCK
+
+REGENERATE_MOCK
+
+The AI must be able to create mocks using:
+
+A. Existing question IDs
+
+B. A selection rule
+
+C. Explicitly supplied new questions
+
+D. Chapter
+
+E. Subject
+
+F. Section
+
+G. Weakness
+
+H. Randomization
+
+I. Pattern coverage
+
+J. Mixed criteria
+
+================================================================================
+59. EXPLICIT QUESTION MOCK
+================================================================================
+
+AI should be able to say:
+
+{
+  "action": "CREATE_MOCK",
+  "payload": {
+    "title": "Targeted Revision",
+    "questionIds": [
+      "q1",
+      "q2",
+      "q3"
+    ],
+    "randomize": true,
+    "launchImmediately": false
+  }
+}
+
+System resolves IDs.
+
+If any IDs are missing:
+
+return:
+
+missingQuestionIds
+
+Do not silently substitute unrelated questions.
+
+================================================================================
+60. AI-GENERATED QUESTION MOCK
+================================================================================
+
+AI should also be able to create questions itself.
+
+Example:
+
+{
+  "action": "CREATE_MOCK",
+  "payload": {
+    "title": "AI Generated Percentage Drill",
+    "questions": [
+      {...},
+      {...}
+    ],
+    "launchImmediately": true
+  }
+}
+
+New questions should be sanitized and stored according to the existing question schema.
+
+If the intention is temporary practice only, support:
+
+persistQuestions: false
+
+if technically safe.
+
+But default behavior should be explicit.
+
+Do not accidentally create thousands of permanent questions from temporary AI mocks.
+
+================================================================================
+61. SECTIONAL MOCKS
+================================================================================
+
+AI must be able to create:
+
+Quant-only
+Reasoning-only
+English-only
+GA-only
+Chapter-only
+Multi-chapter
+Multi-subject
+
+Example:
+
+QA:
+25
+
+REAS:
+25
+
+ENG:
+25
+
+GA:
+25
+
+Each section should retain:
+- section name
+- duration
+- question count
+- locking state
+
+Use the existing multi-section arena architecture.
+
+================================================================================
+62. WEAKNESS MOCK FROM CONSOLE
+================================================================================
+
+AI should be able to request:
+
+{
+  "action": "CREATE_MOCK",
+  "payload": {
+    "title": "Weakness Revision",
+    "selection": {
+      "mode": "weak",
+      "subject": "QA",
+      "count": 25
+    }
+  }
+}
+
+The Console must NOT implement its own weakness algorithm.
+
+It calls:
+
+MockService.generate()
+
+================================================================================
+63. CHAPTER MOCK FROM CONSOLE
+================================================================================
+
+Example:
+
+{
+  "action": "CREATE_MOCK",
+  "payload": {
+    "title": "Percentage Chapter Test",
+    "selection": {
+      "chapter": "QA_PERCENTAGE",
+      "count": 20,
+      "mode": "random"
+    }
+  }
+}
+
+This must return questions from that chapter.
+
+Not the first sheet.
+
+Not the first ten records.
+
+The complete eligible question pool must be considered.
+
+================================================================================
+64. PATTERN MOCK FROM CONSOLE
+================================================================================
+
+Example:
+
+{
+  "selection": {
+    "chapter": "QA_PERCENTAGE",
+    "patternBalanced": true,
+    "count": 20
+  }
+}
+
+The engine groups by concept/pattern and selects across the available patterns.
+
+================================================================================
+65. CONSOLE RESPONSE FORMAT
+================================================================================
+
+Console actions should return structured responses.
+
+Example:
+
+{
+  "success": true,
+  "action": "CREATE_MOCK",
+  "mockId": "mock_...",
+  "questionCount": 20,
+  "questionIds": [...],
+  "warnings": []
+}
+
+For errors:
+
+{
+  "success": false,
+  "action": "CREATE_MOCK",
+  "error": "NO_ELIGIBLE_QUESTIONS",
+  "details": {...}
+}
+
+Do not only use alert().
+
+The Console should display machine-readable output.
+
+================================================================================
+66. CONSOLE COMMAND HISTORY
+================================================================================
+
+Add optional history:
+
+Timestamp
+Command
+Result
+Success/failure
+
+Allow:
+
+Copy previous command
+Reuse command
+View output
+
+This will make AI iteration much easier.
+
+================================================================================
+67. CONSOLE VALIDATION
+================================================================================
+
+Before execution:
+
+validate command schema.
+
+Reject:
+
+unknown actions
+invalid store names
+missing required properties
+invalid IDs
+invalid chapters
+invalid question counts
+invalid duration
+
+Do not execute malformed commands partially.
+
+Use transactional operations where possible.
+
+================================================================================
+68. ATOMIC BATCH OPERATIONS
+================================================================================
+
+If AI submits:
+
+100 questions
+10 sheets
+1 mock
+
+and one operation fails:
+
+avoid leaving the database half-modified when practical.
+
+For related operations:
+
+use IndexedDB transaction.
+
+If full transaction isn't possible:
+
+perform staged execution with rollback strategy or clear failure reporting.
+
+Never claim:
+
+"Successfully ingested"
+
+when only half the payload was written.
+
+================================================================================
+69. RAW DB OPERATION
+================================================================================
+
+The existing RAW_DB_OPERATION is powerful.
+
+Keep it for advanced administration.
+
+But make it safer.
+
+Allowed stores should be whitelisted.
+
+Example:
+
+store_questions
+store_concepts
+store_flashcards
+store_notes
+store_saved_mocks
+store_config
+etc.
+
+CLEAR should require explicit confirmation.
+
+Do not allow arbitrary object-store creation from AI JSON.
+
+================================================================================
+70. DASHBOARD REDESIGN
+================================================================================
+
+CURRENT PROBLEM:
+
+Dashboard looks dull and doesn't provide enough useful information.
+
+Do not merely add decoration.
+
+Make the dashboard functionally useful.
+
+Dashboard should answer:
+
+What should I practice?
+
+How am I performing?
+
+Where am I weak?
+
+What have I recently done?
+
+What content exists?
+
+What mocks are available?
+
+================================================================================
+71. DASHBOARD STRUCTURE
+================================================================================
+
+Recommended:
+
+TOP:
+
+CGL_OS
+Quick Actions
+
+[Practice]
+[Random Mock]
+[Weakness Mock]
+[Search]
+[Add Question]
+
+Then:
+
+TODAY / RECENT ACTIVITY
+
+Then:
+
+SUBJECT PERFORMANCE
+
+QA
+REAS
+ENG
+GA
+
+Then:
+
+WEAK AREAS
+
+Chapter
+Accuracy
+Attempts
+Avg time
+
+Then:
+
+QUICK PRACTICE
+
+Weak Questions
+Incorrect Questions
+Unattempted
+Random 20
+
+Then:
+
+SAVED MOCKS
+
+Then:
+
+KNOWLEDGE
+
+Recently viewed sheets
+Weak concepts
+
+================================================================================
+72. DASHBOARD DESIGN
+================================================================================
+
+Keep the existing visual language.
+
+Do not redesign into an unrelated product.
+
+Improve:
+- spacing
+- hierarchy
+- cards
+- typography
+- contrast
+- information density
+- responsive behavior
+
+Use existing CSS variables and design system where possible.
+
+Do not introduce unnecessary frameworks.
+
+================================================================================
+73. PRACTICE CENTER
+================================================================================
+
+Instead of forcing users through complicated modal logic:
+
+create a dedicated Practice Center.
+
+It can contain:
+
+Quick Practice
+Custom Practice
+Weakness Practice
+Random Practice
+Chapter Practice
+Mock Builder
+
+This becomes the primary starting point for actual question solving.
+
+================================================================================
+74. QUICK PRACTICE
+================================================================================
+
+Buttons:
+
+Random 10
+Random 20
+Random 25
+Weak 10
+Incorrect 10
+Unattempted 10
+
+These should immediately use MockService.
+
+================================================================================
+75. CUSTOM PRACTICE
+================================================================================
+
+Interface:
+
+Subject
+Chapter
+Concept
+Method
+Difficulty
+Performance filter
+Question count
+Randomization
+Exclude recent
+
+Then:
+
+Preview eligible count
+
+Example:
+
+Eligible:
+387 questions
+
+Requested:
+25
+
+[Generate Practice]
+
+This gives the user confidence that the selection is actually working.
+
+================================================================================
+76. PRACTICE PREVIEW
+================================================================================
+
+Before launch:
+
+show:
+
+Questions available:
+387
+
+Filters:
+QA
+Percentage
+
+Mode:
+Random
+
+Count:
+20
+
+Excluded recently:
+34
+
+Weakness filter:
+Off
+
+Pattern balancing:
+On
+
+Then:
+
+[Generate]
+
+This is much better than immediately launching a fixed first set.
+
+================================================================================
+77. KNOWLEDGE SHEET PRACTICE
+================================================================================
+
+When viewing a sheet:
+
+Practice linked questions
+
+should mean:
+
+ALL eligible linked questions.
+
+Not:
+
+the first 10.
+
+Allow:
+
+5
+10
+20
+All
+Random
+
+================================================================================
+78. CHAPTER PRACTICE BUG FIX
+================================================================================
+
+When selecting a chapter:
+
+Do NOT:
+
+load first concept
+show first sheet
+derive questions only from that sheet
+
+Instead:
+
+chapter selection
+→ query all questions where q.chapter === selectedChapter
+
+Then optionally:
+
+concept filter
+
+This fixes the current "one knowledge sheet only" behavior.
+
+================================================================================
+79. VAULT
+================================================================================
+
+Keep Vault primarily as the Anki export system.
+
+Improve usability.
+
+Current issue:
+large flashcard collection requires excessive scrolling.
+
+Add:
+
+Search
+Subject filter
+Chapter filter
+Tag filter
+Card type filter
+Pagination or virtual list
+Sort
+Bulk select
+
+Actions:
+
+Select All Visible
+Export Selected
+Export All Filtered
+Delete Selected
+
+Do not build an in-app spaced repetition system.
+
+================================================================================
+80. VAULT VIEW
+================================================================================
+
+Use compact rows/cards.
+
+Example:
+
+[✓] Percentage — Successive Change
+[✓] CI — Difference Formula
+[ ] TSD — Meeting Point
+[ ] Ratio — Proportion
+
+Top:
+
+Search
+Filter
+Selected: 24
+
+Bottom:
+
+Export to Anki
+
+This is more appropriate for the Vault's actual purpose.
+
+================================================================================
+81. PERFORMANCE OPTIMIZATION
+================================================================================
+
+The application is becoming data-heavy.
+
+Avoid:
+
+getAllRecords()
+then massive DOM rendering
+for every interaction.
+
+Use:
+
+cached datasets where appropriate
+debounced search
+limited rendering
+virtual lists where appropriate
+lazy loading
+incremental rendering
+
+Do not overengineer prematurely.
+
+The first goal is responsiveness.
+
+================================================================================
+82. MOBILE BEHAVIOR
+================================================================================
+
+The app is clearly intended to work on mobile.
+
+Therefore:
+
+Touch behavior must be explicit.
+
+Never use swipe gestures globally if an inner content area is scrollable.
+
+Nested scrolling must be carefully controlled.
+
+For sheets:
+vertical scroll = content
+
+For navigation:
+buttons = next/previous
+
+For graph:
+pinch/zoom = graph
+scroll = page/panel
+
+Do not make the user fight the interface.
+
+================================================================================
+83. RESPONSIVE BREAKPOINTS
+================================================================================
+
+Desktop:
+
+multi-column layouts
+
+Tablet:
+
+two-column where useful
+
+Mobile:
+
+single-column
+sticky compact headers
+bottom/inline actions
+larger touch targets
+
+Do not simply shrink desktop UI onto mobile.
+
+================================================================================
+84. QUESTION IMAGE SUPPORT
+================================================================================
+
+Manual question creation must support images.
+
+User should be able to:
+
+upload image
+preview image
+remove image
+replace image
+
+Do not fabricate diagrams.
+
+Existing image URLs/base64 mechanisms should remain compatible.
+
+For figure questions:
+
+user can manually add the missing figure later.
+
+This directly solves the current Reasoning figure-series problem.
+
+================================================================================
+85. FIGURE QUESTION WORKFLOW
+================================================================================
+
+The user should be able to:
+
+Add Question
+→ select Reasoning
+→ select Figure Series
+→ upload image
+→ enter question
+→ add options
+→ explanation
+→ save
+
+No blank placeholder question should be necessary.
+
+Existing blank questions should remain untouched unless user chooses to replace/delete them.
+
+================================================================================
+86. QUESTION IMAGE VIEWER
+================================================================================
+
+During practice:
+
+image should be:
+- readable
+- zoomable where appropriate
+- not distorted
+- not cut off
+
+If a question has a large figure:
+
+allow tap-to-expand.
+
+================================================================================
+87. QUESTION EDITOR UX
+================================================================================
+
+Use tabs or sections:
+
+CONTENT
+OPTIONS
+SOLUTION
+CLASSIFICATION
+SOURCE
+MEDIA
+
+This avoids an enormous form.
+
+Example:
+
+CONTENT
+Question text
+
+MEDIA
+Image
+
+ANSWER
+Options
+Correct option
+
+CLASSIFICATION
+Subject
+Chapter
+Pattern
+Method
+
+SOURCE
+Exam/source
+Tags
+
+SOLUTION
+Explanation
+
+================================================================================
+88. DATA RELATIONSHIPS
+================================================================================
+
+Preserve the existing question schema concepts:
+
+id
+subject
+chapter
+subtopic
+method
+conceptId
+conceptIds
+questionText
+imageUrl
+options
+correctIndex
+explanation
+source
+tags
+annotation
+
+Do not unnecessarily rename fields.
+
+Backward compatibility matters.
+
+================================================================================
+89. KNOWLEDGE SHEET SCHEMA
+================================================================================
+
+Preserve existing concept structure:
+
+id
+subject
+chapter
+title
+subtitle
+content
+imageUrl
+timestamp
+
+New optional metadata can be added:
+
+updatedAt
+tags
+order
+patternIds
+
+but only if necessary.
+
+Existing sheets must continue rendering.
+
+================================================================================
+90. ATTEMPT DATA
+================================================================================
+
+Attempts are historical records.
+
+Do not delete them during UI redesign.
+
+They should be used by:
+
+PerformanceService
+
+to derive:
+
+accuracy
+speed
+weakness
+history
+
+If the user deletes a mock:
+
+attempts remain.
+
+If the user deletes a question:
+
+old attempts remain valid.
+
+================================================================================
+91. QUESTION SNAPSHOT PRINCIPLE
+================================================================================
+
+Historical attempts should not depend entirely on the current question bank.
+
+If an old question is edited later:
+
+old attempt should retain the historical version where possible.
+
+This prevents historical analytics from changing retroactively.
+
+Do not rewrite old attempt records unnecessarily during this project.
+
+================================================================================
+92. MOCK SNAPSHOT PRINCIPLE
+================================================================================
+
+When a generated mock launches:
+
+store the actual question set used.
+
+Do not rely only on the blueprint.
+
+Blueprint:
+
+how it was generated
+
+Instance:
+
+what was actually used
+
+This is essential for reproducibility.
+
+================================================================================
+93. RANDOM MOCK REPRODUCIBILITY
+================================================================================
+
+Every generated mock should store:
+
+generation timestamp
+selection rule
+seed if available
+question IDs
+
+Therefore:
+
+even if the random algorithm changes later,
+
+the historical mock remains reviewable.
+
+================================================================================
+94. SEARCH INDEX / CACHE
+================================================================================
+
+If performance requires it, create an in-memory search index.
+
+Do not create a second persistent copy of every question unless genuinely necessary.
+
+A cache should be rebuildable.
+
+Database remains authoritative.
+
+================================================================================
+95. EMPTY STATES
+================================================================================
+
+Every screen must handle:
+
+zero questions
+zero sheets
+zero search results
+zero mocks
+zero weak questions
+zero chapters
+
+Example:
+
+No questions match these filters.
+
+[Clear Filters]
+
+Do not show blank screens.
+
+================================================================================
+96. ERROR HANDLING
+================================================================================
+
+Replace silent failures.
+
+Every database operation should:
+
+try
+catch
+report
+recover where possible
+
+Console should receive structured errors.
+
+UI should receive human-readable errors.
+
+Developer logs should receive technical details.
+
+Do not expose raw IndexedDB errors to normal users unless useful.
+
+================================================================================
+97. UNSAVED CHANGES
+================================================================================
+
+Editors should detect unsaved changes.
+
+If user attempts to close:
+
+"You have unsaved changes."
+
+Options:
+
+Discard
+Continue Editing
+Save
+
+This applies to:
+
+question editor
+knowledge-sheet editor
+mock editor
+taxonomy editor
+
+================================================================================
+98. DELETE CONFIRMATIONS
+================================================================================
+
+Require confirmation for:
+
+question deletion
+sheet deletion
+chapter deletion
+subject deletion
+mock deletion
+bulk deletion
+
+For destructive bulk actions:
+
+show count.
+
+Example:
+
+Delete 42 questions?
+
+This cannot be undone from the current session.
+
+[Cancel]
+[Delete 42]
+
+================================================================================
+99. BULK OPERATIONS
+================================================================================
+
+As the database grows, bulk management becomes necessary.
+
+Support selecting multiple:
+
+questions
+sheets
+flashcards
+mocks
+
+Actions:
+
+Delete
+Move
+Tag
+Add to mock
+Export
+
+Bulk delete must have strong confirmation.
+
+================================================================================
+100. BULK QUESTION MOVE
+================================================================================
+
+Example:
+
+Select 30 questions.
+
+Move:
+
+QA_OLD_CHAPTER
+
+to:
+
+QA_PERCENTAGE
+
+Before execution:
+
+30 questions will be moved.
+
+Confirm.
+
+IDs remain unchanged.
+
+================================================================================
+101. BULK TAGGING
+================================================================================
+
+Useful for future analytics.
+
+Select questions:
+
+Add tag:
+"PYQ"
+"REVISION"
+"WEAK"
+etc.
+
+Do not overwrite existing tags unless explicitly requested.
+
+================================================================================
+102. DATA INTEGRITY CHECKER
+================================================================================
+
+Add an administrative tool:
+
+Database Integrity
+
+Checks:
+
+duplicate IDs
+missing chapters
+missing subjects
+broken concept references
+broken question references
+invalid correctIndex
+missing options
+orphaned records
+invalid mock question IDs
+invalid taxonomy references
+
+Return:
+
+Healthy
+Warnings
+Errors
+
+Do not automatically "fix" ambiguous data.
+
+Offer safe repairs.
+
+================================================================================
+103. ORPHAN MANAGEMENT
+================================================================================
+
+If a chapter is deleted but content remains:
+
+show:
+
+Orphaned Questions: 14
+Orphaned Sheets: 2
+
+Actions:
+
+Assign to chapter
+Create new chapter
+Leave unassigned
+
+Never delete automatically.
+
+================================================================================
+104. BACKUP SYSTEM — PRESERVE
+================================================================================
+
+Existing full backup remains.
+
+Improve it if necessary.
+
+Backup metadata should include:
+
+schemaVersion
+appVersion
+exportedAt
+exportedIST
+stores
+
+The backup should be self-describing.
+
+================================================================================
+105. PRE-RESTORE VALIDATION
+================================================================================
+
+Before restoring:
+
+show:
+
+Questions
+Sheets
+Flashcards
+Attempts
+Mocks
+Notes
+Configuration
+
+Compare with current database.
+
+Options:
+
+Merge
+Replace
+Cancel
+
+The existing behavior may currently support hydration/restore.
+
+Do not remove it.
+
+If changing restore semantics, preserve existing behavior as an option.
+
+================================================================================
+106. SAFE RESTORE
+================================================================================
+
+Before replace-style restore:
+
+automatically create a safety backup of the current database.
+
+Then restore.
+
+If restore fails:
+
+do not leave the database half-restored.
+
+================================================================================
+107. EXPORT QUESTION BANK
+================================================================================
+
+Preserve existing question export.
+
+Improve it if necessary:
+
+All
+Subject
+Chapter
+Filtered
+
+Formats may include:
+
+JSON
+CSV if already supported/appropriate
+
+But JSON should remain the authoritative lossless format.
+
+================================================================================
+108. EXPORT KNOWLEDGE SHEETS
+================================================================================
+
+Because knowledge sheets are valuable, support export/backup of:
+
+store_concepts
+
+Do not rely only on the question-bank export.
+
+Full backup remains the safest method.
+
+================================================================================
+109. DASHBOARD COUNTS
+================================================================================
+
+Dashboard counts should come from actual DB state.
+
+Do not hardcode:
+
+"405 questions"
+
+or any current number.
+
+Always calculate.
+
+Show:
+
+Questions
+Knowledge Sheets
+Mocks
+Flashcards
+Attempts
+
+Optional:
+
+By subject
+
+QA
+REAS
+ENG
+GA
+
+================================================================================
+110. SUBJECT OVERVIEW
+================================================================================
+
+Clicking a subject should show:
+
+Questions
+Sheets
+Chapters
+Attempts
+Accuracy
+Weak chapters
+
+Example:
+
+QUANTITATIVE APTITUDE
+
+Questions: 812
+Sheets: 34
+Chapters: 22
+
+Weak:
+Percentage
+Time & Work
+
+This should be dynamically calculated.
+
+================================================================================
+111. CHAPTER OVERVIEW
+================================================================================
+
+Clicking a chapter:
+
+Questions
+Sheets
+Concepts
+Accuracy
+Average time
+Last practiced
+
+Actions:
+
+Practice
+Random Practice
+Weak Questions
+View Sheets
+Search Questions
+
+================================================================================
+112. KNOWLEDGE-FIRST NAVIGATION
+================================================================================
+
+Question → knowledge sheet
+
+Knowledge sheet → questions
+
+Chapter → sheets
+
+Chapter → questions
+
+Concept → sheets
+
+Concept → questions
+
+Mock → questions
+
+Question → chapter
+
+All these relationships should be navigable.
+
+This is what makes the system an "Intelligence OS" rather than a static question bank.
+
+================================================================================
+113. PERFORMANCE ENGINE
+================================================================================
+
+Build a shared PerformanceService.
+
+It should consume:
+
+store_attempts
+
+and calculate.
+
+QUESTION LEVEL:
+
+attempts
+correct
+incorrect
+accuracy
+avgTime
+lastAttempt
+
+CHAPTER LEVEL:
+
+attempts
+accuracy
+avgTime
+questionCount
+
+CONCEPT LEVEL:
+
+attempts
+accuracy
+avgTime
+
+SUBJECT LEVEL:
+
+same
+
+Do not store redundant calculated data unless performance requires caching.
+
+================================================================================
+114. RECENCY
+================================================================================
+
+Support:
+
+lastAttempt
+
+recently attempted
+
+attempt count
+
+This enables:
+
+"Give me questions I haven't seen recently."
+
+================================================================================
+115. SMART QUESTION SELECTION
+================================================================================
+
+The selection engine should eventually support weighted sampling.
+
+Example conceptual weight:
+
+baseWeight
++
+weaknessWeight
++
+recencyWeight
++
+patternCoverageWeight
+
+Do not hardcode arbitrary weights without documenting them.
+
+Keep selection transparent.
+
+================================================================================
+116. SMARTNESS SHOULD BE CONFIGURABLE
+================================================================================
+
+Modes:
+
+PURE_RANDOM
+
+WEAKNESS
+
+BALANCED
+
+PATTERN_COVERAGE
+
+RECENCY_AWARE
+
+ADAPTIVE
+
+The initial implementation can start with:
+
+PURE_RANDOM
+WEAKNESS
+INCORRECT
+UNATTEMPTED
+PATTERN_BALANCED
+
+Adaptive can be added later.
+
+Do not overbuild the first version.
+
+================================================================================
+117. RANDOMIZED MOCK VS SMART MOCK
+================================================================================
+
+These are different.
+
+RANDOM:
+
+Random eligible questions.
+
+SMART:
+
+Uses performance and coverage.
+
+Do not call everything "smart".
+
+Make the distinction visible.
+
+================================================================================
+118. AI CONTROLLED MOCK GENERATION
+================================================================================
+
+The AI should be able to ask:
+
+"Create a 20-question Percentage mock covering as many patterns as possible."
+
+or:
+
+"Create a 25-question Quant mock from my weakest chapters."
+
+or:
+
+"Create a mock from these 12 question IDs plus 8 random questions from the same chapters."
+
+or:
+
+"Create a 15-question remedial test from questions I got wrong recently."
+
+All should route through MockService.
+
+================================================================================
+119. AI SHOULD NOT NEED TO KNOW INTERNAL DB IMPLEMENTATION
+================================================================================
+
+Bad:
+
+AI manually performs raw IndexedDB operations for normal use.
+
+Good:
+
+AI calls:
+
+CREATE_MOCK
+
+SEARCH_QUESTIONS
+
+CREATE_QUESTION
+
+GET_PERFORMANCE
+
+etc.
+
+RAW_DB_OPERATION remains an advanced fallback.
+
+================================================================================
+120. AI ANALYTICS COMMANDS
+================================================================================
+
+Add:
+
+GET_PERFORMANCE
+
+GET_WEAK_CHAPTERS
+
+GET_WEAK_CONCEPTS
+
+GET_WEAK_QUESTIONS
+
+GET_RECENT_ATTEMPTS
+
+GET_QUESTION_STATS
+
+GET_CHAPTER_STATS
+
+This allows AI to reason from actual data.
+
+================================================================================
+121. AI REMEDIAL WORKFLOW
+================================================================================
+
+Example:
+
+AI requests:
+
+GET_WEAK_CHAPTERS
+
+System returns:
+
+Percentage
+Time & Work
+Geometry
+
+AI then:
+
+CREATE_MOCK
+
+using those chapters.
+
+No manual copying should be necessary.
+
+================================================================================
+122. AI QUESTION GENERATION WORKFLOW
+================================================================================
+
+AI can:
+
+1. inspect existing patterns
+2. inspect knowledge sheet
+3. generate question
+4. create question
+5. optionally create mock containing it
+
+But the system must distinguish:
+
+SOURCE QUESTION
+
+from
+
+AI GENERATED QUESTION
+
+Metadata should record provenance.
+
+Never label AI-generated material as PYQ unless source data explicitly says so.
+
+================================================================================
+123. PROVENANCE
+================================================================================
+
+Preserve source fidelity.
+
+Do not infer:
+
+SSC year
+shift
+tier
+exam
+
+unless explicitly supported.
+
+If unknown:
+
+Source Book — [section/question]
+
+or existing neutral source.
+
+Do not fabricate provenance.
+
+================================================================================
+124. AI COMMAND IDEMPOTENCY
+================================================================================
+
+If AI accidentally submits the same command twice:
+
+duplicate creation should be detectable where possible.
+
+For question IDs:
+
+PUT should update existing record only when ID is intentional.
+
+For generated IDs:
+
+collision-safe IDs required.
+
+For mock IDs:
+
+generate unique IDs.
+
+================================================================================
+125. COMMAND VERSIONING
+================================================================================
+
+Introduce:
+
+consoleVersion
+
+Example:
+
+"2.0"
+
+Accept old commands.
+
+Map legacy actions internally to new services.
+
+This avoids breaking old AI prompts.
+
+================================================================================
+126. LEGACY CONSOLE COMPATIBILITY
+================================================================================
+
+Existing actions such as:
+
+BATCH_INGEST_QUESTIONS
+BATCH_INGEST_COMPENDIUM
+BATCH_INGEST_FLASHCARDS
+INGEST_AND_LAUNCH_MOCK
+AI_PRESCRIBE_REMEDY
+SAVE_MOCK_PRESET
+MODIFY_TAXONOMY
+
+must continue to work.
+
+Internally they should call the new services.
+
+Example:
+
+BATCH_INGEST_QUESTIONS
+→ QuestionService.bulkCreate()
+
+rather than maintaining separate ingestion logic forever.
+
+================================================================================
+127. CONSOLE DOCUMENTATION
+================================================================================
+
+The Console UI should include a compact:
+
+COMMAND HELP
+
+showing:
+
+available actions
+required fields
+examples
+warnings
+
+Examples:
+
+CREATE_QUESTION
+SEARCH_QUESTIONS
+CREATE_MOCK
+GET_PERFORMANCE
+
+This helps both humans and AI operators.
+
+================================================================================
+128. MOCK BLUEPRINT EDITOR
+================================================================================
+
+Dashboard saved mocks should display:
+
+Title
+Type
+Questions
+Selection rule
+Last generated
+Created
+Actions
+
+[Launch]
+[Generate New]
+[Edit]
+[Duplicate]
+[Delete]
+
+For dynamic blueprints:
+
+show rules.
+
+For fixed papers:
+
+show exact questions.
+
+================================================================================
+129. MOCK GENERATION HISTORY
+================================================================================
+
+Optional but useful:
+
+Blueprint
+↓
+Generated Instance #1
+Generated Instance #2
+Generated Instance #3
+
+This allows:
+
+"Generate another"
+
+without editing the blueprint.
+
+================================================================================
+130. MOCK RANDOMIZATION CONTROLS
+================================================================================
+
+User should be able to choose:
+
+Random questions
+Random question order
+Preserve section order
+Pattern balanced
+Chapter balanced
+
+For fixed papers:
+
+question set stays fixed.
+
+Order can optionally randomize if permitted.
+
+================================================================================
+131. PRACTICE CONTINUATION
+================================================================================
+
+If user leaves a mock:
+
+active session should continue to work.
+
+Existing:
+
+store_active_session
+
+should remain.
+
+Do not break resume behavior.
+
+================================================================================
+132. UI NAVIGATION
+================================================================================
+
+The current app has multiple functional areas.
+
+Keep them.
+
+Improve navigation so the user understands:
+
+DASHBOARD
+DOJO
+KNOWLEDGE
+SYNAPSE
+CONSOLE
+VAULT
+
+Do not rename everything unnecessarily.
+
+The user already knows the system.
+
+================================================================================
+133. DOJO
+================================================================================
+
+Dojo should become the main practice environment.
+
+It should receive question sets from MockService.
+
+Dojo should not decide which questions are selected.
+
+It should render and track the selected set.
+
+This separation is critical.
+
+================================================================================
+134. ARENA
+================================================================================
+
+Arena should receive:
+
+questions
+sections
+timing
+locking
+metadata
+
+and focus on execution.
+
+Do not put question-selection intelligence inside the rendering loop.
+
+================================================================================
+135. REVIEW
+================================================================================
+
+Review should use the stored attempt.
+
+Allow:
+
+Retry
+Practice wrong
+Practice slow
+Open sheet
+Open question
+Research
+
+All these should use the same services.
+
+================================================================================
+136. QUESTION → PRACTICE
+================================================================================
+
+From a question:
+
+Practice this question
+
+should create a tiny fixed mock:
+
+questionIds:
+[current ID]
+
+This uses the same mock engine.
+
+================================================================================
+137. CHAPTER → PRACTICE
+================================================================================
+
+From chapter:
+
+Practice Chapter
+
+should open configuration with chapter preselected.
+
+Not automatically use first sheet.
+
+================================================================================
+138. CONCEPT → PRACTICE
+================================================================================
+
+From concept:
+
+Practice Concept
+
+should use:
+
+conceptIds
+
+not just:
+
+first sheet
+
+================================================================================
+139. SHEET → PRACTICE
+================================================================================
+
+From sheet:
+
+Practice linked questions
+
+should query all questions linked to that concept/sheet.
+
+User can choose count and randomization.
+
+================================================================================
+140. SEARCH → MOCK
+================================================================================
+
+Search results can be selected.
+
+Then:
+
+Add selected to mock.
+
+This enables arbitrary custom tests.
+
+================================================================================
+141. QUESTION SELECTION CART
+================================================================================
+
+Optional but highly useful.
+
+User selects questions while browsing.
+
+A small persistent tray:
+
+Selected: 7
+
+[Create Mock]
+[Clear]
+
+This is a natural way to manually curate mocks.
+
+================================================================================
+142. AI + SELECTION CART
+================================================================================
+
+Console could optionally add questions to a temporary selection set.
+
+But do not make this mandatory.
+
+The primary AI interface should use IDs directly.
+
+================================================================================
+143. DASHBOARD QUICK ACTIONS
+================================================================================
+
+At minimum:
+
+Random Practice
+Weak Practice
+Incorrect Practice
+Chapter Practice
+Create Mock
+Add Question
+Search Bank
+Knowledge Sheets
+
+================================================================================
+144. VISUAL DESIGN PRINCIPLE
+================================================================================
+
+Do not make the UI flashy just for appearance.
+
+The application should feel:
+
+focused
+dense but readable
+technical
+organized
+modern
+fast
+
+Use the existing visual identity.
+
+Improve hierarchy instead of adding decorative elements.
+
+================================================================================
+145. INFORMATION DENSITY
+================================================================================
+
+Current issue is not simply "too much information."
+
+It is poor information presentation.
+
+Therefore:
+
+show more useful information per viewport.
+
+Use:
+- compact metadata
+- collapsible details
+- tabs
+- side panels
+- sticky controls
+- searchable drawers
+
+Avoid:
+- giant empty spaces
+- excessive cards
+- unnecessary repeated headings
+
+================================================================================
+146. MOBILE-FIRST TOUCH RULE
+================================================================================
+
+Every interactive region should have clear touch behavior.
+
+Avoid gesture conflicts.
+
+Specifically:
+
+Scrollable content
+≠
+navigation gesture
+
+This applies to:
+- knowledge sheets
+- question explanations
+- graph panels
+- search results
+- vault
+- mock lists
+
+================================================================================
+147. ACCESSIBILITY
+================================================================================
+
+Ensure:
+
+buttons have readable labels
+touch targets are adequate
+text has sufficient contrast
+focus states work
+modals can close
+keyboard navigation works where applicable
+
+Do not sacrifice usability for aesthetics.
+
+================================================================================
+148. LOADING STATES
+================================================================================
+
+Large operations should show loading states.
+
+Examples:
+
+Loading questions...
+Generating mock...
+Searching...
+Restoring backup...
+Calculating performance...
+
+Do not freeze the interface silently.
+
+================================================================================
+149. MOCK GENERATION LOADING
+================================================================================
+
+When generating:
+
+GENERATING MOCK
+
+Show:
+
+Eligible questions:
+812
+
+Applying filters...
+Balancing patterns...
+Randomizing...
+Selecting 25...
+
+Then launch.
+
+================================================================================
+150. DATABASE INSPECTOR
+================================================================================
+
+Existing DB inspector should remain.
+
+Improve it to show:
+
+store
+count
+size estimate where possible
+last updated
+
+Useful stores:
+
+Questions
+Concepts
+Flashcards
+Attempts
+Mocks
+Notes
+AI Consultations
+Config
+
+This is useful for debugging.
+
+================================================================================
+151. ADMIN / DEVELOPER TOOLS
+================================================================================
+
+Keep advanced tools hidden behind an Admin/Developer section.
+
+Do not clutter the normal learner interface.
+
+Possible:
+
+Integrity Check
+Database Stats
+Export Full Backup
+Restore
+Console
+Raw DB Operations
+
+================================================================================
+152. NO DESTRUCTIVE AUTOMATIC CLEANUP
+================================================================================
+
+Do not automatically:
+- deduplicate questions
+- delete old sheets
+- delete empty chapters
+- remove unused concepts
+- delete old mocks
+- delete attempts
+
+The database is valuable.
+
+Any cleanup must be explicit.
+
+================================================================================
+153. DATA MIGRATION OF EXISTING DUPLICATE CHAPTERS
+================================================================================
+
+When upgrading the current app:
+
+do NOT automatically merge duplicate chapters merely because their names look similar.
+
+First detect.
+
+Example:
+
+QA_SIMPLE_INTEREST
+QA_SIMPLE_INTEREST_OLD
+
+If both exist:
+
+show:
+
+Potential Duplicate Chapters
+
+Then allow:
+
+Keep both
+Rename
+Merge
+Delete taxonomy entry
+
+If merged:
+
+reassign references safely.
+
+================================================================================
+154. EXISTING DATA RECONCILIATION
+================================================================================
+
+The app should provide a reconciliation tool.
+
+Example:
+
+Chapter:
+Simple Interest
+
+Questions:
+47
+
+Sheets:
+3
+
+Alternative chapter:
+Simple Interest
+
+Questions:
+0
+
+Sheets:
+0
+
+Suggested:
+
+Remove empty taxonomy duplicate.
+
+But only after explicit confirmation.
+
+================================================================================
+155. EMPTY CHAPTERS
+================================================================================
+
+Empty chapters should not be impossible to delete.
+
+The taxonomy manager should allow:
+
+Delete empty chapter
+
+without requiring database destruction.
+
+This directly addresses the current issue.
+
+================================================================================
+156. DATA VS TAXONOMY
+================================================================================
+
+This principle must be preserved everywhere:
+
+TAXONOMY ENTRY
+is not
+CONTENT.
+
+Deleting a taxonomy node should not delete content.
+
+Content deletion must be a separate explicit action.
+
+================================================================================
+157. CHAPTER DISPLAY NAMES
+================================================================================
+
+Store:
+
+internal ID:
+QA_SIMPLE_INTEREST
+
+displayName:
+Simple Interest
+
+Never use display names as the primary database key.
+
+This allows renaming without breaking references.
+
+================================================================================
+158. SORTING
+================================================================================
+
+Chapters should have an order field.
+
+Example:
+
+order: 1
+order: 2
+...
+
+The UI should render by order.
+
+The user can reorder.
+
+Do not encode order permanently into JavaScript.
+
+================================================================================
+159. SUBJECT MANAGEMENT
+================================================================================
+
+Same model:
+
+subjectId
+displayName
+order
+active
+
+Existing subject keys:
+
+QA
+REAS
+ENG
+GA
+
+must remain compatible.
+
+================================================================================
+160. QUESTION FILTER ENGINE
+================================================================================
+
+Implement a reusable predicate/filter builder.
+
+Conceptually:
+
+buildQuestionFilter({
+  subject,
+  chapters,
+  concepts,
+  methods,
+  tags,
+  performance,
+  source
+})
+
+Then use it everywhere.
+
+This prevents:
+- Dojo having one filter
+- Console another
+- Search another
+- Mock engine another
+
+================================================================================
+161. PERFORMANCE FILTER ENGINE
+================================================================================
+
+Similarly:
+
+getQuestionStats(questionId)
+
+getChapterStats(chapterId)
+
+getConceptStats(conceptId)
+
+These should be shared.
+
+================================================================================
+162. SMART SEARCH + PERFORMANCE
+================================================================================
+
+Search result can show:
+
+Accuracy: 42%
+Attempts: 5
+Avg time: 61s
+
+This makes search useful for revision.
+
+================================================================================
+163. WEAKNESS VISUALIZATION
+================================================================================
+
+Dashboard should visually indicate:
+
+Strong
+Developing
+Weak
+
+But avoid meaningless decorative scores.
+
+Use real data.
+
+The user should be able to click a weak area.
+
+Click:
+
+Weak Percentage
+
+→ Practice weak Percentage questions.
+
+================================================================================
+164. RECENT ACTIVITY
+================================================================================
+
+Dashboard:
+
+Recent Mocks
+Recent Practice
+Recently Viewed Sheets
+
+Each should link directly.
+
+================================================================================
+165. KNOWLEDGE SHEET RECENT HISTORY
+================================================================================
+
+Optional:
+
+Recently viewed sheets
+
+This helps users return to study material.
+
+Store only if needed.
+
+================================================================================
+166. CONSOLE MOCK EXAMPLE
+================================================================================
+
+The final system should support something conceptually like:
+
+{
+  "action": "CREATE_MOCK",
+  "version": 2,
+  "payload": {
+    "title": "Weak Quant Revision",
+    "selection": {
+      "subject": "QA",
+      "mode": "weak",
+      "count": 25,
+      "randomize": true,
+      "excludeRecentlyAttempted": true,
+      "recentMockCount": 3
+    },
+    "durationMin": 20,
+    "launchImmediately": false
+  }
+}
+
+Expected:
+
+1. validate
+2. calculate weak pool
+3. exclude recent
+4. randomize
+5. select 25
+6. save mock
+7. return mock ID
+8. optionally launch
+
+================================================================================
+167. CONSOLE CHAPTER MOCK EXAMPLE
+================================================================================
+
+{
+  "action": "CREATE_MOCK",
+  "version": 2,
+  "payload": {
+    "title": "Percentage Drill",
+    "selection": {
+      "chapter": "QA_PERCENTAGE",
+      "count": 20,
+      "mode": "random"
+    }
+  }
+}
+
+No first-sheet bug.
+
+No first-25 bug.
+
+All questions in QA_PERCENTAGE are eligible.
+
+================================================================================
+168. CONSOLE PATTERN MOCK EXAMPLE
+================================================================================
+
+{
+  "action": "CREATE_MOCK",
+  "version": 2,
+  "payload": {
+    "title": "Percentage Pattern Coverage",
+    "selection": {
+      "chapter": "QA_PERCENTAGE",
+      "count": 20,
+      "mode": "pattern_coverage"
+    }
+  }
+}
+
+The engine should maximize pattern diversity.
+
+================================================================================
+169. CONSOLE EXPLICIT-ID EXAMPLE
+================================================================================
+
+{
+  "action": "CREATE_MOCK",
+  "version": 2,
+  "payload": {
+    "title": "Custom Revision",
+    "questionIds": [
+      "q_qa_pct_001",
+      "q_qa_pct_017",
+      "q_qa_geo_004"
+    ],
+    "randomize": true
+  }
+}
+
+Resolve exact IDs.
+
+No substitution unless requested.
+
+================================================================================
+170. CONSOLE AI-GENERATED MOCK EXAMPLE
+================================================================================
+
+{
+  "action": "CREATE_MOCK",
+  "version": 2,
+  "payload": {
+    "title": "AI Generated Remedial Test",
+    "questions": [
+      {...},
+      {...}
+    ],
+    "durationMin": 15,
+    "launchImmediately": true
+  }
+}
+
+New questions are sanitized.
+
+Provenance must identify them as AI-generated.
+
+================================================================================
+171. CONSOLE RESPONSE EXAMPLE
+================================================================================
+
+{
+  "success": true,
+  "action": "CREATE_MOCK",
+  "mockId": "mock_172...",
+  "questionCount": 25,
+  "questionIds": [...],
+  "selectionSummary": {
+    "mode": "weak",
+    "subject": "QA",
+    "excludedRecent": 17
+  }
+}
+
+This allows AI to understand what happened.
+
+================================================================================
+172. AI MUST HAVE READ ACCESS
+================================================================================
+
+The AI should not be limited to writing.
+
+It needs to inspect the system.
+
+Therefore support:
+
+GET_DB_STATS
+GET_TAXONOMY
+SEARCH_QUESTIONS
+SEARCH_SHEETS
+GET_PERFORMANCE
+GET_WEAK_CHAPTERS
+GET_WEAK_CONCEPTS
+GET_MOCK
+LIST_MOCKS
+
+This enables intelligent behavior.
+
+================================================================================
+173. AI SHOULD BE ABLE TO BUILD ITS OWN MOCK LOGIC
+================================================================================
+
+The AI should be able to:
+
+1. inspect performance
+2. inspect taxonomy
+3. inspect available questions
+4. choose a strategy
+5. create a mock
+
+The Console is the bridge.
+
+================================================================================
+174. AI SHOULD NOT BYPASS SAFETY
+================================================================================
+
+AI can:
+
+create
+edit
+search
+generate
+organize
+
+but destructive operations remain controlled.
+
+No AI command should be able to accidentally:
+
+CLEAR DATABASE
+
+without explicit administrative confirmation.
+
+================================================================================
+175. BACKWARD COMPATIBILITY
+================================================================================
+
+All old records must continue to render.
+
+All old questions must continue to work.
+
+All old sheets must continue to work.
+
+All old mocks must continue to work.
+
+All old attempts must continue to review.
+
+All old backup files must remain restorable where possible.
+
+================================================================================
+176. CODE ORGANIZATION
+================================================================================
+
+Even if app.js remains one large file, divide logically into sections:
+
+DATABASE
+DATA SANITIZERS
+TAXONOMY
+QUESTION SERVICE
+CONCEPT SERVICE
+SEARCH SERVICE
+PERFORMANCE SERVICE
+MOCK SERVICE
+PRACTICE SERVICE
+CONSOLE SERVICE
+BACKUP SERVICE
+UI RENDERERS
+MODALS
+ARENA
+DASHBOARD
+VAULT
+SYNAPSE
+EXPORTS
+BOOTSTRAP
+
+Do not scatter the same business logic across unrelated UI handlers.
+
+================================================================================
+177. SINGLE SOURCE OF TRUTH
+================================================================================
+
+Question selection:
+
+MockService
+
+Taxonomy:
+
+TaxonomyService
+
+Question CRUD:
+
+QuestionService
+
+Knowledge sheets:
+
+ConceptService
+
+Performance:
+
+PerformanceService
+
+Search:
+
+SearchService
+
+Console:
+
+ConsoleService
+
+Backup:
+
+BackupService
+
+This is the most important architectural cleanup.
+
+================================================================================
+178. NO DUPLICATED MOCK LOGIC
+================================================================================
+
+Existing functions such as:
+
+compileAndLaunchArena
+
+should remain responsible primarily for compiling/launching the arena.
+
+It should NOT decide:
+
+which questions are weak
+which questions are random
+which chapters are weak
+
+Those decisions belong to MockService.
+
+================================================================================
+179. ARENA INPUT CONTRACT
+================================================================================
+
+Arena receives a prepared question set.
+
+Example:
+
+{
+  title,
+  questions,
+  sections,
+  durationMin,
+  isSectionLocked
+}
+
+Arena should not care whether questions came from:
+
+random
+weakness
+chapter
+AI
+manual
+fixed paper
+
+================================================================================
+180. CONSOLE INPUT CONTRACT
+================================================================================
+
+Console receives commands.
+
+Console validates and dispatches.
+
+Services perform the work.
+
+UI renders the result.
+
+This creates:
+
+JSON
+→ ConsoleService
+→ Service
+→ DB
+→ Result
+
+================================================================================
+181. UI INPUT CONTRACT
+================================================================================
+
+UI:
+
+button
+→ service
+→ DB
+→ render
+
+not:
+
+button
+→ custom database manipulation
+→ custom filtering
+→ custom mock logic
+
+This reduces future bugs.
+
+================================================================================
+182. TESTING STRATEGY
+================================================================================
+
+Testing is mandatory.
+
+Before finalizing:
+
+TEST 1
+Existing questions still present.
+
+TEST 2
+Existing knowledge sheets still present.
+
+TEST 3
+Existing attempts still present.
+
+TEST 4
+Existing flashcards still present.
+
+TEST 5
+Existing mocks still present.
+
+TEST 6
+Backup export works.
+
+TEST 7
+Backup restore works.
+
+TEST 8
+Add question works.
+
+TEST 9
+Edit question works.
+
+TEST 10
+Delete question works.
+
+TEST 11
+Add chapter works.
+
+TEST 12
+Rename chapter works.
+
+TEST 13
+Delete empty chapter works.
+
+TEST 14
+Merge chapter works.
+
+TEST 15
+Search works.
+
+TEST 16
+Chapter practice returns all chapter questions.
+
+TEST 17
+Random mock changes question set.
+
+TEST 18
+Weak mock uses actual performance.
+
+TEST 19
+Incorrect mock uses actual incorrect questions.
+
+TEST 20
+Unattempted mock works.
+
+TEST 21
+Pattern-balanced mock works.
+
+TEST 22
+Mock can be edited.
+
+TEST 23
+Mock can be deleted.
+
+TEST 24
+Deleting mock does not delete questions.
+
+TEST 25
+Console creates question.
+
+TEST 26
+Console searches questions.
+
+TEST 27
+Console creates fixed mock.
+
+TEST 28
+Console creates random mock.
+
+TEST 29
+Console creates weak mock.
+
+TEST 30
+Console creates chapter mock.
+
+TEST 31
+Console creates AI-generated mock.
+
+TEST 32
+Legacy Console commands still work.
+
+TEST 33
+Knowledge sheet scrolling works.
+
+TEST 34
+Sheet navigation works.
+
+TEST 35
+Synapse search works.
+
+TEST 36
+Vault search works.
+
+================================================================================
+183. DATA REGRESSION TEST
+================================================================================
+
+Before code changes:
+
+export full backup.
+
+Record counts.
+
+After code changes:
+
+compare counts.
+
+Then open random samples.
+
+For example:
+
+10 random questions
+10 random sheets
+5 mocks
+5 attempts
+
+Verify integrity.
+
+================================================================================
+184. RESTORE TEST
+================================================================================
+
+Do not consider backup functionality "safe" until restore has actually been tested.
+
+Test:
+
+Export backup.
+
+Make a controlled change.
+
+Restore backup.
+
+Verify:
+
+questions
+sheets
+mocks
+attempts
+taxonomy
+
+all remain correct.
+
+================================================================================
+185. MIGRATION FAILURE TEST
+================================================================================
+
+Test what happens if:
+
+DB upgrade fails.
+
+The app must not silently erase data.
+
+The upgrade should fail safely.
+
+================================================================================
+186. OFFLINE / LOCAL-FIRST PRINCIPLE
+================================================================================
+
+The application should continue to function as a local-first system.
+
+Do not introduce a mandatory backend dependency for:
+
+questions
+sheets
+mocks
+practice
+
+unless explicitly requested later.
+
+================================================================================
+187. NO FRAMEWORK REWRITE
+================================================================================
+
+Do not migrate the entire app to:
+
+React
+Vue
+Angular
+etc.
+
+unless explicitly required.
+
+The current application already works.
+
+A framework migration would create unnecessary risk.
+
+Use the existing HTML/CSS/JS architecture.
+
+================================================================================
+188. NO DATA REIMPORT
+================================================================================
+
+Do not tell the user:
+
+"Delete the current DB and reimport everything."
+
+That is forbidden for this project.
+
+The existing DB is valuable.
+
+Migration must happen in place.
+
+================================================================================
+189. NO HARDCODED CURRENT COUNTS
+================================================================================
+
+Do not hardcode current database totals.
+
+Everything should be computed from IndexedDB.
+
+================================================================================
+190. NO HARDCODED CHAPTER UI
+================================================================================
+
+Default taxonomy can be hardcoded for initial installation.
+
+Runtime UI must use:
+
+store_config/system_taxonomy
+
+plus safe fallback defaults.
+
+This allows the user to modify chapters.
+
+================================================================================
+191. NO FIRST-N-QUESTIONS BUG
+================================================================================
+
+Anywhere the current code does:
+
+questions.slice(0, N)
+
+must be reviewed.
+
+This is acceptable ONLY when the requested mode is explicitly:
+
+"first N"
+
+It is NOT acceptable as the implementation of:
+
+random
+weak
+chapter
+pattern
+unattempted
+incorrect
+
+etc.
+
+================================================================================
+192. NO FIRST-SHEET BUG
+================================================================================
+
+Anywhere the current code does:
+
+find first concept for chapter
+
+and then treats it as the chapter's knowledge representation:
+
+replace with:
+
+all sheets
+and/or
+all questions
+
+depending on requested operation.
+
+================================================================================
+193. CHAPTER PRACTICE ALGORITHM
+================================================================================
+
+For:
+
+Practice Chapter
+
+perform:
+
+allQuestions
+→ filter q.chapter === chapterId
+→ apply performance filters
+→ apply requested count
+→ randomize if requested
+→ launch
+
+Knowledge sheets are optional supplementary content.
+
+They must not constrain the question pool.
+
+================================================================================
+194. KNOWLEDGE SHEET PRACTICE ALGORITHM
+================================================================================
+
+For:
+
+Practice Sheet
+
+perform:
+
+conceptId = selectedSheet.id
+
+eligibleQuestions =
+questions where:
+
+conceptIds contains conceptId
+
+OR
+
+conceptId === conceptId
+
+OR
+
+fallback chapter/subtopic relationship where appropriate
+
+Then:
+
+apply requested selection.
+
+================================================================================
+195. RANDOM ALGORITHM
+================================================================================
+
+Use Fisher-Yates or equivalent.
+
+Never:
+
+sort(() => Math.random() - 0.5)
+
+if avoidable.
+
+Implement reliable shuffle.
+
+================================================================================
+196. QUESTION SELECTION SAFETY
+================================================================================
+
+If requested count > eligible questions:
+
+do not duplicate questions automatically.
+
+Show:
+
+Only 14 eligible questions are available.
+
+[Practice 14]
+[Change Filters]
+
+================================================================================
+197. PATTERN COVERAGE SAFETY
+================================================================================
+
+If there are only 5 patterns:
+
+a 20-question mock may require repeated patterns.
+
+That's fine.
+
+But the system should maximize diversity before repeating.
+
+================================================================================
+198. WEAKNESS SAFETY
+================================================================================
+
+If no weak questions exist:
+
+say:
+
+No weak questions currently identified.
+
+Offer:
+
+Random Practice
+Unattempted Practice
+
+Do not secretly return arbitrary questions and call them weak.
+
+================================================================================
+199. SEARCH SAFETY
+================================================================================
+
+Search must not accidentally mutate data.
+
+Search is read-only.
+
+================================================================================
+200. UI/DB SEPARATION
+================================================================================
+
+Do not store UI state in persistent data unless necessary.
+
+Example:
+
+current selected tab
+current modal
+current scroll position
+
+should not be persisted unnecessarily.
+
+================================================================================
+201. KNOWLEDGE SHEET CACHE
+================================================================================
+
+Existing:
+
+synapseTreeBuilt
+currentCompSheets
+
+etc. can remain.
+
+But invalidate caches when:
+
+sheet added
+sheet edited
+sheet deleted
+chapter changed
+taxonomy changed
+
+Otherwise stale data will appear.
+
+================================================================================
+202. TAXONOMY CACHE INVALIDATION
+================================================================================
+
+When taxonomy changes:
+
+invalidate:
+- chapter dropdowns
+- graph
+- search
+- practice selector
+- dashboard
+- editor dropdowns
+
+The current app already has synchronization logic.
+
+Extend it rather than creating a second mechanism.
+
+================================================================================
+203. QUESTION CACHE INVALIDATION
+================================================================================
+
+When a question is:
+
+added
+edited
+deleted
+moved
+
+invalidate:
+
+question search cache
+dashboard counts
+chapter counts
+synapse relationships
+practice eligibility
+
+================================================================================
+204. PERFORMANCE CACHE
+================================================================================
+
+If performance is cached:
+
+invalidate after a completed attempt.
+
+Do not let the dashboard show stale weakness data indefinitely.
+
+================================================================================
+205. MOCK CACHE
+================================================================================
+
+After:
+
+create
+edit
+delete
+
+refresh:
+
+saved mock list
+dashboard
+mock selectors
+
+================================================================================
+206. USER EXPERIENCE — GENERAL
+================================================================================
+
+The application should answer:
+
+"What can I do here?"
+
+within seconds.
+
+Every major screen should have:
+
+title
+context
+primary action
+secondary actions
+
+Avoid hidden functionality.
+
+================================================================================
+207. CONTEXTUAL ACTIONS
+================================================================================
+
+Question:
+
+Practice
+Edit
+Add to Mock
+
+Sheet:
+
+Read
+Practice
+Edit
+
+Chapter:
+
+Practice
+View Sheets
+Search Questions
+
+Mock:
+
+Launch
+Edit
+Regenerate
+Delete
+
+Concept:
+
+Read
+Practice
+View Questions
+
+================================================================================
+208. SEARCH EVERYWHERE
+================================================================================
+
+Global search should eventually be accessible from:
+
+Dashboard
+Dojo
+Knowledge
+Synapse
+Console
+
+Keyboard shortcut optional:
+
+Ctrl/Cmd + K
+
+if appropriate.
+
+================================================================================
+209. SEARCH RESULT DEEP LINKS
+================================================================================
+
+Search results should open the correct item directly.
+
+No:
+
+search
+→ chapter
+→ sheet
+→ scroll
+→ find item
+
+Instead:
+
+search
+→ click result
+→ exact item
+
+================================================================================
+210. KNOWLEDGE SHEET TABLE OF CONTENTS
+================================================================================
+
+For very long sheets:
+
+detect headings.
+
+Generate a small table of contents.
+
+Click heading:
+
+scroll within sheet
+
+without triggering sheet navigation.
+
+This directly improves large-sheet usability.
+
+================================================================================
+211. FORMULA RENDERING
+================================================================================
+
+Keep KaTeX.
+
+Do not break mathematical rendering.
+
+After editor save:
+
+render content exactly as before.
+
+================================================================================
+212. IMAGE RENDERING
+================================================================================
+
+Images should be contained.
+
+Do not allow huge images to force horizontal scrolling.
+
+Click image:
+
+optional fullscreen viewer.
+
+================================================================================
+213. SYNAPSE PERFORMANCE
+================================================================================
+
+Do not construct thousands of DOM nodes simultaneously.
+
+Render only:
+
+current visible hierarchy
+
+or
+
+visible graph nodes.
+
+================================================================================
+214. DASHBOARD PERFORMANCE
+================================================================================
+
+Dashboard should not call expensive full-database scans unnecessarily on every tab switch.
+
+Cache counts/statistics where safe.
+
+Refresh after mutations and attempts.
+
+================================================================================
+215. CONSOLE PERFORMANCE
+================================================================================
+
+Console should not dump entire DB automatically.
+
+GET commands should support:
+
+limit
+offset
+filters
+
+Example:
+
+SEARCH_QUESTIONS
+limit: 20
+
+================================================================================
+216. AI RESPONSE SIZE
+================================================================================
+
+When AI asks for:
+
+GET_QUESTION
+
+return one.
+
+When AI asks:
+
+SEARCH_QUESTIONS
+
+return limited results.
+
+Allow pagination.
+
+This prevents massive Console outputs.
+
+================================================================================
+217. AI PAGINATION
+================================================================================
+
+Support:
+
+limit
+offset
+cursor
+
+where appropriate.
+
+Example:
+
+{
+  "action": "SEARCH_QUESTIONS",
+  "payload": {
+    "query": "percentage",
+    "limit": 25,
+    "offset": 0
+  }
+}
+
+================================================================================
+218. CONSOLE EXPORT
+================================================================================
+
+AI should be able to request:
+
+EXPORT_QUESTION_SET
+
+or:
+
+EXPORT_MOCK
+
+where useful.
+
+But the primary purpose is control, not dumping the entire database.
+
+================================================================================
+219. AI MOCK DELETION
+================================================================================
+
+Support:
+
+{
+  "action": "DELETE_MOCK",
+  "payload": {
+    "mockId": "..."
+  }
+}
+
+Require appropriate confirmation.
+
+Do not delete question records.
+
+================================================================================
+220. AI QUESTION DELETION
+================================================================================
+
+Similarly:
+
+DELETE_QUESTION
+
+must be explicit.
+
+If question is used by mocks:
+
+return warning.
+
+Do not silently delete dependencies.
+
+================================================================================
+221. AI TAXONOMY EDITING
+================================================================================
+
+AI should be able to create missing chapters when ingesting a new source.
+
+Example:
+
+ADD_CHAPTER
+
+then:
+
+BATCH_INGEST_QUESTIONS
+
+This enables the AI to manage the expanding database.
+
+================================================================================
+222. INGESTION WORKFLOW
+================================================================================
+
+Preferred AI ingestion:
+
+1. inspect taxonomy
+2. create chapter if missing
+3. ingest knowledge sheets
+4. ingest questions
+5. validate
+6. report counts
+
+Do not assume taxonomy exists.
+
+================================================================================
+223. INGESTION VALIDATION
+================================================================================
+
+After ingestion:
+
+report:
+
+Questions inserted
+Questions updated
+Questions rejected
+Sheets inserted
+Sheets updated
+Unknown chapters
+Invalid concept references
+Duplicate IDs
+Warnings
+
+================================================================================
+224. UPSERT SEMANTICS
+================================================================================
+
+For ingestion:
+
+existing ID:
+update intentionally
+
+new ID:
+create
+
+Do not create duplicate records merely because the same question was ingested twice.
+
+================================================================================
+225. SOURCE FIDELITY
+================================================================================
+
+Never fabricate:
+
+question text
+options
+answers
+diagrams
+exam year
+shift
+source
+
+If source is unclear:
+
+FLAGGED_OCR_REVIEW
+
+The app should preserve the flag.
+
+================================================================================
+226. QUESTION ANNOTATION
+================================================================================
+
+Use annotation for:
+
+OCR review
+AI notes
+operator notes
+migration warnings
+
+Do not hide important warnings.
+
+================================================================================
+227. MOCK SOURCE METADATA
+================================================================================
+
+Generated mocks should record:
+
+createdBy:
+USER
+AI
+SYSTEM
+
+source:
+manual
+blueprint
+AI
+chapter
+weakness
+
+This helps future analytics.
+
+================================================================================
+228. AI-GENERATED QUESTION METADATA
+================================================================================
+
+If AI generates a question:
+
+source:
+
+AI_GENERATED
+
+Do not pretend it is a PYQ.
+
+================================================================================
+229. FIXED PAPER IMPORT
+================================================================================
+
+Existing fixed-paper functionality should remain.
+
+A fixed paper means:
+
+exact question set
+
+not dynamically regenerated.
+
+================================================================================
+230. DYNAMIC BLUEPRINT
+================================================================================
+
+Dynamic blueprint means:
+
+selection rules
+
+not fixed questions.
+
+When launched:
+
+generate instance.
+
+================================================================================
+231. MOCK DELETE SEMANTICS
+================================================================================
+
+Deleting dynamic blueprint:
+
+delete blueprint.
+
+Historical generated attempts:
+
+remain.
+
+Deleting generated instance:
+
+delete saved instance only if supported.
+
+Do not destroy attempts automatically.
+
+================================================================================
+232. ATTEMPT DELETE
+================================================================================
+
+Do not make attempt deletion part of normal mock deletion.
+
+If eventually added:
+
+make it a separate destructive administrative action.
+
+================================================================================
+233. CONSOLE COMMAND REGISTRY
+================================================================================
+
+Instead of a huge chain of:
+
+if cmd.action === ...
+
+create a conceptual registry:
+
+COMMANDS = {
+  CREATE_QUESTION: handler,
+  SEARCH_QUESTIONS: handler,
+  CREATE_MOCK: handler,
+  ...
+}
+
+Legacy actions can map to new handlers.
+
+This makes future expansion easier.
+
+================================================================================
+234. CONSOLE COMMAND DOCUMENTATION
+================================================================================
+
+Each command should define:
+
+name
+description
+required fields
+optional fields
+danger level
+handler
+
+This makes the system self-documenting.
+
+================================================================================
+235. DANGER LEVELS
+================================================================================
+
+READ
+SAFE_WRITE
+DESTRUCTIVE
+
+Examples:
+
+SEARCH_QUESTIONS:
+READ
+
+CREATE_QUESTION:
+SAFE_WRITE
+
+DELETE_QUESTION:
+DESTRUCTIVE
+
+CLEAR_STORE:
+CRITICAL
+
+================================================================================
+236. COMMAND AUDIT LOG
+================================================================================
+
+Optionally record:
+
+command
+timestamp
+success
+error
+affected IDs
+
+This is useful for debugging AI behavior.
+
+================================================================================
+237. DATABASE INTEGRITY AFTER CONSOLE
+================================================================================
+
+After bulk AI operations:
+
+run lightweight validation.
+
+Example:
+
+new question has:
+ID
+subject
+chapter
+questionText
+
+new sheet has:
+ID
+subject
+chapter
+title
+content
+
+mock has:
+ID
+questionIds
+
+================================================================================
+238. DO NOT OVERBUILD
+================================================================================
+
+Not every theoretical feature needs to be implemented immediately.
+
+Priority:
+
+P0:
+data safety
+question CRUD
+taxonomy control
+search
+chapter practice fix
+mock randomization
+mock engine
+Console integration
+
+P1:
+knowledge-sheet viewer
+Synapse navigation
+dashboard
+performance filters
+Vault search
+
+P2:
+advanced graph
+adaptive algorithms
+advanced analytics
+seed reproduction
+command history
+
+================================================================================
+239. P0 — MUST WORK
+================================================================================
+
+Before calling the redesign successful:
+
+1. Add question manually
+2. Edit question
+3. Delete question
+4. Add/edit/delete chapters
+5. Search questions efficiently
+6. Practice chapter correctly
+7. Randomize mocks
+8. Generate weak mocks
+9. Generate incorrect mocks
+10. Generate unattempted mocks
+11. Generate custom ID mocks
+12. Edit mocks
+13. Delete mocks
+14. Preserve all existing data
+15. Preserve backup/restore
+16. Console can access the new mock engine
+
+================================================================================
+240. P1 — IMPORTANT
+================================================================================
+
+Then:
+
+Knowledge sheet UX
+Synapse
+Dashboard
+Vault
+Performance visualization
+
+================================================================================
+241. P2 — FUTURE
+================================================================================
+
+Then:
+
+Adaptive practice
+Advanced recommendation
+More sophisticated graph
+Advanced AI planning
+
+================================================================================
+242. IMPLEMENTATION ORDER
+================================================================================
+
+ACTUAL CODE WORK SHOULD FOLLOW:
+
+STEP 1
+Make backup.
+
+STEP 2
+Record DB counts.
+
+STEP 3
+Inspect current schema.
+
+STEP 4
+Add migration/version infrastructure only if necessary.
+
+STEP 5
+Create shared service layer.
+
+STEP 6
+Implement QuestionService.
+
+STEP 7
+Add manual question UI.
+
+STEP 8
+Improve question editor.
+
+STEP 9
+Implement TaxonomyService.
+
+STEP 10
+Implement chapter management.
+
+STEP 11
+Implement SearchService.
+
+STEP 12
+Replace broken chapter-practice logic.
+
+STEP 13
+Implement MockService.
+
+STEP 14
+Implement randomization.
+
+STEP 15
+Implement weakness filters.
+
+STEP 16
+Implement mock CRUD.
+
+STEP 17
+Connect Dojo to MockService.
+
+STEP 18
+Connect Console to MockService.
+
+STEP 19
+Add Console read/search commands.
+
+STEP 20
+Add Console question CRUD.
+
+STEP 21
+Add Console mock commands.
+
+STEP 22
+Improve Knowledge Studio.
+
+STEP 23
+Improve Synapse.
+
+STEP 24
+Improve Dashboard.
+
+STEP 25
+Improve Vault.
+
+STEP 26
+Run data-integrity checks.
+
+STEP 27
+Run backup/restore test.
+
+STEP 28
+Run full regression test.
+
+================================================================================
+243. IMPLEMENTATION RULE — NEVER MODIFY EVERYTHING AT ONCE
+================================================================================
+
+When editing the actual files:
+
+make incremental changes.
+
+After each major section:
+
+run the app.
+
+Test.
+
+Then continue.
+
+Do not produce a completely rewritten 6,000+ line app.js blindly.
+
+Preserve existing functions unless intentionally refactoring them.
+
+================================================================================
+244. CURRENT FILES
+================================================================================
+
+The implementation should work against the existing project files:
+
+index.html
+app.js
+style.css
+
+and the existing data/database environment.
+
+Do not invent a different file structure unless necessary.
+
+================================================================================
+245. IMPORTANT CURRENT DATABASE FACT
+================================================================================
+
+The current app already uses:
+
+IndexedDB
+
+DB_NAME:
+cgl_os_db
+
+DB_VERSION:
+15
+
+Therefore IndexedDB is not an optional future feature.
+
+It is the existing storage layer.
+
+Build on it.
+
+================================================================================
+246. IMPORTANT CURRENT STORE FACT
+================================================================================
+
+Existing stores include:
+
+store_questions
+store_attempts
+store_flashcards
+store_concepts
+store_notes
+store_saved_mocks
+store_ai_consultations
+store_active_session
+store_config
+
+Preserve them.
+
+================================================================================
+247. IMPORTANT CURRENT BACKUP FACT
+================================================================================
+
+The current application already has:
+
+exportFullBackup()
+
+and restore functionality.
+
+Do not replace this with a completely new backup mechanism unless necessary.
+
+Extend it if new stores/fields are introduced.
+
+================================================================================
+248. IMPORTANT CURRENT MOCK FACT
+================================================================================
+
+The current application already has:
+
+store_saved_mocks
+
+and mock-building/preset functionality.
+
+Do not build a second mock database.
+
+Upgrade the existing mock system.
+
+================================================================================
+249. IMPORTANT CURRENT CONSOLE FACT
+================================================================================
+
+The current application already has:
+
+executeConsoleCommand()
+
+and supports multiple command actions.
+
+Do not throw away the Console.
+
+Refactor it into the new service/command architecture.
+
+================================================================================
+250. IMPORTANT CURRENT TAXONOMY FACT
+================================================================================
+
+The current application already supports taxonomy mutation.
+
+The redesign should make it reliable and complete rather than pretending taxonomy management does not exist.
+
+================================================================================
+251. IMPORTANT CURRENT QUESTION FACT
+================================================================================
+
+The application already has question editing.
+
+The missing capability is proper manual creation.
+
+Reuse the editor.
+
+Do not create a completely separate question editor unless necessary.
+
+================================================================================
+252. IMPORTANT CURRENT KNOWLEDGE FACT
+================================================================================
+
+The current application already supports:
+
+store_concepts
+
+and Knowledge/Compendium editing.
+
+The redesign is primarily about:
+
+navigation
+viewing
+search
+layout
+linking
+practice integration
+
+not replacing the content.
+
+================================================================================
+253. IMPORTANT CURRENT VAULT FACT
+================================================================================
+
+The current Vault/flashcard functionality should remain oriented toward Anki/export.
+
+Do not turn it into a learning engine.
+
+================================================================================
+254. END-TO-END TARGET ARCHITECTURE
+================================================================================
+
+FINAL SYSTEM:
+
+                         CGL_OS
+                           │
+             ┌─────────────┴─────────────┐
+             │                           │
+          HUMAN UI                    AI CONSOLE
+             │                           │
+             └─────────────┬─────────────┘
+                           │
+                    SHARED SERVICES
+                           │
+       ┌──────────┬────────┼─────────┬──────────┐
+       │          │        │         │          │
+   Questions  Concepts  Taxonomy   Search    Performance
+       │          │        │         │          │
+       └──────────┴────────┼─────────┴──────────┘
+                           │
+                      MOCK SERVICE
+                           │
+                   QUESTION SELECTION
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+           Random       Weakness     Pattern
+              │            │         Coverage
+              └────────────┼────────────┘
+                           │
+                         ARENA
+                           │
+                        ATTEMPT
+                           │
+                    PERFORMANCE DATA
+                           │
+                         FEEDBACK
+                           │
+                    NEXT PRACTICE
+
+All persistent data ultimately lives in the existing IndexedDB architecture.
+
+================================================================================
+255. FINAL USER EXPERIENCE
+================================================================================
+
+The user should be able to open CGL_OS and do this:
+
+DASHBOARD
+    ↓
+"I am weak in Percentage and Time & Work."
+    ↓
+[Weak Practice]
+    ↓
+MockService
+    ↓
+25 questions selected
+    ↓
+randomized
+    ↓
+practice
+    ↓
+results
+    ↓
+weakness updated
+
+OR:
+
+KNOWLEDGE
+    ↓
+Percentage
+    ↓
+Successive Percentage Change
+    ↓
+Read sheet
+    ↓
+Practice linked questions
+    ↓
+20-question randomized drill
+
+OR:
+
+SEARCH
+    ↓
+"successive discount"
+    ↓
+questions + sheets + concepts
+    ↓
+select questions
+    ↓
+Create Mock
+
+OR:
+
+CONSOLE
+    ↓
+AI asks for weak Quant chapters
+    ↓
+system returns actual performance
+    ↓
+AI chooses strategy
+    ↓
+CREATE_MOCK
+    ↓
+MockService
+    ↓
+randomized personalized mock
+    ↓
+launch
+
+OR:
+
+QUESTION BANK
+    ↓
+Add Question
+    ↓
+upload figure
+    ↓
+enter question
+    ↓
+save
+    ↓
+immediately searchable
+    ↓
+available for practice
+
+This is the intended operating model.
+
+================================================================================
+256. FINAL DATA-SAFETY GUARANTEE TO FOLLOW
+================================================================================
+
+At no point during implementation should the system assume:
+
+"We can always regenerate the data."
+
+We cannot.
+
+The existing question bank and knowledge sheets represent substantial manual work.
+
+Therefore:
+
+CODE IS REPLACEABLE.
+
+DATA IS NOT.
+
+When there is a conflict between:
+- a convenient code rewrite
+and
+- preserving existing user data,
+
+preserve the data.
+
+================================================================================
+257. FINAL DESIGN PRINCIPLE
+================================================================================
+
+Do not make CGL_OS "more complicated."
+
+Make it:
+
+MORE CONTROLLABLE
+MORE SEARCHABLE
+MORE NAVIGABLE
+MORE DATA-AWARE
+MORE RANDOMIZED
+MORE PERSONALIZED
+MORE AI-CONTROLLABLE
+MORE RELIABLE
+
+while keeping the existing identity and data.
+
+================================================================================
+258. DEFINITION OF DONE
+================================================================================
+
+The redesign is complete only when:
+
+[ ] Existing data survives unchanged unless intentionally modified
+[ ] Full backup still works
+[ ] Restore still works
+[ ] Existing questions still work
+[ ] Existing knowledge sheets still work
+[ ] Existing attempts still work
+[ ] Existing mocks still work
+[ ] Existing flashcards still export
+[ ] Manual question creation works
+[ ] Manual question editing works
+[ ] Manual question deletion works
+[ ] Question search works
+[ ] Chapter management works
+[ ] Duplicate/empty chapters can be resolved
+[ ] Taxonomy is persistent
+[ ] Chapter practice sees all chapter questions
+[ ] Knowledge-sheet practice sees all linked questions
+[ ] Knowledge sheets can be comfortably scrolled
+[ ] Scrolling does not accidentally change sheets
+[ ] Sheet navigation is explicit/reliable
+[ ] Synapse scales to many chapters
+[ ] Synapse search works
+[ ] Dashboard is useful
+[ ] Dashboard counts are dynamic
+[ ] Random mock works
+[ ] Weak mock works
+[ ] Incorrect mock works
+[ ] Unattempted mock works
+[ ] Slow-question mock works
+[ ] Pattern-balanced mock works
+[ ] Chapter mock works
+[ ] Sectional mock works
+[ ] Full mock works
+[ ] Explicit question-ID mock works
+[ ] AI-generated-question mock works
+[ ] Mock can be edited
+[ ] Mock can be duplicated
+[ ] Mock can be deleted
+[ ] Deleting a mock does not delete questions
+[ ] Console can read data
+[ ] Console can search data
+[ ] Console can create questions
+[ ] Console can edit questions
+[ ] Console can delete questions safely
+[ ] Console can create sheets
+[ ] Console can modify taxonomy
+[ ] Console can create mocks
+[ ] Console can generate random mocks
+[ ] Console can generate weak mocks
+[ ] Console can generate chapter mocks
+[ ] Console can generate sectional mocks
+[ ] Console can use explicit question IDs
+[ ] Console can use AI-generated questions
+[ ] Legacy Console commands still work
+[ ] Destructive Console operations are protected
+[ ] Vault remains Anki-oriented
+[ ] No unnecessary flashcard training engine was introduced
+[ ] No existing data was silently removed
+[ ] No major feature requires a new backend
+[ ] Existing architecture remains recognizable
+[ ] Final regression test passes
+
+================================================================================
+FINAL PRINCIPLE
+================================================================================
+
+THIS IS AN EVOLUTION OF CGL_OS.
+
+NOT A REBUILD.
+
+The existing database, questions, knowledge sheets, attempts, mocks,
+taxonomy, Console, backup system, and application structure are the foundation.
+
+The goal is to add a proper layer of:
+
+CRUD
+SEARCH
+SELECTION
+RANDOMIZATION
+PERFORMANCE ANALYSIS
+MOCK GENERATION
+AI CONTROL
+NAVIGATION
+DATA SAFETY
+
+on top of what already exists.
+
+The final architecture should make the application behave like:
+
+A PERSONALIZED SSC CGL QUESTION + KNOWLEDGE + PRACTICE INTELLIGENCE SYSTEM
+
+rather than:
+
+A STATIC QUESTION BANK WITH A PRACTICE SCREEN.
+
+The most important architectural rule is:
+
+                 ONE DATABASE
+                      ↓
+                ONE DATA LAYER
+                      ↓
+              SHARED SERVICES
+                      ↓
+          ┌───────────┴───────────┐
+          ↓                       ↓
+       HUMAN UI               AI CONSOLE
+          ↓                       ↓
+          └───────────┬───────────┘
+                      ↓
+               SAME CAPABILITIES
+
+If the UI can do it, the AI should be able to request it.
+
+If the AI can request it, it should use the same engine.
+
+If a question exists in the database, every relevant part of the application
+should be able to discover and use it.
+
+And above everything else:
+
+                    DATA MUST SURVIVE.
+================================================================================
