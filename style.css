@@ -105,14 +105,12 @@ html[data-theme="charcoal"] .lab-mode-toggle-group {
 }
 
 html[data-theme="charcoal"] .showcase-solution-drawer,
-html[data-theme="charcoal"] .q-passage-container,
-html[data-theme="charcoal"] .comp-document-canvas {
+html[data-theme="charcoal"] .q-passage-container {
   background: #1b1e25 !important;
 }
 
 html[data-theme="charcoal"] #exam-arena,
 html[data-theme="charcoal"] #dojo-arena-view,
-html[data-theme="charcoal"] #compendium-fullscreen-view,
 html[data-theme="charcoal"] .arena-body,
 html[data-theme="charcoal"] .comp-studio-body {
   background: #181a20 !important;
@@ -1248,7 +1246,8 @@ body {
   --folio-table-even: rgba(255, 255, 255, 0.02);
   --folio-code-bg: #131c31;
   --folio-shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
-  background: var(--studio-backdrop);
+  background: var(--studio-backdrop) !important;
+  color: var(--folio-ink);
 }
 
 #compendium-fullscreen-view.folio-preset-charcoal {
@@ -1263,7 +1262,8 @@ body {
   --folio-table-even: rgba(255, 255, 255, 0.025);
   --folio-code-bg: #252934;
   --folio-shadow: 0 12px 34px rgba(0, 0, 0, 0.50);
-  background: var(--studio-backdrop);
+  background: var(--studio-backdrop) !important;
+  color: var(--folio-ink);
 }
 
 #compendium-fullscreen-view.folio-preset-sepia {
@@ -1278,7 +1278,7 @@ body {
   --folio-table-even: rgba(120, 102, 78, 0.05);
   --folio-code-bg: #ece4d4;
   --folio-shadow: 0 10px 30px rgba(68, 55, 38, 0.16);
-  background: var(--studio-backdrop);
+  background: var(--studio-backdrop) !important;
   color: #1e293b;
 }
 
@@ -1298,7 +1298,8 @@ body {
   z-index: 2150;
   transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease, margin-top 0.26s cubic-bezier(0.16, 1, 0.3, 1);
 }
-#compendium-fullscreen-view.zen-chrome-hidden .compendium-zen-header {
+#compendium-fullscreen-view.zen-chrome-hidden .compendium-zen-header,
+.compendium-zen-header.comp-zen-header-hidden {
   transform: translateY(-100%);
   margin-top: -52px;
   opacity: 0;
@@ -1420,22 +1421,23 @@ body {
 .comp-document-canvas {
   flex: 1 0 auto;
   padding: 20px 14px 30px 14px;
-  background: transparent;
+  background: transparent !important;
   line-height: 1.82;
   font-size: calc(15px * var(--reader-font-scale));
   color: var(--folio-ink, var(--text-reading));
-  touch-action: pan-y !important;
+  touch-action: pan-y;
 }
 
 .comp-folio-page {
+  position: relative;
   max-width: 740px;
   margin: 0 auto;
-  background: var(--folio-bg, #0b101d);
-  border: 1px solid var(--folio-border, rgba(56, 189, 248, 0.16));
+  background: var(--folio-bg, #0b101d) !important;
+  border: 1px solid var(--folio-border, rgba(56, 189, 248, 0.16)) !important;
   border-radius: 14px;
   padding: 28px 26px 32px 26px;
   box-shadow: var(--folio-shadow, 0 14px 40px rgba(0, 0, 0, 0.65));
-  color: var(--folio-ink, #f1f5f9);
+  color: var(--folio-ink, #f1f5f9) !important;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
@@ -1445,9 +1447,41 @@ body {
   color: var(--folio-ink, #f1f5f9);
 }
 
+.folio-header-meta {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--folio-border, rgba(255, 255, 255, 0.08));
+}
+.folio-doc-title {
+  font-size: calc(22px * var(--reader-font-scale));
+  font-weight: 900;
+  color: var(--folio-heading, #ffffff);
+  margin: 10px 0 4px 0;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+.folio-doc-subtitle {
+  font-size: calc(13px * var(--reader-font-scale));
+  font-weight: 700;
+  color: var(--folio-sub-heading, var(--accent-cyan));
+  font-family: var(--font-mono);
+}
+.folio-prose-body {
+  color: var(--folio-ink, #f1f5f9);
+  line-height: 1.84;
+}
+.comp-mistake-callout-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 /* Warm Sepia / Ivory Paper Specific Contrast Overrides */
 #compendium-fullscreen-view.folio-preset-sepia #comp-studio-doc-content h1,
 #compendium-fullscreen-view.folio-preset-sepia #comp-studio-doc-content h2,
+#compendium-fullscreen-view.folio-preset-sepia #comp-studio-doc-content .folio-doc-title,
 #compendium-fullscreen-view.folio-preset-sepia #comp-studio-doc-content .comp-sheet-main-title {
   color: #0f172a !important;
 }
@@ -1650,134 +1684,188 @@ body {
   transform: scale(1.22);
 }
 
-/* USER-DEFINED CUSTOM OCCLUSION MASKS (.user-recall-mask) & 4-COLOR HIGHLIGHTS (.user-hl) */
+/* /* USER-DEFINED CUSTOM OCCLUSION MASKS (.user-recall-mask) & 4-COLOR HIGHLIGHTS (.user-hl) */
+.folio-word {
+  border-radius: 3px;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
 .user-recall-mask {
-  border-bottom: 1.5px dashed rgba(167, 139, 250, 0.7);
-  background: rgba(124, 58, 237, 0.12);
-  padding: 1px 4px;
+  border-bottom: 1.5px dashed rgba(167, 139, 250, 0.75);
+  background: rgba(124, 58, 237, 0.16);
+  padding: 1px 2px;
   border-radius: 4px;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
 }
 #compendium-fullscreen-view.folio-preset-sepia .user-recall-mask {
-  background: rgba(124, 58, 237, 0.14);
+  background: rgba(124, 58, 237, 0.16);
   border-bottom-color: #6d28d9;
 }
 
+.user-hl,
+.user-highlight,
 mark.user-hl,
 mark.user-highlight {
   color: inherit;
-  padding: 1px 4px;
-  border-radius: 4px;
+  padding: 1px 2px;
+  border-radius: 3px;
   transition: all 0.15s ease;
 }
+.user-hl-yellow,
+.user-hl-amber,
 mark.user-hl-yellow,
 mark.user-hl-amber {
-  background: rgba(250, 204, 21, 0.28);
-  border-bottom: 1.5px solid rgba(250, 204, 21, 0.75);
+  background: rgba(250, 204, 21, 0.30);
+  border-bottom: 1.5px solid rgba(250, 204, 21, 0.80);
 }
+.user-hl-green,
+.user-hl-emerald,
 mark.user-hl-green,
 mark.user-hl-emerald {
-  background: rgba(52, 211, 153, 0.25);
-  border-bottom: 1.5px solid rgba(52, 211, 153, 0.75);
+  background: rgba(52, 211, 153, 0.28);
+  border-bottom: 1.5px solid rgba(52, 211, 153, 0.80);
 }
+.user-hl-cyan,
+.user-hl-blue,
 mark.user-hl-cyan,
 mark.user-hl-blue {
-  background: rgba(56, 189, 248, 0.25);
-  border-bottom: 1.5px solid rgba(56, 189, 248, 0.75);
+  background: rgba(56, 189, 248, 0.28);
+  border-bottom: 1.5px solid rgba(56, 189, 248, 0.80);
 }
+.user-hl-red,
+.user-hl-pink,
+.user-hl-rose,
 mark.user-hl-red,
 mark.user-hl-pink,
 mark.user-hl-rose {
-  background: rgba(251, 113, 133, 0.26);
-  border-bottom: 1.5px solid rgba(251, 113, 133, 0.75);
+  background: rgba(251, 113, 133, 0.28);
+  border-bottom: 1.5px solid rgba(251, 113, 133, 0.80);
 }
+.user-hl-purple,
 mark.user-hl-purple {
-  background: rgba(192, 132, 252, 0.26);
-  border-bottom: 1.5px solid rgba(192, 132, 252, 0.75);
+  background: rgba(192, 132, 252, 0.28);
+  border-bottom: 1.5px solid rgba(192, 132, 252, 0.80);
 }
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-yellow,
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-amber {
-  background: rgba(250, 204, 21, 0.45);
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-yellow,
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-amber {
+  background: rgba(250, 204, 21, 0.48);
 }
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-green,
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-emerald {
-  background: rgba(52, 211, 153, 0.36);
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-green,
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-emerald {
+  background: rgba(52, 211, 153, 0.38);
 }
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-cyan,
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-blue {
-  background: rgba(56, 189, 248, 0.34);
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-cyan,
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-blue {
+  background: rgba(56, 189, 248, 0.36);
 }
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-red,
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-pink,
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-rose {
-  background: rgba(251, 113, 133, 0.34);
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-red,
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-pink,
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-rose {
+  background: rgba(251, 113, 133, 0.36);
 }
-#compendium-fullscreen-view.folio-preset-sepia mark.user-hl-purple {
-  background: rgba(192, 132, 252, 0.34);
+#compendium-fullscreen-view.folio-preset-sepia .user-hl-purple {
+  background: rgba(192, 132, 252, 0.36);
 }
 
-/* Live Brush-Drag Painting Feedback */
-.comp-document-canvas.brush-painting-active {
+/* Disable Native Android/iOS Text Selection & Callout when Highlight or Mask Mode is ON */
+.comp-document-canvas.mask-edit-mode-active,
+.comp-document-canvas.highlight-edit-mode-active,
+.comp-document-canvas.highlight-mode-active,
+.comp-document-canvas.brush-painting-active,
+.comp-document-canvas.mask-edit-mode-active *,
+.comp-document-canvas.highlight-edit-mode-active *,
+.comp-document-canvas.highlight-mode-active *,
+.comp-document-canvas.brush-painting-active * {
   user-select: none !important;
   -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+.comp-document-canvas.brush-painting-active {
   touch-action: none !important;
 }
-.comp-document-canvas.mask-edit-mode-active #comp-studio-doc-body ::selection {
-  background: rgba(245, 158, 11, 0.45);
-  color: #fff;
-}
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="yellow"] #comp-studio-doc-body ::selection,
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="amber"] #comp-studio-doc-body ::selection {
-  background: rgba(250, 204, 21, 0.52);
-}
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="green"] #comp-studio-doc-body ::selection,
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="emerald"] #comp-studio-doc-body ::selection {
-  background: rgba(52, 211, 153, 0.48);
-}
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="cyan"] #comp-studio-doc-body ::selection {
-  background: rgba(56, 189, 248, 0.48);
-}
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="pink"] #comp-studio-doc-body ::selection,
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="rose"] #comp-studio-doc-body ::selection,
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="red"] #comp-studio-doc-body ::selection {
-  background: rgba(251, 113, 133, 0.48);
-}
-.comp-document-canvas.highlight-edit-mode-active[data-active-hl="purple"] #comp-studio-doc-body ::selection {
-  background: rgba(192, 132, 252, 0.48);
-}
-.brush-word-token {
-  border-radius: 3px;
-  transition: background 0.08s ease, box-shadow 0.08s ease;
-}
+
+.folio-word.brush-preview-mask,
+.folio-ws.brush-preview-mask,
+.folio-word.brush-drag-mask,
+.folio-ws.brush-drag-mask,
 .brush-word-token.brush-preview-mask {
-  background: rgba(245, 158, 11, 0.38) !important;
-  box-shadow: 0 0 0 1.5px #f59e0b;
-  color: #fff !important;
+  background: rgba(245, 158, 11, 0.44) !important;
+  box-shadow: 0 2px 0 #f59e0b;
 }
-.brush-word-token.brush-preview-hl-yellow,
-.brush-word-token.brush-preview-hl-amber {
-  background: rgba(250, 204, 21, 0.44) !important;
+.folio-word.brush-drag-hl,
+.folio-ws.brush-drag-hl,
+.folio-word.brush-preview-hl-yellow,
+.folio-ws.brush-preview-hl-yellow,
+.folio-word.brush-preview-hl-amber,
+.folio-ws.brush-preview-hl-amber {
+  background: rgba(250, 204, 21, 0.48) !important;
   box-shadow: 0 2px 0 #facc15;
 }
-.brush-word-token.brush-preview-hl-green,
-.brush-word-token.brush-preview-hl-emerald {
-  background: rgba(52, 211, 153, 0.42) !important;
+.comp-document-canvas[data-active-hl="green"] .folio-word.brush-drag-hl,
+.comp-document-canvas[data-active-hl="green"] .folio-ws.brush-drag-hl,
+.folio-word.brush-preview-hl-green,
+.folio-ws.brush-preview-hl-green,
+.folio-word.brush-preview-hl-emerald,
+.folio-ws.brush-preview-hl-emerald {
+  background: rgba(52, 211, 153, 0.45) !important;
   box-shadow: 0 2px 0 #34d399;
 }
-.brush-word-token.brush-preview-hl-cyan {
-  background: rgba(56, 189, 248, 0.42) !important;
+.comp-document-canvas[data-active-hl="cyan"] .folio-word.brush-drag-hl,
+.comp-document-canvas[data-active-hl="cyan"] .folio-ws.brush-drag-hl,
+.folio-word.brush-preview-hl-cyan,
+.folio-ws.brush-preview-hl-cyan {
+  background: rgba(56, 189, 248, 0.45) !important;
   box-shadow: 0 2px 0 #38bdf8;
 }
-.brush-word-token.brush-preview-hl-pink,
-.brush-word-token.brush-preview-hl-rose,
-.brush-word-token.brush-preview-hl-red {
-  background: rgba(251, 113, 133, 0.42) !important;
+.comp-document-canvas[data-active-hl="pink"] .folio-word.brush-drag-hl,
+.comp-document-canvas[data-active-hl="pink"] .folio-ws.brush-drag-hl,
+.comp-document-canvas[data-active-hl="red"] .folio-word.brush-drag-hl,
+.comp-document-canvas[data-active-hl="red"] .folio-ws.brush-drag-hl,
+.folio-word.brush-preview-hl-pink,
+.folio-ws.brush-preview-hl-pink,
+.folio-word.brush-preview-hl-rose,
+.folio-ws.brush-preview-hl-rose,
+.folio-word.brush-preview-hl-red,
+.folio-ws.brush-preview-hl-red {
+  background: rgba(251, 113, 133, 0.45) !important;
   box-shadow: 0 2px 0 #fb7185;
 }
-.brush-word-token.brush-preview-hl-purple {
-  background: rgba(192, 132, 252, 0.42) !important;
+.comp-document-canvas[data-active-hl="purple"] .folio-word.brush-drag-hl,
+.comp-document-canvas[data-active-hl="purple"] .folio-ws.brush-drag-hl,
+.folio-word.brush-preview-hl-purple,
+.folio-ws.brush-preview-hl-purple {
+  background: rgba(192, 132, 252, 0.45) !important;
   box-shadow: 0 2px 0 #c084fc;
 }
+
+/* Margin Rail Chips for Custom Masks & Highlights */
+.margin-ann-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  margin: 2px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  transition: all 0.15s ease;
+}
+.margin-ann-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--status-red);
+}
+.margin-ann-chip.mask-chip {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: rgba(167, 139, 250, 0.45);
+  color: var(--accent-purple-light);
+}
+.margin-ann-chip.hl-chip-yellow { background: rgba(250, 204, 21, 0.22); border-color: rgba(250, 204, 21, 0.5); color: #fde047; }
+.margin-ann-chip.hl-chip-green { background: rgba(52, 211, 153, 0.22); border-color: rgba(52, 211, 153, 0.5); color: #6ee7b7; }
+.margin-ann-chip.hl-chip-pink, .margin-ann-chip.hl-chip-red { background: rgba(251, 113, 133, 0.22); border-color: rgba(251, 113, 133, 0.5); color: #fda4af; }
+.margin-ann-chip.hl-chip-purple { background: rgba(192, 132, 252, 0.22); border-color: rgba(192, 132, 252, 0.5); color: #d8b4fe; }
+.margin-ann-chip.hl-chip-cyan { background: rgba(56, 189, 248, 0.22); border-color: rgba(56, 189, 248, 0.5); color: #7dd3fc; }
 
 /* GoodNotes / Apple Notes Page-Anchored Stylus Ink Canvas & Toolbar */
 .comp-folio-ink-canvas {
@@ -1795,26 +1883,35 @@ mark.user-hl-purple {
   touch-action: none;
   cursor: crosshair;
 }
+.comp-folio-page.sheet-ink-mode-active.stylus-only-scroll .comp-folio-ink-canvas {
+  pointer-events: none !important;
+  touch-action: pan-y pinch-zoom !important;
+}
+.folio-header-meta,
+.folio-sheet-nav-footer,
+.sheet-toc-pill-wrap,
+.comp-recall-hud-bar,
+.comp-trap-alert-banner {
+  position: relative;
+  z-index: 60;
+}
 .comp-folio-ink-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: 14px;
-  background: rgba(10, 16, 30, 0.92);
-  border: 1px solid rgba(56, 189, 248, 0.4);
-  border-radius: 10px;
-  position: sticky;
-  top: 8px;
-  z-index: 40;
+  padding: 6px 14px;
+  background: rgba(10, 16, 30, 0.96);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.45);
+  flex-shrink: 0;
+  z-index: 2145;
   backdrop-filter: blur(12px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
 }
 #compendium-fullscreen-view.folio-preset-sepia .comp-folio-ink-toolbar {
-  background: rgba(238, 226, 205, 0.95);
-  border-color: rgba(124, 58, 237, 0.35);
+  background: rgba(238, 226, 205, 0.97);
+  border-bottom-color: rgba(120, 102, 78, 0.35);
 }
 .ink-tool-group {
   display: inline-flex;
@@ -1838,18 +1935,21 @@ mark.user-hl-purple {
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
 }
-.ink-swatch {
+.ink-swatch,
+.folio-ink-swatch {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  border: 2px solid rgba(255, 255, 255, 0.3);
   cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  padding: 0;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.ink-swatch.active {
+.ink-swatch.active,
+.folio-ink-swatch.active {
   transform: scale(1.22);
   border-color: #ffffff;
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.7);
 }
 .ink-size-btn {
   background: rgba(255, 255, 255, 0.06);
@@ -1869,6 +1969,7 @@ mark.user-hl-purple {
 }
 
 /* Interactive Free-Floating & Inline Media / Sticky Callout Cards on Folio */
+.comp-floating-media-layer,
 .comp-folio-floating-media-layer {
   position: absolute;
   top: 0;
@@ -1877,6 +1978,12 @@ mark.user-hl-purple {
   height: 100%;
   z-index: 30;
   pointer-events: none;
+}
+.comp-inline-media-container {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 .sheet-media-card {
   pointer-events: auto;

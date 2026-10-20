@@ -22,8 +22,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js" crossorigin="anonymous"></script>
 
-  <!-- External Stylesheet with Cache-Buster v8.0 -->
-  <link rel="stylesheet" href="./style.css?v=8.0">
+  <!-- External Stylesheet with Cache-Buster v8.4 -->
+  <link rel="stylesheet" href="./style.css?v=8.4">
 </head>
 <body>
   <!-- MOBILE ON-SCREEN DEBUGGER (Auto-hides on clean boot) -->
@@ -981,7 +981,10 @@
             <span style="font-size:13.5px; font-weight:800; color:var(--folio-heading, #fff); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="comp-studio-header-title">Living Knowledge Studio</span>
             <span style="font-size:10px; color:var(--accent-cyan); flex-shrink:0;">▾</span>
           </div>
-          <div style="font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="comp-studio-header-sub">Slide to Highlight/Mask • Page-Anchored Stylus Ink</div>
+          <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+            <span style="font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="comp-studio-header-sub">Slide to Highlight/Mask • Page-Anchored Stylus Ink</span>
+            <span id="comp-zen-last-opened-badge" class="badge" style="font-size:9px; padding:1px 6px; flex-shrink:0;"></span>
+          </div>
         </div>
       </div>
 
@@ -1054,9 +1057,17 @@
     <!-- Page-Anchored Stylus Ink Floating Toolbar (Visible when ✏️ Sheet Ink Mode is ON) -->
     <div id="comp-folio-ink-toolbar" class="comp-folio-ink-toolbar" style="display:none;">
       <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-        <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-folio-pen" onclick="CGL_OS.setCompendiumFolioInkTool('PEN')">🖊️ Pen</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-marker" onclick="CGL_OS.setCompendiumFolioInkTool('MARKER')">🖍️ Marker</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('ERASER')">🧽 Eraser</button>
+        <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-folio-pen" onclick="CGL_OS.setCompendiumFolioInkTool('PEN')" title="Fine Precision Pen">🖊️ Pen</button>
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-marker" onclick="CGL_OS.setCompendiumFolioInkTool('MARKER')" title="Chisel Marker Highlighter">🖍️ Marker</button>
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-stroke-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('STROKE_ERASER')" title="Tap or swipe across any specific Marker or Pen stroke to remove it">🧽 Stroke Eraser</button>
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('ERASER')" title="Wide Area Pixel Eraser">🧼 Area Eraser</button>
+
+        <div style="display:inline-flex; align-items:center; gap:3px; padding:0 5px; border-left:1px solid rgba(255,255,255,0.12);" title="Stroke / Eraser Size (S / M / L / XL)">
+          <button class="btn btn-secondary ink-size-btn" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(1.8, this)">S</button>
+          <button class="btn btn-cyan ink-size-btn active" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(3.0, this)">M</button>
+          <button class="btn btn-secondary ink-size-btn" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(5.0, this)">L</button>
+          <button class="btn btn-secondary ink-size-btn" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(8.0, this)">XL</button>
+        </div>
 
         <div style="display:inline-flex; align-items:center; gap:4px; padding:0 6px; border-left:1px solid rgba(255,255,255,0.12); border-right:1px solid rgba(255,255,255,0.12);">
           <button class="folio-ink-swatch active" data-inkcolor="#38bdf8" style="background:#38bdf8;" onclick="CGL_OS.setCompendiumFolioInkColor('#38bdf8', this)" title="Sky Cyan Ink"></button>
@@ -1071,8 +1082,14 @@
           ✍️ Finger &amp; Stylus: Write
         </button>
 
-        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.undoCompendiumFolioInkStroke()" title="Undo Last Stroke">↩ Undo</button>
+        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.undoCompendiumFolioInkStroke()" title="Undo Last Stroke, Erased Item, or Restore Cleared Ink">↩ Undo</button>
         <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px; color:var(--status-red);" onclick="CGL_OS.clearCompendiumFolioInk()" title="Clear All Sheet Ink">🗑 Clear</button>
+
+        <div style="display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,0.12);" title="Switch Sheets Directly from Ink Toolbar">
+          <button class="btn btn-secondary" style="padding:4px 7px; font-size:10.5px;" onclick="CGL_OS.navCompStudioSheet(-1)" title="Previous Sheet">◀ Prev</button>
+          <button class="btn btn-secondary" style="padding:4px 7px; font-size:10.5px;" onclick="CGL_OS.navCompStudioSheet(1)" title="Next Sheet">Next ▶</button>
+        </div>
+
         <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.toggleCompendiumFolioInkMode(false)">✓ Done</button>
       </div>
     </div>
@@ -1245,6 +1262,51 @@
       </div>
 
       <div id="all-sheets-index-list" style="flex:1; overflow-y:auto; padding-right:4px;"></div>
+    </div>
+  </div>
+
+  <!-- Modal: Sheet Media & Clipboard Visual Studio (#modal-sheet-media-studio) -->
+  <div class="modal-overlay child-layer" id="modal-sheet-media-studio">
+    <div class="modal-window" style="max-width:520px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+        <div>
+          <h3 style="font-size:16px; font-weight:800; color:var(--accent-cyan);">🖼️ Insert or Paste Sheet Visual</h3>
+          <span style="font-size:11px; color:var(--text-muted);">Add movable floating cards, inline diagrams, or sticky callouts</span>
+        </div>
+        <button class="btn btn-secondary" style="padding:4px 8px;" onclick="document.getElementById('modal-sheet-media-studio').classList.remove('active')">✕</button>
+      </div>
+
+      <div class="form-group" style="margin-bottom:10px;">
+        <label>Placement Mode on Sheet</label>
+        <select id="sheet-media-insert-mode" class="form-control" style="padding:8px 10px; font-size:12.5px;">
+          <option value="floating" selected>🪟 Free-Floating Movable &amp; Resizable Card (GoodNotes Style)</option>
+          <option value="inline">📌 Inline Document Block (Snapped Below Sheet Text)</option>
+        </select>
+      </div>
+
+      <!-- Direct Paste Zone for Android / Tablet / Desktop Clipboard -->
+      <div id="sheet-media-paste-zone" tabindex="0" contenteditable="true"
+           style="background:rgba(56,189,248,0.06); border:1.5px dashed rgba(56,189,248,0.45); border-radius:10px; padding:16px 12px; text-align:center; color:var(--accent-cyan); font-size:12.5px; font-weight:700; margin-bottom:12px; cursor:pointer; outline:none;"
+           onpaste="CGL_OS.handleMediaModalPasteEvent(event)">
+        📋 Tap Here &amp; Long-Press "Paste" (or Ctrl+V) to Drop Clipboard Image Directly
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+        <button class="btn btn-cyan" style="padding:10px; font-size:12px;" onclick="document.getElementById('modal-sheet-media-studio').classList.remove('active'); CGL_OS.triggerCompSheetImageUpload()">
+          📂 Upload Image File
+        </button>
+        <button class="btn btn-amber" style="padding:10px; font-size:12px;" onclick="document.getElementById('modal-sheet-media-studio').classList.remove('active'); CGL_OS.addFloatingStickyNoteCard()">
+          📌 Add Sticky Callout
+        </button>
+      </div>
+
+      <div class="form-group" style="margin-bottom:0;">
+        <label>Or Insert Image by URL / Data URI</label>
+        <div style="display:grid; grid-template-columns:1fr auto; gap:6px;">
+          <input type="text" id="sheet-media-url-input" class="form-control" style="padding:8px 10px; font-size:12px;" placeholder="https://... or data:image/...">
+          <button class="btn btn-secondary" style="padding:8px 12px; font-size:12px;" onclick="CGL_OS.insertSheetMediaFromUrlInput()">Insert URL</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2330,7 +2392,7 @@
   <!-- ==================== PUBLISHING-GRADE TYPESET PRINT ROOT ==================== -->
   <div id="print-sheet-root" style="display:none;" class="print-page"></div>
 
-  <!-- Master JavaScript Controller with Cache-Buster Parameter v8.0 -->
-  <script src="./app.js?v=8.0"></script>
+  <!-- Master JavaScript Controller with Cache-Buster Parameter v8.4 -->
+  <script src="./app.js?v=8.4"></script>
 </body>
 </html>
