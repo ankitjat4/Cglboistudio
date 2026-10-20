@@ -239,6 +239,8 @@ const CGL_OS = (() => {
   let practiceSelectedDifficulties = new Set();
   let practiceShowcaseRevealedIds = new Set();
   let practiceShowcaseSelectedOptionByQ = {};
+  let practiceSortBy = "HIERARCHY";
+  let practiceSavedPresets = [];
   let practiceCurrentPage = 1;
   const PRACTICE_PAGE_SIZE = 20;
 
@@ -255,6 +257,7 @@ const CGL_OS = (() => {
   let compendiumMaskEditMode = false;
   let compendiumAutoBlurAll = false;
   let activeSheetCustomMasks = [];
+  let compendiumZoomScale = 1.0;
 
   // Split-Screen Sheet + Question Drawer State
   let activeSplitSheetId = null;
@@ -266,8 +269,9 @@ const CGL_OS = (() => {
 
   // Global Scroll-Synchronized OnePlus Stylo 2 / Tablet Ink State & Per-Item Memory
   let scratchpadActive = false;
-  let scratchpadScrollPassthrough = false;
+  let scratchpadScrollPassthrough = true;
   let scratchpadFingerDraw = false; // Default false: Stylus draws, 1-Finger scrolls naturally
+  let scratchpadLaserMode = false;
   let scratchpadMode = "PEN";
   let scratchpadColor = "#38bdf8";
   let scratchpadDrawing = false;
@@ -1741,49 +1745,74 @@ const CGL_OS = (() => {
       }
     },
 
+    isKeyRestedAndUnderRpm(k, now) {
+      if (!k || k.enabled === false) return { ready: false, reason: "DISABLED" };
+      if (k.cooldownUntil && k.cooldownUntil > now) return { ready: false, reason: "COOLDOWN" };
+
+      if (!Array.isArray(k.requestTimestamps)) k.requestTimestamps = [];
+      k.requestTimestamps = k.requestTimestamps.filter(ts => now - ts < 60000);
+
+      const maxRpm = k.maxRpm || ((k.provider || "GEMINI").toUpperCase() === "GROQ" ? 20 : 10);
+      if (k.requestTimestamps.length >= maxRpm) {
+        k.cooldownUntil = k.requestTimestamps[0] + 61000;
+        k.lastStatus = "RPM_CAP";
+        return { ready: false, reason: "RPM_CAP" };
+      }
+
+      const minGapMs = (k.minGapSec || 6) * 1000;
+      if (k.lastUsedEpoch && (now - k.lastUsedEpoch) < minGapMs) {
+        return { ready: false, reason: "BREATHER" };
+      }
+
+      return { ready: true, reason: "READY" };
+    },
+
     buildOrderedKeyQueue(taskType, manualKeyId = null) {
       const now = Date.now();
-      const available = this.keys.filter(k => k.enabled !== false && (!k.cooldownUntil || k.cooldownUntil <= now));
-      const queue = [];
+      const restedQueue = [];
+      const breatherFallbackQueue = [];
       const seen = new Set();
 
-      const pushUnique = (k) => {
-        if (k && !seen.has(k.id)) {
+      const considerKey = (k, forceImmediate = false) => {
+        if (!k || seen.has(k.id) || k.enabled === false) return;
+        if (k.cooldownUntil && k.cooldownUntil > now && !forceImmediate) return;
+
+        const check = this.isKeyRestedAndUnderRpm(k, now);
+        if (check.ready || forceImmediate) {
           seen.add(k.id);
-          queue.push(k);
+          restedQueue.push(k);
+        } else if (check.reason === "BREATHER") {
+          seen.add(k.id);
+          breatherFallbackQueue.push(k);
         }
       };
 
       // 1. Explicit Manual Override from UI Dropdown
       if (manualKeyId && manualKeyId !== "WATERFALL_AUTO") {
         const manualKey = this.keys.find(k => k.id === manualKeyId);
-        if (manualKey) pushUnique(manualKey);
+        if (manualKey) considerKey(manualKey, true);
       }
 
       // 2. Task-Specific Allocated Key
       const mappedId = this.taskRoutes[taskType];
       if (mappedId && mappedId !== "WATERFALL_AUTO") {
-        const taskKey = available.find(k => k.id === mappedId) || this.keys.find(k => k.id === mappedId);
-        if (taskKey) pushUnique(taskKey);
+        const taskKey = this.keys.find(k => k.id === mappedId);
+        if (taskKey) considerKey(taskKey, false);
       }
 
-      // 3. Priority Waterfall: HIGH -> MEDIUM -> LOW
+      // 3. Strict Top-Down Priority Waterfall (#1 to #N within HIGH -> MEDIUM -> LOW, no round-robin rotation!)
       const tierOrder = taskType === "SHEET_EDIT"
         ? ["LOW", "MEDIUM", "HIGH"]
         : ["HIGH", "MEDIUM", "LOW"];
 
       tierOrder.forEach(tier => {
-        const tierKeys = available.filter(k => k.priority === tier);
-        if (tierKeys.length > 0) {
-          const offset = this.roundRobinIndex % tierKeys.length;
-          for (let i = 0; i < tierKeys.length; i++) {
-            pushUnique(tierKeys[(offset + i) % tierKeys.length]);
-          }
+        const tierKeys = this.keys.filter(k => k.priority === tier);
+        for (let i = 0; i < tierKeys.length; i++) {
+          considerKey(tierKeys[i], false);
         }
       });
 
-      this.roundRobinIndex++;
-      return queue;
+      return [...restedQueue, ...breatherFallbackQueue];
     },
 
     async callSingleProviderKey(keyObj, systemPrompt, userPrompt, expectJson = false) {
@@ -1794,6 +1823,12 @@ const CGL_OS = (() => {
         const provider = (keyObj.provider || "GEMINI").toUpperCase();
         const model = (keyObj.model || "gemini-2.5-flash").trim();
         const secret = (keyObj.secret || "").trim();
+
+        const now = Date.now();
+        keyObj.lastUsedEpoch = now;
+        if (!Array.isArray(keyObj.requestTimestamps)) keyObj.requestTimestamps = [];
+        keyObj.requestTimestamps = keyObj.requestTimestamps.filter(ts => now - ts < 60000);
+        keyObj.requestTimestamps.push(now);
 
         if (provider === "GEMINI") {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(secret)}`;
@@ -1816,8 +1851,14 @@ const CGL_OS = (() => {
           });
 
           if (!res.ok) {
+            const retryHeader = res.headers ? res.headers.get("Retry-After") : null;
             const errTxt = await res.text();
-            throw new Error(`HTTP ${res.status}: ${errTxt.slice(0, 120)}`);
+            const err = new Error(`HTTP ${res.status}: ${errTxt.slice(0, 120)}`);
+            err.status = res.status;
+            if (retryHeader && !isNaN(parseInt(retryHeader, 10))) {
+              err.retryAfterSec = parseInt(retryHeader, 10);
+            }
+            throw err;
           }
           const data = await res.json();
           const textOut = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -1851,8 +1892,14 @@ const CGL_OS = (() => {
           });
 
           if (!res.ok) {
+            const retryHeader = res.headers ? res.headers.get("Retry-After") : null;
             const errTxt = await res.text();
-            throw new Error(`HTTP ${res.status}: ${errTxt.slice(0, 120)}`);
+            const err = new Error(`HTTP ${res.status}: ${errTxt.slice(0, 120)}`);
+            err.status = res.status;
+            if (retryHeader && !isNaN(parseInt(retryHeader, 10))) {
+              err.retryAfterSec = parseInt(retryHeader, 10);
+            }
+            throw err;
           }
           const data = await res.json();
           const textOut = data?.choices?.[0]?.message?.content || "";
@@ -1901,9 +1948,11 @@ const CGL_OS = (() => {
         } catch (err) {
           lastError = err;
           keyObj.lastError = err.message;
-          keyObj.cooldownUntil = Date.now() + 60000; // 60s automatic cooldown
+          const isRateLimit = err.status === 429 || /429|rate|quota|exhausted/i.test(err.message);
+          const cooldownSec = err.retryAfterSec || (isRateLimit ? 65 : 30);
+          keyObj.cooldownUntil = Date.now() + (cooldownSec * 1000);
           keyObj.lastStatus = "COOLDOWN";
-          console.warn(`Waterfall failover: Key '${keyObj.label}' failed (${err.message}). Trying next key...`);
+          console.warn(`Waterfall failover: Key '${keyObj.label}' failed (${err.message}). Cooldown ${cooldownSec}s. Trying next key...`);
         }
       }
 
@@ -2152,9 +2201,19 @@ const CGL_OS = (() => {
         keys.forEach((k, idx) => {
           const onCooldown = k.cooldownUntil && k.cooldownUntil > now;
           const remSec = onCooldown ? Math.ceil((k.cooldownUntil - now) / 1000) : 0;
-          const statusHtml = onCooldown
-            ? `<span class="badge" style="background:rgba(245,158,11,0.2); color:var(--status-amber);">\u23F3 Cooldown (${remSec}s)</span>`
-            : `<span class="badge" style="background:rgba(16,185,129,0.2); color:var(--status-green);">\uD83D\uDFE2 Ready</span>`;
+          const recentReqs = Array.isArray(k.requestTimestamps)
+            ? k.requestTimestamps.filter(ts => now - ts < 60000).length
+            : 0;
+          const maxRpm = k.maxRpm || ((k.provider || "GEMINI").toUpperCase() === "GROQ" ? 20 : 10);
+          const inBreather = !onCooldown && k.lastUsedEpoch && (now - k.lastUsedEpoch) < ((k.minGapSec || 6) * 1000);
+          const breatherSec = inBreather ? Math.ceil((((k.minGapSec || 6) * 1000) - (now - k.lastUsedEpoch)) / 1000) : 0;
+
+          let statusHtml = `<span class="badge" style="background:rgba(16,185,129,0.2); color:var(--status-green);">\uD83D\uDFE2 Ready (${recentReqs}/${maxRpm} RPM)</span>`;
+          if (onCooldown) {
+            statusHtml = `<span class="badge" style="background:rgba(245,158,11,0.2); color:var(--status-amber);">\u23F3 Cooldown (${remSec}s \u2022 ${recentReqs}/${maxRpm} RPM)</span>`;
+          } else if (inBreather) {
+            statusHtml = `<span class="badge" style="background:rgba(56,189,248,0.2); color:var(--accent-cyan);">\uD83D\uDCA8 Breather (${breatherSec}s \u2022 ${recentReqs}/${maxRpm} RPM)</span>`;
+          }
 
           const isRevealed = revealedApiKeyIds.has(k.id);
           const displaySecret = isRevealed ? (k.secret || "") : maskSecretKey(k.secret);
@@ -2167,6 +2226,7 @@ const CGL_OS = (() => {
           row.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
               <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span class="badge" style="background:#1e293b; color:var(--text-reading); font-family:var(--font-mono);">#${idx + 1}</span>
                 <span class="api-tier-badge tier-${k.priority}">${k.priority}</span>
                 <b style="font-size:12.5px; color:#fff;">${k.label}</b>
                 <span style="font-size:11px; font-family:var(--font-mono); color:var(--accent-cyan);">${k.provider} \u2022 ${k.model}</span>
@@ -4412,6 +4472,15 @@ Return ONLY valid JSON.`;
           if (resp.struck && resp.struck.includes(idx)) return;
           if (navigator.vibrate) navigator.vibrate(15);
 
+          // 1-Tap Unselect when clicking already-selected option
+          if (resp.selectedOption === idx) {
+            resp.selectedOption = null;
+            if (resp.status === "answered") resp.status = "unanswered";
+            persistActiveSessionSilently();
+            renderActiveExamQuestion();
+            return;
+          }
+
           if (resp.initialOption === null) resp.initialOption = idx;
           if (resp.selectedOption !== null && resp.selectedOption !== idx) resp.switches++;
 
@@ -5434,9 +5503,21 @@ Explanation: ${parentQ.explanation}`;
       scratchpadDrawing = false;
       if (overlay) overlay.classList.remove("pen-active-stroke");
       if (currentStroke.length > 0) {
-        scratchpadStrokes.push([...currentStroke]);
+        const committedStroke = [...currentStroke];
+        scratchpadStrokes.push(committedStroke);
         inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
         currentStroke = [];
+
+        if (scratchpadLaserMode) {
+          setTimeout(() => {
+            const idx = scratchpadStrokes.indexOf(committedStroke);
+            if (idx !== -1) {
+              scratchpadStrokes.splice(idx, 1);
+              inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
+              redrawScratchpad();
+            }
+          }, 2800);
+        }
       }
       redrawScratchpad();
     };
@@ -5511,6 +5592,7 @@ Explanation: ${parentQ.explanation}`;
     const allStrokes = currentStroke.length > 0 ? [...scratchpadStrokes, currentStroke] : scratchpadStrokes;
     allStrokes.forEach(stroke => {
       if (!stroke || stroke.length === 0) return;
+      ctx.save();
       ctx.beginPath();
       const isEraser = stroke[0].mode === "ERASER";
       const strokeCol = stroke[0].color || "#38bdf8";
@@ -5521,11 +5603,17 @@ Explanation: ${parentQ.explanation}`;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
+      if (scratchpadLaserMode && !isEraser) {
+        ctx.shadowColor = strokeCol;
+        ctx.shadowBlur = 10;
+      }
+
       ctx.moveTo(stroke[0].x - sLeft, stroke[0].y - sTop);
       for (let i = 1; i < stroke.length; i++) {
         ctx.lineTo(stroke[i].x - sLeft, stroke[i].y - sTop);
       }
       ctx.stroke();
+      ctx.restore();
     });
     ctx.globalCompositeOperation = "source-over";
   }
@@ -5537,15 +5625,13 @@ Explanation: ${parentQ.explanation}`;
     overlay.classList.toggle("active", scratchpadActive);
 
     if (scratchpadActive) {
-      // Default to Draw ON when opening the Sketchpad so drawing works immediately,
-      // and 1 tap on "Scroll ON" lets all scrolls, swipes, and clicks pass straight through!
-      scratchpadFingerDraw = true;
+      // Preserve OnePlus Stylo 2 / Tablet natural workflow:
+      // Default scratchpadFingerDraw = false (1-finger scrolls & taps options naturally, while Stylo 2 pen draws immediately on contact!)
       syncScratchpadModeUI();
       initScratchpadCanvasListeners();
       setTimeout(resizeScratchpadCanvas, 20);
     } else {
       scratchpadDrawing = false;
-      scratchpadScrollPassthrough = false;
       overlay.classList.remove("finger-draw-enabled", "scroll-passthrough", "pen-active-stroke");
     }
 
@@ -5553,6 +5639,15 @@ Explanation: ${parentQ.explanation}`;
     if (btn) btn.classList.toggle("active", scratchpadActive);
     const dojoBtn = document.getElementById("btn-dojo-scratchpad");
     if (dojoBtn) dojoBtn.classList.toggle("active", scratchpadActive);
+  }
+
+  function toggleScratchpadLaserMode(forceState = null) {
+    scratchpadLaserMode = typeof forceState === "boolean" ? forceState : !scratchpadLaserMode;
+    const btn = document.getElementById("btn-scratch-laser");
+    if (btn) {
+      btn.className = scratchpadLaserMode ? "btn btn-purple" : "btn btn-secondary";
+      btn.innerText = scratchpadLaserMode ? "\u2728 Laser ON (3s)" : "\u2728 Laser (3s)";
+    }
   }
 
   function toggleScratchpadFingerDraw(forceDrawState = null) {
@@ -6837,14 +6932,122 @@ Explanation: ${parentQ.explanation}`;
     practiceSelectedStatuses.clear();
     practiceSelectedDifficulties.clear();
     practiceActiveQuickFilter = "ALL";
+    practiceSortBy = "HIERARCHY";
     practiceCurrentPage = 1;
 
     safeSetValue("practice-search-input", "");
+    safeSetValue("practice-sort-select", "HIERARCHY");
     document.querySelectorAll('[id^="pill-filter-"], [id^="pill-diff-"]').forEach(el => el.classList.remove("active"));
     const allBtn = document.getElementById("pill-filter-all");
     if (allBtn) allBtn.classList.add("active");
 
     renderPracticeQuestionsTable();
+  }
+
+  function handlePracticeSortChange(val) {
+    practiceSortBy = val || "HIERARCHY";
+    practiceCurrentPage = 1;
+    renderPracticeQuestionsTable();
+  }
+
+  async function loadPracticeSavedPresets() {
+    const rec = await getRecord("store_config", "practice_filter_presets");
+    practiceSavedPresets = (rec && Array.isArray(rec.value)) ? rec.value : [];
+    renderPracticeSavedPresetsBar();
+  }
+
+  function renderPracticeSavedPresetsBar() {
+    const row = document.getElementById("practice-saved-presets-row");
+    if (!row) return;
+    row.innerHTML = "";
+    if (!Array.isArray(practiceSavedPresets) || practiceSavedPresets.length === 0) {
+      row.innerHTML = `<span style="font-size:10.5px; color:var(--text-dim);">No saved filter presets yet. Select chapters/statuses above and tap <b>+ Save Filter Preset</b>.</span>`;
+      return;
+    }
+
+    practiceSavedPresets.forEach(p => {
+      const chip = document.createElement("div");
+      chip.className = "anchor-pill";
+      chip.style.cssText = "display:inline-flex; align-items:center; gap:6px; padding:3px 9px; font-size:10.5px; cursor:pointer;";
+      chip.innerHTML = `
+        <span onclick="CGL_OS.applyPracticeFilterPreset('${p.id}')">\uD83D\uDD16 ${p.name}</span>
+        <span style="color:var(--status-red); font-weight:900; padding-left:4px;" onclick="event.stopPropagation(); CGL_OS.deletePracticeFilterPreset('${p.id}')" title="Delete Preset">\u00D7</span>
+      `;
+      row.appendChild(chip);
+    });
+  }
+
+  async function saveCurrentPracticeFilterPreset() {
+    const defaultLabel = [
+      ...Array.from(practiceSelectedSubjects),
+      ...Array.from(practiceSelectedChapters).slice(0, 2),
+      ...Array.from(practiceSelectedStatuses)
+    ].join(" + ") || "Custom Filter Mix";
+
+    const name = prompt("Enter a name for this Practice Filter Preset:", defaultLabel);
+    if (!name || !name.trim()) return;
+
+    const preset = {
+      id: "fpreset_" + Date.now(),
+      name: name.trim(),
+      subjects: Array.from(practiceSelectedSubjects),
+      chapters: Array.from(practiceSelectedChapters),
+      subtopics: Array.from(practiceSelectedSubtopics),
+      statuses: Array.from(practiceSelectedStatuses),
+      difficulties: Array.from(practiceSelectedDifficulties),
+      sortBy: practiceSortBy || "HIERARCHY"
+    };
+
+    practiceSavedPresets.push(preset);
+    await putRecord("store_config", { key: "practice_filter_presets", value: practiceSavedPresets });
+    renderPracticeSavedPresetsBar();
+  }
+
+  function applyPracticeFilterPreset(presetId) {
+    const p = practiceSavedPresets.find(item => item.id === presetId);
+    if (!p) return;
+
+    practiceSelectedSubjects = new Set(p.subjects || []);
+    practiceSelectedChapters = new Set(p.chapters || []);
+    practiceSelectedSubtopics = new Set(p.subtopics || []);
+    practiceSelectedStatuses = new Set(p.statuses || []);
+    practiceSelectedDifficulties = new Set(p.difficulties || []);
+    practiceSortBy = p.sortBy || "HIERARCHY";
+    practiceCurrentPage = 1;
+
+    safeSetValue("practice-sort-select", practiceSortBy);
+    document.querySelectorAll('[id^="pill-filter-"], [id^="pill-diff-"]').forEach(el => el.classList.remove("active"));
+
+    if (practiceSelectedStatuses.size === 0) {
+      document.getElementById("pill-filter-all")?.classList.add("active");
+    } else {
+      const statusToBtnId = {
+        UNSEEN: "pill-filter-unseen",
+        WEAK: "pill-filter-weak",
+        WRONG: "pill-filter-wrong",
+        SLOW: "pill-filter-slow",
+        STARRED: "pill-filter-starred",
+        HAS_CUE: "pill-filter-hascue",
+        IGNORED: "pill-filter-ignored",
+        WITH_SHEET: "pill-filter-withsheet"
+      };
+      practiceSelectedStatuses.forEach(st => {
+        const bid = statusToBtnId[st];
+        if (bid) document.getElementById(bid)?.classList.add("active");
+      });
+    }
+
+    practiceSelectedDifficulties.forEach(df => {
+      document.getElementById(`pill-diff-${df.toLowerCase()}`)?.classList.add("active");
+    });
+
+    renderPracticeQuestionsTable();
+  }
+
+  async function deletePracticeFilterPreset(presetId) {
+    practiceSavedPresets = practiceSavedPresets.filter(item => item.id !== presetId);
+    await putRecord("store_config", { key: "practice_filter_presets", value: practiceSavedPresets });
+    renderPracticeSavedPresetsBar();
   }
 
   function setPracticeLabViewMode(mode) {
@@ -6881,8 +7084,13 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function selectShowcaseCardOption(qId, optIdx) {
-    practiceShowcaseSelectedOptionByQ[qId] = optIdx;
-    practiceShowcaseRevealedIds.add(qId);
+    if (practiceShowcaseSelectedOptionByQ[qId] === optIdx) {
+      delete practiceShowcaseSelectedOptionByQ[qId];
+      practiceShowcaseRevealedIds.delete(qId);
+    } else {
+      practiceShowcaseSelectedOptionByQ[qId] = optIdx;
+      practiceShowcaseRevealedIds.add(qId);
+    }
     renderPracticeQuestionsTable();
   }
 
@@ -7075,6 +7283,7 @@ Explanation: ${parentQ.explanation}`;
           if (stFilter === "SLOW" && (!pStats || attempts === 0 || Math.round(pStats.totalTime / attempts) <= parSec * 1.35)) return false;
           if (stFilter === "IGNORED" && (!pStats || pStats.lastAttemptEpoch >= sevenDaysAgo)) return false;
           if (stFilter === "WITH_SHEET" && (!q.conceptId && (!Array.isArray(q.conceptIds) || q.conceptIds.length === 0))) return false;
+          if (stFilter === "HAS_CUE" && (!q.annotation || !q.annotation.trim())) return false;
         }
       }
 
@@ -7097,8 +7306,35 @@ Explanation: ${parentQ.explanation}`;
     const container = document.getElementById("practice-question-rows");
     if (!container) return;
 
-    const filtered = sortQuestionsHierarchical(await getCurrentlyFilteredPracticeQuestions());
+    renderPracticeSavedPresetsBar();
+    const rawFiltered = await getCurrentlyFilteredPracticeQuestions();
     const perfMap = await PerformanceService.getQuestionPerformanceMap();
+
+    let filtered = [];
+    if (practiceSortBy === "WEAKEST") {
+      filtered = [...rawFiltered].sort((a, b) => {
+        const pa = perfMap[a.id];
+        const pb = perfMap[b.id];
+        const accA = pa && pa.attempts > 0 ? (pa.correct / pa.attempts) : -1;
+        const accB = pb && pb.attempts > 0 ? (pb.correct / pb.attempts) : -1;
+        if (accA === -1 && accB === -1) return 0;
+        if (accA === -1) return 1;
+        if (accB === -1) return -1;
+        return accA - accB;
+      });
+    } else if (practiceSortBy === "SLOWEST") {
+      filtered = [...rawFiltered].sort((a, b) => {
+        const pa = perfMap[a.id];
+        const pb = perfMap[b.id];
+        const avgA = pa && pa.attempts > 0 ? (pa.totalTime / pa.attempts) : -1;
+        const avgB = pb && pb.attempts > 0 ? (pb.totalTime / pb.attempts) : -1;
+        return avgB - avgA;
+      });
+    } else if (practiceSortBy === "RECENT") {
+      filtered = [...rawFiltered].reverse();
+    } else {
+      filtered = sortQuestionsHierarchical(rawFiltered);
+    }
 
     safeSetText("practice-filtered-count", filtered.length);
 
@@ -7351,7 +7587,38 @@ Explanation: ${parentQ.explanation}`;
     if (countVal === "ALL") return filtered;
     const limit = parseInt(countVal, 10) || 25;
     if (filtered.length <= limit) return filtered;
-    return MockService.shuffle([...filtered]).slice(0, limit);
+
+    // Equal-Balance Multi-Chapter / Multi-Subtopic Round-Robin Sampler
+    const bucketsMap = {};
+    filtered.forEach(q => {
+      const bKey = `${q.chapter}::${q.subtopic || q.method || "General"}`;
+      if (!bucketsMap[bKey]) bucketsMap[bKey] = [];
+      bucketsMap[bKey].push(q);
+    });
+
+    const bucketKeys = Object.keys(bucketsMap);
+    if (bucketKeys.length <= 1) {
+      return MockService.shuffle([...filtered]).slice(0, limit);
+    }
+
+    bucketKeys.forEach(k => {
+      bucketsMap[k] = MockService.shuffle(bucketsMap[k]);
+    });
+
+    const balancedSelection = [];
+    let addedInPass = true;
+    while (balancedSelection.length < limit && addedInPass) {
+      addedInPass = false;
+      for (const bKey of bucketKeys) {
+        if (balancedSelection.length >= limit) break;
+        if (bucketsMap[bKey].length > 0) {
+          balancedSelection.push(bucketsMap[bKey].pop());
+          addedInPass = true;
+        }
+      }
+    }
+
+    return sortQuestionsHierarchical(balancedSelection);
   }
 
   async function launchDojoFromPracticePool() {
@@ -7660,6 +7927,16 @@ Explanation: ${parentQ.explanation}`;
       `;
 
       card.addEventListener("click", () => {
+        // 1-Tap Unselect when clicking the already-selected option in Dojo Clinic
+        if (resp.selectedOption === idx) {
+          resp.selectedOption = null;
+          resp.status = "unanswered";
+          resp.revealed = false;
+          safeSetDisplay("dojo-arena-feedback", "none");
+          renderDojoArenaQuestion(false);
+          return;
+        }
+
         resp.selectedOption = idx;
         resp.status = "answered";
         resp.revealed = true;
@@ -8320,22 +8597,137 @@ Explanation: ${parentQ.explanation}`;
     await renderActiveCompSheet();
   }
 
+  function applyCompendiumZoomStyle() {
+    const docEl = document.getElementById("comp-studio-doc-content");
+    const badgeEl = document.getElementById("comp-zoom-badge");
+    if (badgeEl) {
+      badgeEl.innerText = `${Math.round(compendiumZoomScale * 100)}%`;
+    }
+    if (docEl) {
+      if (Math.abs(compendiumZoomScale - 1.0) < 0.02) {
+        docEl.style.zoom = "";
+        docEl.style.transform = "";
+      } else {
+        docEl.style.zoom = String(compendiumZoomScale);
+      }
+    }
+  }
+
+  function adjustCompendiumZoom(delta) {
+    compendiumZoomScale = Math.max(0.75, Math.min(2.2, Math.round((compendiumZoomScale + delta) * 100) / 100));
+    applyCompendiumZoomStyle();
+  }
+
+  function resetCompendiumZoom() {
+    compendiumZoomScale = 1.0;
+    applyCompendiumZoomStyle();
+  }
+
+  function extractWordAtPoint(clientX, clientY) {
+    let range = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(clientX, clientY);
+    } else if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(clientX, clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (!range || !range.startContainer || range.startContainer.nodeType !== 3) return "";
+    const text = range.startContainer.textContent || "";
+    const offset = range.startOffset;
+    let start = offset;
+    let end = offset;
+    while (start > 0 && /[\w\d.%₹+-]/.test(text[start - 1])) start--;
+    while (end < text.length && /[\w\d.%₹+-]/.test(text[end])) end++;
+    return text.slice(start, end).trim();
+  }
+
   function initCompendiumRecallTapHandler() {
     const canvas = document.getElementById("comp-studio-canvas");
     if (!canvas || canvas.dataset.recallBound === "true") return;
     canvas.dataset.recallBound = "true";
 
+    // Universal Drag/Range Selection Masker when 🖌️ Edit Masks Mode is ON
+    const handleEditMaskRangeEnd = async () => {
+      if (!compendiumMaskEditMode) return;
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      const selectedTxt = sel.toString().trim();
+      if (selectedTxt.length >= 2 && selectedTxt.length <= 220) {
+        const anchorNode = sel.anchorNode;
+        const el = anchorNode && anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
+        if (el && el.closest("#comp-studio-doc-content")) {
+          sel.removeAllRanges();
+          document.getElementById("selection-action-popover")?.classList.remove("active");
+          await toggleCustomMaskPhraseOnActiveSheet(selectedTxt);
+        }
+      }
+    };
+
+    canvas.addEventListener("mouseup", () => setTimeout(handleEditMaskRangeEnd, 25));
+    canvas.addEventListener("touchend", () => setTimeout(handleEditMaskRangeEnd, 60), { passive: true });
+
+    // 2-Finger Pinch-to-Zoom on Living Knowledge Studio Canvas (0.75x to 2.2x)
+    let pinchStartDist = 0;
+    let pinchBaseScale = 1.0;
+    canvas.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchStartDist = Math.hypot(dx, dy);
+        pinchBaseScale = compendiumZoomScale;
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 2 && pinchStartDist > 20) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const ratio = dist / pinchStartDist;
+        compendiumZoomScale = Math.max(0.75, Math.min(2.2, Math.round(pinchBaseScale * ratio * 100) / 100));
+        applyCompendiumZoomStyle();
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchend", (e) => {
+      if (e.touches.length < 2) pinchStartDist = 0;
+    }, { passive: true });
+
     canvas.addEventListener("click", async (e) => {
-      // 1. In 🖌️ Edit Masks Mode: tapping any formula, cell, bold term, or existing mask toggles it!
+      // 1. In 🖌️ Edit Masks Mode: tapping any existing mask, formula, cell, heading, or single word toggles it!
       if (compendiumMaskEditMode) {
-        const target = e.target.closest(".user-recall-mask, strong, em, td, .katex, .md-bullet-row span:last-child");
-        if (target && canvas.contains(target)) {
+        const existingMask = e.target.closest(".user-recall-mask");
+        if (existingMask && canvas.contains(existingMask)) {
           e.preventDefault();
           e.stopPropagation();
-          const textVal = (target.innerText || "").trim();
+          const textVal = (existingMask.innerText || "").trim();
+          if (textVal.length >= 1) {
+            await toggleCustomMaskPhraseOnActiveSheet(textVal);
+          }
+          return;
+        }
+
+        const structTarget = e.target.closest(".katex-display, .katex, strong, em, td, th, h1, h2, h3, h4");
+        if (structTarget && canvas.contains(structTarget)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const textVal = (structTarget.innerText || "").trim();
           if (textVal.length >= 2) {
             await toggleCustomMaskPhraseOnActiveSheet(textVal);
           }
+          return;
+        }
+
+        // Otherwise extract the exact word under the tap!
+        const word = extractWordAtPoint(e.clientX, e.clientY);
+        if (word && word.length >= 2) {
+          e.preventDefault();
+          e.stopPropagation();
+          await toggleCustomMaskPhraseOnActiveSheet(word);
         }
         return;
       }
@@ -8661,6 +9053,7 @@ Explanation: ${parentQ.explanation}`;
           <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(1)">Next Sheet [ \u2192 ]</button>
         </div>
       `;
+      applyCompendiumZoomStyle();
     }
 
     const noteKey = `scratch_${sheet.id}`;
@@ -10723,7 +11116,25 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       }
     });
 
-    // Helper for horizontal swipe detection that ignores horizontal scroll tables & math blocks
+    // Bulletproof Scroll-Safe Horizontal Ancestor Guard
+    const hasHorizontallyScrollableAncestor = (targetEl, stopAtRootEl) => {
+      if (!targetEl || !(targetEl instanceof Element)) return false;
+      if (targetEl.closest("#practice-subject-pills-row, #practice-chapter-pills-row, #practice-subtopic-pills-row, #practice-saved-presets-row, #dash-blueprints-pills, .comp-tabs-bar, .table-responsive, .katex-display, .scratchpad-toolbar, .matrix-chip-grid, .lab-pill-row, textarea, input, select")) {
+        return true;
+      }
+      let curr = targetEl;
+      while (curr && curr !== stopAtRootEl && curr !== document.body && curr !== document.documentElement) {
+        const style = window.getComputedStyle(curr);
+        const ox = style ? style.overflowX : "";
+        if ((ox === "auto" || ox === "scroll") && curr.scrollWidth > curr.clientWidth + 2) {
+          return true;
+        }
+        curr = curr.parentElement;
+      }
+      return false;
+    };
+
+    // Helper for horizontal swipe detection that ignores horizontal scroll tables, pill strips & zoomed sheets
     const bindHorizontalSwipe = (elementId, onSwipeLeft, onSwipeRight) => {
       const el = document.getElementById(elementId);
       if (!el) return;
@@ -10736,20 +11147,22 @@ ${JSON.stringify(TAXONOMY, null, 2)}
           ignoreSwipe = true;
           return;
         }
-        const target = e.target;
-        if (target && target.closest(".table-responsive, .katex-display, .comp-tabs-bar, .scratchpad-toolbar, textarea, input, select")) {
+        if (elementId === "compendium-fullscreen-view" && compendiumZoomScale > 1.03) {
+          ignoreSwipe = true;
+          return;
+        }
+        if (e.touches.length !== 1 || hasHorizontallyScrollableAncestor(e.target, el)) {
           ignoreSwipe = true;
           return;
         }
         ignoreSwipe = false;
-        if (e.touches.length === 1) {
-          startX = e.touches[0].clientX;
-          startY = e.touches[0].clientY;
-        }
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
       }, { passive: true });
 
       el.addEventListener("touchend", (e) => {
         if (ignoreSwipe || scratchpadDrawing || (scratchpadActive && scratchpadFingerDraw)) return;
+        if (elementId === "compendium-fullscreen-view" && compendiumZoomScale > 1.03) return;
         if (e.changedTouches.length === 1) {
           const deltaX = e.changedTouches[0].clientX - startX;
           const deltaY = e.changedTouches[0].clientY - startY;
@@ -10787,6 +11200,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     if (viewportRoot) {
       let rootStartX = 0;
       let rootStartY = 0;
+      let rootIgnoreSwipe = false;
       const tabs = ["tab-dashboard", "tab-dojo", "tab-console"];
 
       viewportRoot.addEventListener("touchstart", (e) => {
@@ -10794,20 +11208,23 @@ ${JSON.stringify(TAXONOMY, null, 2)}
         const isArenaOpen = document.getElementById("exam-arena")?.style.display === "flex";
         const isDojoOpen = document.getElementById("dojo-arena-view")?.style.display === "flex";
         const isCompOpen = document.getElementById("compendium-fullscreen-view")?.style.display === "flex";
-        if (isModalOpen || isArenaOpen || isDojoOpen || isCompOpen) return;
-
-        const target = e.target;
-        if (target && target.closest("#dash-blueprints-pills, .comp-tabs-bar, .table-responsive, .matrix-chip-grid, .lab-pill-row")) {
+        if (isModalOpen || isArenaOpen || isDojoOpen || isCompOpen) {
+          rootIgnoreSwipe = true;
           return;
         }
 
-        if (e.touches.length === 1) {
-          rootStartX = e.touches[0].clientX;
-          rootStartY = e.touches[0].clientY;
+        if (e.touches.length !== 1 || hasHorizontallyScrollableAncestor(e.target, viewportRoot)) {
+          rootIgnoreSwipe = true;
+          return;
         }
+
+        rootIgnoreSwipe = false;
+        rootStartX = e.touches[0].clientX;
+        rootStartY = e.touches[0].clientY;
       }, { passive: true });
 
       viewportRoot.addEventListener("touchend", (e) => {
+        if (rootIgnoreSwipe) return;
         const isModalOpen = document.querySelector(".modal-overlay.active");
         const isArenaOpen = document.getElementById("exam-arena")?.style.display === "flex";
         const isDojoOpen = document.getElementById("dojo-arena-view")?.style.display === "flex";
@@ -10961,6 +11378,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       await getDB();
       await hydratePersistedUiConfig();
       await AiGatewayService.loadVault();
+      await loadPracticeSavedPresets();
       initUniversalEngagementTracker();
       await syncAllTaxonomyDropdowns();
       await renderDashboard();
@@ -11025,6 +11443,10 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     togglePracticeStatusFilter,
     togglePracticeDifficultyFilter,
     resetPracticeLabFilters,
+    handlePracticeSortChange,
+    saveCurrentPracticeFilterPreset,
+    applyPracticeFilterPreset,
+    deletePracticeFilterPreset,
     setPracticeLabViewMode,
     togglePracticeShowcaseRevealAll,
     toggleShowcaseCardSolution,
@@ -11106,6 +11528,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     generateInstantMutantClone,
 
     toggleScratchpadCanvas,
+    toggleScratchpadLaserMode,
     toggleScratchpadFingerDraw,
     toggleScratchpadScrollMode,
     setScratchpadMode,
@@ -11121,6 +11544,8 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     toggleCompendiumRecallMode,
     toggleCompendiumAutoBlurAll,
     toggleCompendiumMaskEditMode,
+    adjustCompendiumZoom,
+    resetCompendiumZoom,
     openAiSheetArchitectModal,
     runAiSheetArchitectTask,
     handleCompStudioSubjectChange,

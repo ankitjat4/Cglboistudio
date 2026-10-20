@@ -339,10 +339,19 @@
             <div style="display:inline-flex; align-items:center; gap:4px; background:#080c16; border:1px solid var(--border-color); border-radius:7px; padding:2px 6px;">
               <span style="font-size:10px; color:var(--text-muted); font-weight:700;">Sample:</span>
               <select id="practice-launch-count-select" class="form-control" style="width:auto; padding:2px 6px; font-size:11px; border:none; background:transparent; color:#fff; font-weight:800;">
-                <option value="15">15 Qs</option>
-                <option value="25" selected>25 Qs</option>
-                <option value="50">50 Qs</option>
+                <option value="15">15 Qs (Equal-Balance)</option>
+                <option value="25" selected>25 Qs (Equal-Balance)</option>
+                <option value="50">50 Qs (Equal-Balance)</option>
                 <option value="ALL">All Matching</option>
+              </select>
+            </div>
+            <div style="display:inline-flex; align-items:center; gap:4px; background:#080c16; border:1px solid var(--border-color); border-radius:7px; padding:2px 6px;">
+              <span style="font-size:10px; color:var(--text-muted); font-weight:700;">Sort By:</span>
+              <select id="practice-sort-select" class="form-control" style="width:auto; padding:2px 6px; font-size:11px; border:none; background:transparent; color:var(--accent-cyan); font-weight:800;" onchange="CGL_OS.handlePracticeSortChange(this.value)">
+                <option value="HIERARCHY" selected>Chapter ➔ Subtopic</option>
+                <option value="WEAKEST">Weakest (Lowest Acc)</option>
+                <option value="SLOWEST">Slowest (Highest Time)</option>
+                <option value="RECENT">Newest First</option>
               </select>
             </div>
           </div>
@@ -366,10 +375,17 @@
 
       <!-- Combinatorial Multi-Filter Matrix Card -->
       <div class="card" style="padding:14px; margin-bottom:12px;">
-        <!-- Omni-Search Input + Reset -->
-        <div style="display:flex; gap:8px; margin-bottom:10px;">
-          <input type="text" id="practice-search-input" class="form-control" style="flex:1;" placeholder="🔎 Search questions, formulas, subtopics, methods, tags, or ID (e.g. q_cgl_qa_geom_011)..." oninput="CGL_OS.handlePracticeSearchInput(this.value)">
+        <!-- Omni-Search Input + Save Preset + Reset -->
+        <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+          <input type="text" id="practice-search-input" class="form-control" style="flex:1; min-width:200px;" placeholder="🔎 Search questions, formulas, subtopics, methods, tags, or ID (e.g. q_cgl_qa_geom_011)..." oninput="CGL_OS.handlePracticeSearchInput(this.value)">
+          <button class="btn btn-purple" style="padding:6px 11px; font-size:11px; flex-shrink:0;" onclick="CGL_OS.saveCurrentPracticeFilterPreset()" title="Save current multi-chapter / subtopic / status filter combination">+ Save Filter Preset</button>
           <button class="btn btn-secondary" style="padding:6px 12px; font-size:11px; flex-shrink:0;" onclick="CGL_OS.resetPracticeLabFilters()">↺ Reset Filters</button>
+        </div>
+
+        <!-- Saved Filter Presets Strip -->
+        <div id="practice-saved-presets-wrap" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05);">
+          <span style="font-size:10px; font-weight:800; color:var(--accent-purple-light); text-transform:uppercase;">📌 Saved Presets:</span>
+          <div id="practice-saved-presets-row" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;"></div>
         </div>
 
         <!-- 1. Multi-Select Subjects Row -->
@@ -408,6 +424,7 @@
           <button class="anchor-pill" id="pill-filter-unseen" onclick="CGL_OS.togglePracticeStatusFilter('UNSEEN', this)">✨ Unseen</button>
           <button class="anchor-pill" id="pill-filter-slow" onclick="CGL_OS.togglePracticeStatusFilter('SLOW', this)">⏳ Slow (&gt;Par)</button>
           <button class="anchor-pill" id="pill-filter-ignored" onclick="CGL_OS.togglePracticeStatusFilter('IGNORED', this)">💤 Ignored (7d+)</button>
+          <button class="anchor-pill" id="pill-filter-hascue" onclick="CGL_OS.togglePracticeStatusFilter('HAS_CUE', this)">📝 Has Cue</button>
           <button class="anchor-pill" id="pill-filter-withsheet" onclick="CGL_OS.togglePracticeStatusFilter('WITH_SHEET', this)">📖 Has Sheet</button>
           <span style="color:var(--border-color);">|</span>
           <button class="anchor-pill" id="pill-diff-EASY" onclick="CGL_OS.togglePracticeDifficultyFilter('EASY', this)">Easy</button>
@@ -689,6 +706,7 @@
     <div class="scratchpad-toolbar" id="scratchpad-toolbar-pill">
       <span class="stylo-badge" title="OnePlus Stylo 2 / Active Pen Ready: Write with Stylus, Scroll with 1 Finger!">✒️ Stylo 2</span>
       <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-scratch-pen" onclick="CGL_OS.setScratchpadMode('PEN')">🖊️ Pen</button>
+      <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" id="btn-scratch-laser" onclick="CGL_OS.toggleScratchpadLaserMode()" title="3-Second Auto-Fade Laser Ink for temporary rough calculations">✨ Laser (3s)</button>
       <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" id="btn-scratch-eraser" onclick="CGL_OS.setScratchpadMode('ERASER')">🧽 Eraser</button>
 
       <!-- Ink Color Swatches -->
@@ -700,8 +718,8 @@
       </div>
 
       <!-- Optional Finger-Draw Toggle for Phone Users without Stylus -->
-      <button class="btn btn-secondary" id="btn-scratch-finger-mode" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleScratchpadFingerDraw()" title="Toggle 1-Finger Behavior: Scroll Page (Tablet Default) vs Draw with Finger (Phone)">
-        👆 Finger: Scroll
+      <button class="btn btn-emerald" id="btn-scratch-finger-mode" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleScratchpadFingerDraw()" title="Default: 1-Finger Scrolls & Taps Options while Stylus Draws. Tap to switch 1-Finger to Draw Mode on Phone.">
+        👆 Finger: Scroll / ✒️ Stylus: Draw
       </button>
 
       <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.undoScratchpadStroke()">↩ Undo</button>
@@ -968,8 +986,9 @@
         </button>
         <button class="hud-icon-btn" style="width:32px; height:32px;" onclick="CGL_OS.toggleScratchpadCanvas()" title="Scroll-Synced Sketchpad over Sheet">✏️</button>
         <button class="hud-icon-btn" style="width:32px; height:32px; border-color:var(--accent-purple-light); color:var(--accent-purple-light);" onclick="CGL_OS.openAiSheetArchitectModal()" title="AI Sheet Architect: Auto-Mask or Expand Sheet">🪄</button>
-        <button class="btn btn-secondary" style="padding:4px 7px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(-0.08)">A-</button>
-        <button class="btn btn-secondary" style="padding:4px 7px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(0.08)">A+</button>
+        <button class="btn btn-secondary" style="padding:4px 7px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(-0.08)" title="Decrease Text Size">A-</button>
+        <button class="btn btn-secondary" id="comp-zoom-pct-btn" style="padding:4px 7px; font-size:10.5px; font-family:var(--font-mono);" onclick="CGL_OS.adjustReaderFontScale(0)" title="Reset Zoom to 100%">100%</button>
+        <button class="btn btn-secondary" style="padding:4px 7px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(0.08)" title="Increase Text Size">A+</button>
         <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.openOmniSearchModal()" title="Omni-Search Sheets">🔍</button>
         <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.openConceptEditorModal(false)" title="Edit Sheet Markdown">✎</button>
         <button class="btn btn-danger" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.deleteCurrentCompendiumSheet()" title="Delete Sheet">🗑</button>

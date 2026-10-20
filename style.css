@@ -827,6 +827,7 @@ body {
 .scratchpad-canvas-overlay.scroll-passthrough,
 .scratchpad-canvas-overlay.scroll-passthrough .scratchpad-canvas-el {
   pointer-events: none !important;
+  touch-action: auto !important;
 }
 .scratchpad-toolbar {
   position: fixed;
@@ -1073,7 +1074,9 @@ body {
 }
 .arena-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 18px 16px 104px 16px;
   touch-action: pan-y;
   max-width: 1080px;
@@ -1263,6 +1266,7 @@ body {
 
 .comp-document-canvas {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
   padding: 26px 22px 90px 22px;
@@ -2154,9 +2158,85 @@ body {
   }
 }
 
+/* True Landscape Orientation Split-Workspace & Docked Left Nav Rail */
+@media (min-width: 820px) and (orientation: landscape) {
+  #bottom-nav {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: 72px;
+    height: 100vh;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 18px 4px;
+    gap: 14px;
+    border-top: none;
+    border-right: 1px solid var(--border-color);
+  }
+
+  #bottom-nav .nav-btn {
+    flex: 0 0 auto;
+    width: 100%;
+    padding: 12px 4px;
+    border-radius: 10px;
+    font-size: 10px;
+  }
+
+  #app-viewport-root {
+    padding-left: 72px;
+  }
+
+  .view-container {
+    padding-bottom: 36px;
+  }
+
+  #mini-player-dock {
+    left: 88px;
+    bottom: 16px;
+  }
+
+  /* Universal 2-Column Side-by-Side Split Grid for ALL Questions in Landscape */
+  #exam-arena .arena-body,
+  #dojo-arena-view .arena-body {
+    display: grid;
+    grid-template-columns: 1.08fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  #exam-arena .arena-body .question-header,
+  #exam-arena .arena-body #arena-review-telemetry-banner,
+  #dojo-arena-view .arena-body .question-header,
+  #dojo-arena-view .arena-body #dojo-theory-banner {
+    grid-column: 1 / -1;
+    margin-bottom: 4px;
+  }
+
+  #exam-arena .arena-body .q-passage-container,
+  #exam-arena .arena-body .q-text-canvas,
+  #exam-arena .arena-body .q-image-container,
+  #dojo-arena-view .arena-body .q-passage-container,
+  #dojo-arena-view .arena-body .q-text-canvas,
+  #dojo-arena-view .arena-body .q-image-container {
+    grid-column: 1;
+  }
+
+  #exam-arena .arena-body #arena-options-container,
+  #exam-arena .arena-body #arena-concept-bridge-box,
+  #exam-arena .arena-body #arena-review-solution-block,
+  #dojo-arena-view .arena-body #dojo-arena-options,
+  #dojo-arena-view .arena-body #dojo-arena-feedback,
+  #dojo-arena-view .arena-body #dojo-arena-method-box,
+  #dojo-arena-view .arena-body > div:last-child {
+    grid-column: 2;
+  }
+}
+
 @media (max-width: 560px) {
   .dash-split-grid,
   .mock-preview-opt-grid {
     grid-template-columns: 1fr !important;
   }
 }
+
