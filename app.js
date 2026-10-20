@@ -88,6 +88,26 @@ const CGL_OS = (() => {
     return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  function showToast(message, type = "cyan", durationMs = 2400) {
+    const container = document.getElementById("cgl-toast-container");
+    if (!container) return;
+    const toast = document.createElement("div");
+    const validType = ["cyan", "emerald", "amber", "red"].includes(type) ? type : "cyan";
+    toast.className = `cgl-toast-item toast-${validType}`;
+    const iconMap = { cyan: "⚡", emerald: "✅", amber: "⚠️", red: "🚨" };
+    toast.innerHTML = `<span>${iconMap[validType] || "⚡"}</span><span style="flex:1;">${cleanMojibake(String(message || ""))}</span>`;
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.classList.add("toast-visible");
+    });
+    setTimeout(() => {
+      toast.classList.remove("toast-visible");
+      setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 220);
+    }, durationMs);
+  }
+
   /* ==========================================================================
    * SECTION 2: RESILIENT 3-TIER DOWNLOAD PIPELINE (WEBAPK / WEBVIEW SHIELD)
    * ========================================================================== */
@@ -144,8 +164,8 @@ const CGL_OS = (() => {
     if (!textarea) return;
     textarea.select();
     navigator.clipboard.writeText(textarea.value)
-      .then(() => alert("Export payload copied directly to clipboard!"))
-      .catch(() => alert("Select all and copy manually from text box."));
+      .then(() => showToast("Export payload copied directly to clipboard!", "emerald"))
+      .catch(() => showToast("Select all and copy manually from text box.", "amber"));
   }
 
   /* ==========================================================================
@@ -322,6 +342,7 @@ const CGL_OS = (() => {
     "TIME_TRAP_Q4",
     "SECOND_GUESS_BLUNDER",
     "SPEED_MISREAD",
+    "ABANDONED_TIME_SINK",
     "VALID_CALCULATED_RISK"
   ];
 
@@ -1388,7 +1409,7 @@ const CGL_OS = (() => {
         const execBtn = document.getElementById("btn-execute-restore");
         if (execBtn) execBtn.disabled = false;
       } catch (err) {
-        alert("Corrupted Backup File: " + err.message);
+        showToast("Corrupted Backup File: " + err.message, "red");
         const execBtn = document.getElementById("btn-execute-restore");
         if (execBtn) execBtn.disabled = true;
       }
@@ -1560,7 +1581,7 @@ const CGL_OS = (() => {
         }
       }
 
-      alert("Disaster Recovery Complete! All records hydrated and sanitized.");
+      showToast("Disaster Recovery Complete! All records hydrated and sanitized.", "emerald", 3200);
       const modal = document.getElementById("modal-backup-restore");
       if (modal) modal.classList.remove("active");
       SearchService.invalidate();
@@ -1571,7 +1592,7 @@ const CGL_OS = (() => {
         await renderPracticeQuestionsTable();
       }
     } catch (err) {
-      alert("Hydration Error: " + err.message);
+      showToast("Hydration Error: " + err.message, "red");
     }
   }
 
@@ -2381,7 +2402,7 @@ const CGL_OS = (() => {
     const secret = document.getElementById("api-key-secret")?.value.trim() || "";
 
     if (!secret) {
-      alert("Please paste a valid API key.");
+      showToast("Please paste a valid API key.", "amber");
       return;
     }
 
@@ -2450,12 +2471,12 @@ const CGL_OS = (() => {
       k.cooldownUntil = 0;
       k.lastStatus = "READY";
       await AiGatewayService.saveVault();
-      alert(`✅ Key "${k.label}" (${k.model}) is ONLINE!\nResponse: ${out.slice(0, 60)}`);
+      showToast(`✅ Key "${k.label}" (${k.model}) is ONLINE! Response: ${out.slice(0, 45)}`, "emerald", 3200);
     } catch (err) {
       k.cooldownUntil = Date.now() + 60000;
       k.lastStatus = "COOLDOWN";
       await AiGatewayService.saveVault();
-      alert(`❌ Key "${k.label}" test failed:\n${err.message}`);
+      showToast(`❌ Key "${k.label}" test failed: ${err.message}`, "red", 3600);
     }
   }
 
@@ -2688,7 +2709,7 @@ const CGL_OS = (() => {
     const name = nameInput ? nameInput.value.trim() : "";
 
     if (!key || !name) {
-      alert("Both Key and Full Name are required.");
+      showToast("Both Key and Full Name are required.", "amber");
       return;
     }
 
@@ -2699,7 +2720,7 @@ const CGL_OS = (() => {
       renderTaxonomyManagerList();
       await renderDashboard();
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "red");
     }
   }
 
@@ -2712,7 +2733,7 @@ const CGL_OS = (() => {
       renderTaxonomyManagerList();
       await renderDashboard();
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "red");
     }
   }
 
@@ -2742,11 +2763,11 @@ const CGL_OS = (() => {
 
     try {
       await TaxonomyService.mergeChapters(subKey, sourceChap, targetChap.trim().toUpperCase());
-      alert(`Merged all questions and sheets from ${sourceChap} into ${targetChap.trim().toUpperCase()}.`);
+      showToast(`Merged all questions and sheets from ${sourceChap} into ${targetChap.trim().toUpperCase()}.`, "emerald", 3200);
       renderTaxonomyManagerList();
       await renderDashboard();
     } catch (err) {
-      alert("Merge error: " + err.message);
+      showToast("Merge error: " + err.message, "red");
     }
   }
 
@@ -2758,7 +2779,7 @@ const CGL_OS = (() => {
         await renderDashboard();
       }
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "red");
     }
   }
 
@@ -2784,8 +2805,8 @@ const CGL_OS = (() => {
   /* ==========================================================================
    * SECTION 16: NATIVE QUESTION GUI CREATOR, SMART PARSE & EDITOR
    * ========================================================================== */
-  function openNewQuestionCreatorModal(presetSub = null, presetChap = null) {
-    currentQuestionImageBase64 = "";
+  function openNewQuestionCreatorModal(presetSub = null, presetChap = null, presetImageBase64 = null, presetSource = null) {
+    currentQuestionImageBase64 = presetImageBase64 || "";
     const sub = presetSub || (document.getElementById("practice-filter-subject")?.value !== "ALL" ? document.getElementById("practice-filter-subject")?.value : "QA");
     safeSetValue("new-q-subject", sub);
     syncNewQuestionChapterSelect(sub);
@@ -2803,13 +2824,22 @@ const CGL_OS = (() => {
     safeSetValue("new-q-text", "");
     safeSetValue("new-q-img-url", "");
     safeSetValue("new-q-img-file", "");
-    safeSetDisplay("new-q-img-preview-box", "none");
+    const pBox = document.getElementById("new-q-img-preview-box");
+    if (pBox) {
+      if (currentQuestionImageBase64) {
+        pBox.style.display = "block";
+        pBox.innerHTML = `<img src="${currentQuestionImageBase64}" style="max-height:140px; border-radius:6px; border:1px solid var(--accent-cyan);">`;
+      } else {
+        pBox.style.display = "none";
+        pBox.innerHTML = "";
+      }
+    }
     safeSetValue("new-q-opt-0", "");
     safeSetValue("new-q-opt-1", "");
     safeSetValue("new-q-opt-2", "");
     safeSetValue("new-q-opt-3", "");
     safeSetValue("new-q-correct", "0");
-    safeSetValue("new-q-source", "Manual Entry");
+    safeSetValue("new-q-source", presetSource || "Manual Entry");
     safeSetValue("new-q-explanation", "");
     safeSetValue("new-q-tags", "");
     safeSetValue("new-q-concepts", "");
@@ -2823,7 +2853,7 @@ const CGL_OS = (() => {
   async function smartParseRawQuestionText() {
     const rawText = document.getElementById("new-q-smart-raw-input")?.value.trim() || "";
     if (!rawText) {
-      alert("Paste raw question text into the Smart Parse box first.");
+      showToast("Paste raw question text into the Smart Parse box first.", "amber");
       return;
     }
 
@@ -2877,9 +2907,10 @@ Return ONLY valid JSON.`;
       if (badge) {
         badge.innerText = `\u2713 Parsed by: ${res.sourceLabel}`;
       }
+      showToast(`Parsed question fields via ${res.sourceLabel}`, "emerald");
     } catch (err) {
       if (badge) badge.innerText = "\u26A0\uFE0F Fallback to Clipboard";
-      alert(err.message);
+      showToast(err.message, "amber", 3400);
     }
   }
 
@@ -2912,7 +2943,7 @@ Return ONLY valid JSON.`;
     const setTotal = parseInt(document.getElementById("new-q-set-total")?.value || "1", 10) || 1;
 
     if (!text || !opt0 || !opt1 || !opt2 || !opt3) {
-      alert("Question stem and all 4 options are mandatory.");
+      showToast("Question stem and all 4 options are mandatory.", "amber");
       return;
     }
 
@@ -2942,7 +2973,7 @@ Return ONLY valid JSON.`;
 
     try {
       await QuestionService.create(qObj);
-      alert(`Question created successfully: ${qObj.id}`);
+      showToast(`Question created: ${qObj.id}`, "emerald");
       await renderDashboard();
       if (typeof renderPracticeQuestionsTable === "function") {
         await renderPracticeQuestionsTable();
@@ -2968,7 +2999,7 @@ Return ONLY valid JSON.`;
         if (m) m.classList.remove("active");
       }
     } catch (err) {
-      alert("Creation Error: " + err.message);
+      showToast("Creation Error: " + err.message, "red");
     }
   }
 
@@ -3101,9 +3132,9 @@ Return ONLY valid JSON.`;
       if (typeof renderPracticeQuestionsTable === "function") {
         await renderPracticeQuestionsTable();
       }
-      alert(`Question ${id} saved successfully.`);
+      showToast(`Question ${id} saved successfully.`, "emerald");
     } catch (err) {
-      alert("Save Error: " + err.message);
+      showToast("Save Error: " + err.message, "red");
     }
   }
 
@@ -3114,10 +3145,10 @@ Return ONLY valid JSON.`;
       const clone = await QuestionService.duplicate(id);
       const m = document.getElementById("modal-question-editor");
       if (m) m.classList.remove("active");
-      alert(`Duplicated as new question: ${clone.id}`);
+      showToast(`Duplicated as new question: ${clone.id}`, "emerald");
       openEditQuestionModal(clone);
     } catch (err) {
-      alert("Duplicate failed: " + err.message);
+      showToast("Duplicate failed: " + err.message, "red");
     }
   }
 
@@ -3139,7 +3170,7 @@ Return ONLY valid JSON.`;
       if (typeof renderPracticeQuestionsTable === "function") {
         await renderPracticeQuestionsTable();
       }
-      alert(`Question ${id} removed.`);
+      showToast(`Question ${id} removed.`, "amber");
     }
   }
 
@@ -3161,7 +3192,7 @@ Return ONLY valid JSON.`;
       });
     },
 
-    async recordUntimedPracticeSolve(q, selectedOptIdx, timeSpentSec = 15) {
+    async recordUntimedPracticeSolve(q, selectedOptIdx, timeSpentSec = 15, splitData = null) {
       if (!q || !q.id) return;
       const now = Date.now();
       const dayKey = new Date(now).toISOString().slice(0, 10);
@@ -3211,6 +3242,8 @@ Return ONLY valid JSON.`;
           selectedOption: selectedOptIdx,
           status: "answered",
           timeSpentSec: Math.max(2, Math.min(300, timeSpentSec || 15)),
+          setupSplitSec: splitData && typeof splitData.setupSec === "number" ? splitData.setupSec : null,
+          calcSplitSec: splitData && typeof splitData.calcSec === "number" ? splitData.calcSec : null,
           timestamp: now
         };
       }
@@ -3396,14 +3429,22 @@ Return ONLY valid JSON.`;
                     incorrect: 0,
                     totalTime: 0,
                     lastAttemptEpoch: 0,
+                    lastIncorrectEpoch: 0,
                     lastWasIncorrect: false,
+                    lastSetupSec: null,
+                    lastCalcSec: null,
                     traps: []
                   };
                 }
                 const stats = map[tId];
+                const eventEpoch = resp.timestamp || att.timestamp || 0;
                 stats.attempts++;
                 stats.totalTime += (resp.timeSpentSec || 0);
-                stats.lastAttemptEpoch = Math.max(stats.lastAttemptEpoch, resp.timestamp || att.timestamp || 0);
+                stats.lastAttemptEpoch = Math.max(stats.lastAttemptEpoch, eventEpoch);
+                if (typeof resp.setupSplitSec === "number") {
+                  stats.lastSetupSec = resp.setupSplitSec;
+                  stats.lastCalcSec = typeof resp.calcSplitSec === "number" ? resp.calcSplitSec : 0;
+                }
 
                 if (resp.selectedOption === q.correctIndex) {
                   stats.correct++;
@@ -3414,6 +3455,7 @@ Return ONLY valid JSON.`;
                 } else {
                   stats.incorrect++;
                   stats.lastWasIncorrect = true;
+                  stats.lastIncorrectEpoch = Math.max(stats.lastIncorrectEpoch || 0, eventEpoch);
                   if (resp.errorTag && resp.errorTag !== "UNCLASSIFIED") {
                     stats.traps.push(resp.errorTag);
                   }
@@ -3805,7 +3847,7 @@ Return ONLY valid JSON.`;
     async launchMockSession(mockInstance) {
       const { title, questions, durationMin, isSectionLocked, sections, isEphemeral, positiveMarks, negativeMarks } = mockInstance;
       if (!questions || questions.length === 0) {
-        alert("Zero matching questions found in the bank for this scope.");
+        showToast("Zero matching questions found in the bank for this scope.", "amber");
         return;
       }
       await compileAndLaunchArena(title, questions, durationMin, isSectionLocked, sections, isEphemeral, positiveMarks, negativeMarks);
@@ -3971,7 +4013,7 @@ Return ONLY valid JSON.`;
       const config = getActiveBuilderConfig();
       previewedMockInstance = await MockService.generate(config);
       if (!previewedMockInstance.questions || previewedMockInstance.questions.length === 0) {
-        alert("Zero matching questions in current scope.");
+        showToast("Zero matching questions in current scope.", "amber");
         return;
       }
       showPreviewAnswerKeys = false;
@@ -3983,7 +4025,7 @@ Return ONLY valid JSON.`;
       const m = document.getElementById("modal-mock-preview");
       if (m) m.classList.add("active");
     } catch (err) {
-      alert("Preview Error: " + err.message);
+      showToast("Preview Error: " + err.message, "red");
     }
   }
 
@@ -4061,7 +4103,7 @@ Return ONLY valid JSON.`;
       candidates = allQs.filter(q => q.subject === targetQ.subject && !usedIds.has(q.id));
     }
     if (candidates.length === 0) {
-      alert("No alternative unused questions available in this chapter/subject pool to swap.");
+      showToast("No alternative unused questions available in this chapter/subject pool to swap.", "amber");
       return;
     }
 
@@ -4113,7 +4155,7 @@ Return ONLY valid JSON.`;
       questions: previewedMockInstance.questions
     });
 
-    alert(`Saved curated fixed paper "${title.trim()}" to Dashboard!`);
+    showToast(`Saved curated fixed paper "${title.trim()}" to Dashboard!`, "emerald");
     await renderDashboardBlueprints();
   }
 
@@ -4254,7 +4296,7 @@ Return ONLY valid JSON.`;
     const title = document.getElementById("blueprint-title-input")?.value.trim() || "";
 
     if (!title) {
-      alert("Blueprint title is required.");
+      showToast("Blueprint title is required.", "amber");
       return;
     }
 
@@ -4263,7 +4305,7 @@ Return ONLY valid JSON.`;
       const attempts = await getAllRecords("store_attempts");
       const target = attempts.find(a => a.sessionId === targetId);
       if (!target || !target.questions || target.questions.length === 0) {
-        alert("Unable to locate questions for fixed paper.");
+        showToast("Unable to locate questions for fixed paper.", "red");
         return;
       }
 
@@ -4296,7 +4338,7 @@ Return ONLY valid JSON.`;
     await MockService.saveMockDefinition(record);
     const m = document.getElementById("modal-save-blueprint");
     if (m) m.classList.remove("active");
-    alert(`Saved "${title}" (${mode === "FIXED_PAPER" ? "Fixed Question Paper" : "Dynamic Blueprint"}) to Dashboard.`);
+    showToast(`Saved "${title}" (${mode === "FIXED_PAPER" ? "Fixed Question Paper" : "Dynamic Blueprint"}) to Dashboard.`, "emerald");
     await renderDashboardBlueprints();
   }
 
@@ -4332,7 +4374,7 @@ Return ONLY valid JSON.`;
     const config = getActiveBuilderConfig();
     const instance = await MockService.generate(config);
     if (!instance.questions || instance.questions.length === 0) {
-      alert("Zero matching questions found for this Dojo setup.");
+      showToast("Zero matching questions found for this Dojo setup.", "amber");
       return;
     }
     await openDojoSessionWithQuestions(instance.questions, `${config.title} (Dojo Clinic)`);
@@ -4565,7 +4607,7 @@ Return ONLY valid JSON.`;
       sheet = all.find(c => c.chapter === fallbackChap);
     }
     if (!sheet) {
-      alert(`No Knowledge Sheet found for ${conceptId || fallbackChap}.`);
+      showToast(`No Knowledge Sheet found for ${conceptId || fallbackChap}.`, "amber");
       return;
     }
 
@@ -4966,7 +5008,7 @@ Return ONLY valid JSON.`;
       userPrompt = `${qContext}\n\nExplain the specific cognitive trap or common calculation slip that leads candidates to pick the wrong distractors here, and how to avoid it.`;
     } else {
       if (!customInput) {
-        alert("Enter your question in the input box first.");
+        showToast("Enter your question in the input box first.", "amber");
         return;
       }
       userPrompt = `${qContext}\n\nCandidate Question: ${customInput}`;
@@ -5009,7 +5051,7 @@ Return ONLY valid JSON.`;
     if (activeExam && activeExam.isReviewMode) {
       renderActiveExamQuestion();
     }
-    alert("Saved to Personal Solving Cue for this question!");
+    showToast("Saved to Personal Solving Cue for this question!", "emerald");
   }
 
   /**
@@ -5089,13 +5131,14 @@ Explanation: ${parentQ.explanation}`;
         dojoExam.userResponses[mutantQ.id] = { selectedOption: null, status: "unanswered", revealed: false };
         dojoExam.currentIndex = insertIdx;
         renderDojoArenaQuestion();
-        alert(`🧬 Mutant Clone generated by ${res.sourceLabel} and mounted right here in Dojo!`);
+        showToast(`🧬 Mutant Clone generated by ${res.sourceLabel}!`, "emerald", 3000);
       } else {
         await openDojoSessionWithQuestions([mutantQ], `🧬 Mutant Probe (${parentQ.chapter})`);
+        showToast(`🧬 Mutant Clone launched in Dojo!`, "emerald");
       }
     } catch (err) {
       if (badge) badge.innerText = "\u26A0\uFE0F Fallback to Clipboard";
-      alert(err.message);
+      showToast(err.message, "amber", 3400);
     }
   }
 
@@ -5191,7 +5234,7 @@ Explanation: ${parentQ.explanation}`;
           tabBtn.innerText = sec.name.split(" ")[0];
           tabBtn.addEventListener("click", () => {
             if (isLocked && sIdx !== activeExam.activeSectionIndex) {
-              alert("Sectional lock is active! Sections must be completed sequentially.");
+              showToast("Sectional lock is active! Sections must be completed sequentially.", "amber");
               return;
             }
             activeExam.activeSectionIndex = sIdx;
@@ -5252,11 +5295,11 @@ Explanation: ${parentQ.explanation}`;
 
       cell.addEventListener("click", () => {
         if (isSecLocked) {
-          alert("This section is sealed and locked!");
+          showToast("This section is sealed and locked!", "amber");
           return;
         }
         if (isLocked && q.sectionIndex !== activeExam.activeSectionIndex) {
-          alert("Cannot access future sections until current section is locked!");
+          showToast("Cannot access future sections until current section is locked!", "amber");
           return;
         }
         activeExam.currentQuestionIndex = activeExam.questions.findIndex(item => item.id === q.id);
@@ -5423,6 +5466,12 @@ Explanation: ${parentQ.explanation}`;
               resp.errorTag = "CONCEPT_VOID";
             }
           }
+        }
+      } else if (resp && (resp.timeSpentSec || 0) > 45) {
+        // Bridge 3: Unattempted Time-Sink Telemetry Capture (>45s)
+        traps++;
+        if (!resp.errorTag || resp.errorTag === "UNCLASSIFIED") {
+          resp.errorTag = "ABANDONED_TIME_SINK";
         }
       }
     }
@@ -5593,7 +5642,7 @@ Explanation: ${parentQ.explanation}`;
     closeSplitSheetDrawer();
 
     if (!questionsPool || questionsPool.length === 0) {
-      alert("Cannot launch arena: question pool is empty.");
+      showToast("Cannot launch arena: question pool is empty.", "amber");
       return;
     }
 
@@ -5734,13 +5783,116 @@ Explanation: ${parentQ.explanation}`;
 
   /* ==========================================================================
    * SECTION 20B: GLOBAL SCROLL-SYNCHRONIZED ONEPLUS STYLO 2 / TABLET INK ENGINE
-   * - Zero-Mode-Switch Stylus vs. Finger Separation:
-   *   * Stylus (pointerType === 'pen') or Mouse draws immediately on contact
-   *   * 1-Finger (pointerType === 'touch') scrolls the underlying page naturally
-   *     via CSS touch-action: pan-y (unless user toggles Finger: Draw mode on phone)
+   * - Zero-Mode-Switch Stylus vs. Finger Separation + 2-Finger Natural Scroll
+   * - 350ms Hold-to-Snap Geometric Shape Recognizer (Line, Circle, Rect, Triangle)
    * - World-space coordinates (clientY + scrollContainer.scrollTop)
-   * - Per-Question & Per-Sheet Ink Memory during session + 4 Ink Colors
    * ========================================================================== */
+  function snapWorldStrokeToGeometricShape(stroke) {
+    if (!Array.isArray(stroke) || stroke.length < 6) return null;
+    const baseMeta = stroke[0];
+    if (baseMeta.mode === "ERASER") return null;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let pathLen = 0;
+    for (let i = 0; i < stroke.length; i++) {
+      const p = stroke[i];
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+      if (i > 0) {
+        pathLen += Math.hypot(p.x - stroke[i - 1].x, p.y - stroke[i - 1].y);
+      }
+    }
+    const w = maxX - minX;
+    const h = maxY - minY;
+    const diag = Math.hypot(w, h);
+    if (diag < 24 || pathLen < 24) return null;
+
+    const pStart = stroke[0];
+    const pEnd = stroke[stroke.length - 1];
+    const endDist = Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y);
+
+    // 1. Straight Line Detection
+    if (endDist / pathLen >= 0.84) {
+      return [
+        { ...baseMeta, x: pStart.x, y: pStart.y },
+        { ...baseMeta, x: pEnd.x, y: pEnd.y }
+      ];
+    }
+
+    // 2. Closed Shape Detection (Circle/Ellipse, Rectangle, Triangle)
+    if (endDist < Math.max(48, diag * 0.36)) {
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const rx = Math.max(w / 2, 10);
+      const ry = Math.max(h / 2, 10);
+
+      let normRadErrSum = 0;
+      stroke.forEach(p => {
+        const nr = Math.hypot((p.x - cx) / rx, (p.y - cy) / ry);
+        normRadErrSum += Math.abs(nr - 1);
+      });
+      const avgRadErr = normRadErrSum / stroke.length;
+
+      // Circle / Ellipse
+      if (avgRadErr < 0.22) {
+        const pts = [];
+        const steps = 40;
+        for (let i = 0; i <= steps; i++) {
+          const ang = (i / steps) * Math.PI * 2;
+          pts.push({
+            ...baseMeta,
+            x: cx + Math.cos(ang) * rx,
+            y: cy + Math.sin(ang) * ry
+          });
+        }
+        return pts;
+      }
+
+      // Check Triangle vs Rectangle via Ramer-Douglas-Peucker simplification
+      const rdp = (pts, eps) => {
+        if (pts.length < 3) return pts;
+        let maxD = 0, idx = 0;
+        const first = pts[0], last = pts[pts.length - 1];
+        const l2 = Math.hypot(last.x - first.x, last.y - first.y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const d = l2 === 0
+            ? Math.hypot(pts[i].x - first.x, pts[i].y - first.y)
+            : Math.abs((last.y - first.y) * pts[i].x - (last.x - first.x) * pts[i].y + last.x * first.y - last.y * first.x) / l2;
+          if (d > maxD) { maxD = d; idx = i; }
+        }
+        if (maxD > eps) {
+          const left = rdp(pts.slice(0, idx + 1), eps);
+          const right = rdp(pts.slice(idx), eps);
+          return left.slice(0, -1).concat(right);
+        }
+        return [first, last];
+      };
+
+      const simplified = rdp(stroke, diag * 0.11);
+      if (simplified.length === 4) {
+        return [
+          { ...baseMeta, x: simplified[0].x, y: simplified[0].y },
+          { ...baseMeta, x: simplified[1].x, y: simplified[1].y },
+          { ...baseMeta, x: simplified[2].x, y: simplified[2].y },
+          { ...baseMeta, x: simplified[0].x, y: simplified[0].y }
+        ];
+      }
+
+      // Default closed polygon -> crisp axis-aligned Rectangle
+      return [
+        { ...baseMeta, x: minX, y: minY },
+        { ...baseMeta, x: maxX, y: minY },
+        { ...baseMeta, x: maxX, y: maxY },
+        { ...baseMeta, x: minX, y: maxY },
+        { ...baseMeta, x: minX, y: minY }
+      ];
+    }
+
+    return null;
+  }
+
   function getActiveScrollContainerForInk() {
     const compView = document.getElementById("compendium-fullscreen-view");
     if (compView && compView.style.display === "flex") {
@@ -5803,6 +5955,12 @@ Explanation: ${parentQ.explanation}`;
     if (!canvas || canvas.dataset.bound === "true") return;
     canvas.dataset.bound = "true";
 
+    let scratchHoldSnapTimer = null;
+    let scratchStrokeSnapped = false;
+    let twoFingerScrolling = false;
+    let lastTwoFingerMidY = 0;
+    let lastTwoFingerMidX = 0;
+
     // Bind scroll listeners on all primary reading/solving containers + window so ink stays locked to text
     ["arena-body", "dojo-arena-body", "comp-studio-canvas"].forEach(cid => {
       const sc = document.getElementById(cid);
@@ -5831,6 +5989,44 @@ Explanation: ${parentQ.explanation}`;
       }
     }, { passive: true });
 
+    // 2-Finger Natural Scroll while in Finger-Draw Mode
+    canvas.addEventListener("touchstart", (e) => {
+      if (!scratchpadActive || !scratchpadFingerDraw) return;
+      if (e.touches && e.touches.length >= 2) {
+        twoFingerScrolling = true;
+        clearTimeout(scratchHoldSnapTimer);
+        if (scratchpadDrawing) {
+          scratchpadDrawing = false;
+          currentStroke = [];
+          redrawScratchpad();
+        }
+        lastTwoFingerMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        lastTwoFingerMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      }
+    }, { passive: true });
+
+    canvas.addEventListener("touchmove", (e) => {
+      if (!scratchpadActive || !twoFingerScrolling || !e.touches || e.touches.length < 2) return;
+      if (e.cancelable) e.preventDefault();
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const dy = lastTwoFingerMidY - midY;
+      const dx = lastTwoFingerMidX - midX;
+      lastTwoFingerMidX = midX;
+      lastTwoFingerMidY = midY;
+      const sc = getActiveScrollContainerForInk();
+      if (sc) {
+        sc.scrollBy({ top: dy, left: dx, behavior: "auto" });
+        redrawScratchpad();
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", (e) => {
+      if (twoFingerScrolling && (!e.touches || e.touches.length === 0)) {
+        twoFingerScrolling = false;
+      }
+    }, { passive: true });
+
     const getWorldPos = (e) => {
       const rect = canvas.getBoundingClientRect();
       const sc = getActiveScrollContainerForInk();
@@ -5842,12 +6038,31 @@ Explanation: ${parentQ.explanation}`;
       };
     };
 
+    const scheduleScratchHoldSnap = () => {
+      clearTimeout(scratchHoldSnapTimer);
+      if (scratchStrokeSnapped || !scratchpadDrawing || currentStroke.length < 6) return;
+      if (currentStroke[0]?.mode === "ERASER") return;
+      scratchHoldSnapTimer = setTimeout(() => {
+        if (!scratchpadDrawing || scratchStrokeSnapped) return;
+        const snapped = snapWorldStrokeToGeometricShape(currentStroke);
+        if (snapped) {
+          currentStroke = snapped;
+          scratchStrokeSnapped = true;
+          if (navigator.vibrate) navigator.vibrate(18);
+          redrawScratchpad();
+        }
+      }, 350);
+    };
+
     const startStrokeFromEvent = (e) => {
+      if (twoFingerScrolling) return;
       const isHardwareEraser = (e.pointerType === "pen" && (e.buttons === 32 || e.button === 5));
       const effectiveMode = isHardwareEraser ? "ERASER" : scratchpadMode;
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
 
       scratchpadDrawing = true;
+      scratchStrokeSnapped = false;
+      clearTimeout(scratchHoldSnapTimer);
       const pos = getWorldPos(e);
       currentStroke = [{
         x: pos.x,
@@ -5860,12 +6075,17 @@ Explanation: ${parentQ.explanation}`;
     };
 
     const moveStrokeFromEvent = (e) => {
-      if (!scratchpadDrawing || !scratchpadActive) return;
+      if (!scratchpadDrawing || !scratchpadActive || twoFingerScrolling) return;
+      if (scratchStrokeSnapped) return;
       const activeMode = currentStroke[0] ? currentStroke[0].mode : scratchpadMode;
       const activeCol = currentStroke[0] ? currentStroke[0].color : scratchpadColor;
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
 
       const pos = getWorldPos(e);
+      const lastPt = currentStroke[currentStroke.length - 1];
+      if (lastPt && Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y) > 4.5) {
+        scheduleScratchHoldSnap();
+      }
       currentStroke.push({
         x: pos.x,
         y: pos.y,
@@ -5877,8 +6097,10 @@ Explanation: ${parentQ.explanation}`;
     };
 
     const finishStroke = () => {
+      clearTimeout(scratchHoldSnapTimer);
       if (!scratchpadDrawing) return;
       scratchpadDrawing = false;
+      scratchStrokeSnapped = false;
       if (overlay) overlay.classList.remove("pen-active-stroke");
       if (currentStroke.length > 0) {
         const committedStroke = [...currentStroke];
@@ -5902,7 +6124,7 @@ Explanation: ${parentQ.explanation}`;
 
     // 1. Direct Canvas Pointer Listeners (Active when Draw Mode is ON)
     canvas.addEventListener("pointerdown", (e) => {
-      if (!scratchpadActive) return;
+      if (!scratchpadActive || twoFingerScrolling) return;
       if (!e.isPrimary) return;
       if (scratchpadScrollPassthrough && e.pointerType !== "pen") return;
 
@@ -5914,7 +6136,7 @@ Explanation: ${parentQ.explanation}`;
     });
 
     canvas.addEventListener("pointermove", (e) => {
-      if (!scratchpadDrawing || !scratchpadActive) return;
+      if (!scratchpadDrawing || !scratchpadActive || twoFingerScrolling) return;
       e.preventDefault();
       moveStrokeFromEvent(e);
     });
@@ -7056,7 +7278,7 @@ Explanation: ${parentQ.explanation}`;
     try {
       cmd = JSON.parse(raw);
     } catch (err) {
-      alert("Invalid JSON Syntax: " + err.message);
+      showToast("Invalid JSON Syntax: " + err.message, "red");
       return;
     }
 
@@ -7106,7 +7328,7 @@ Explanation: ${parentQ.explanation}`;
         consoleOutput.innerText = formattedErr;
         consoleOutput.style.display = "block";
       } else {
-        alert("Command Execution Error: " + execErr.message);
+        showToast("Command Execution Error: " + execErr.message, "red");
       }
       return errPayload;
     }
@@ -7116,7 +7338,7 @@ Explanation: ${parentQ.explanation}`;
     try {
       const text = await navigator.clipboard.readText();
       if (!text || !text.trim()) {
-        alert("Clipboard is empty.");
+        showToast("Clipboard is empty.", "amber");
         return;
       }
       safeSetValue("console-payload", text.trim());
@@ -7125,7 +7347,7 @@ Explanation: ${parentQ.explanation}`;
         await navigator.clipboard.writeText(JSON.stringify(res, null, 2));
       }
     } catch (err) {
-      alert("Clipboard read permission denied or invalid content. Paste manually into the box and tap Execute.");
+      showToast("Clipboard read permission denied or invalid content. Paste manually into the box and tap Execute.", "amber", 3200);
     }
   }
 
@@ -7154,7 +7376,7 @@ Explanation: ${parentQ.explanation}`;
     };
     const jsonStr = JSON.stringify(payload, null, 2);
     navigator.clipboard.writeText(jsonStr)
-      .then(() => alert("Compact AI Context & Rolling Clinical Memory copied to clipboard! Paste directly into Gemini."))
+      .then(() => showToast("Compact AI Context & Rolling Clinical Memory copied to clipboard!", "emerald", 2800))
       .catch(() => downloadFileResilient(`cgl_ai_context_${Date.now()}.json`, "application/json", jsonStr));
   }
 
@@ -7811,6 +8033,10 @@ Explanation: ${parentQ.explanation}`;
           `;
         }).join("");
 
+        const splitBadgeHtml = (pStats && pStats.lastSetupSec !== null && pStats.lastSetupSec !== undefined && pStats.lastCalcSec !== null && pStats.lastCalcSec !== undefined)
+          ? `<span class="badge" style="background:rgba(139,92,246,0.18); color:var(--accent-purple-light); font-family:var(--font-mono);">\u23F1\uFE0F Split: ${pStats.lastSetupSec}s Setup / ${pStats.lastCalcSec}s Calc</span>`
+          : "";
+
         const card = document.createElement("div");
         card.className = "showcase-q-card";
         card.innerHTML = `
@@ -7820,6 +8046,7 @@ Explanation: ${parentQ.explanation}`;
               <span class="practice-q-id">${q.id}</span>
               <span class="badge" style="background:#151a24; color:var(--accent-cyan);">${q.difficulty || "MEDIUM"}</span>
               ${statusBadge}
+              ${splitBadgeHtml}
             </div>
             <div style="display:flex; gap:5px; flex-wrap:wrap; align-items:center;">
               <button class="star-flag-btn ${starClass}" style="padding:2px 7px; font-size:10.5px;" onclick="CGL_OS.toggleQuestionStarFromPractice('${q.id}')">${starIcon}</button>
@@ -7870,6 +8097,9 @@ Explanation: ${parentQ.explanation}`;
           statusBadge = '<span class="badge" style="background:rgba(244,63,94,0.2); color:var(--status-red);">\uD83D\uDD34 ' + acc + '% (' + attempts + 'A)</span>';
         }
       }
+      const splitBadgeCompact = (pStats && pStats.lastSetupSec !== null && pStats.lastSetupSec !== undefined && pStats.lastCalcSec !== null && pStats.lastCalcSec !== undefined)
+        ? `<span class="badge" style="background:rgba(139,92,246,0.18); color:var(--accent-purple-light); font-family:var(--font-mono);">\u23F1\uFE0F Split: ${pStats.lastSetupSec}s Setup / ${pStats.lastCalcSec}s Calc</span>`
+        : "";
 
       const stemDomId = "practice-stem-" + practiceCurrentPage + "-" + idx;
       const card = document.createElement("div");
@@ -7897,6 +8127,7 @@ Explanation: ${parentQ.explanation}`;
               <span class="badge" style="background:#151a24; color:var(--accent-purple-light);">${q.subtopic || methodLabel}</span>
               ${passageBadgeHtml}
               ${statusBadge}
+              ${splitBadgeCompact}
             </div>
             <div class="practice-q-actions">
               <button class="star-flag-btn ${starClass}" style="padding:2px 6px; font-size:10px;" onclick="CGL_OS.toggleQuestionStarFromPractice('${q.id}')" title="Star / Bookmark">${starIcon}</button>
@@ -7921,10 +8152,10 @@ Explanation: ${parentQ.explanation}`;
   async function duplicateCurrentEditingQuestionFromId(id) {
     try {
       const clone = await QuestionService.duplicate(id);
-      alert(`Cloned as ${clone.id}.`);
+      showToast(`Cloned as ${clone.id}.`, "emerald");
       openEditQuestionModal(clone);
     } catch (err) {
-      alert("Clone Error: " + err.message);
+      showToast("Clone Error: " + err.message, "red");
     }
   }
 
@@ -8005,7 +8236,7 @@ Explanation: ${parentQ.explanation}`;
   async function launchDojoFromPracticePool() {
     const pool = await sampleActivePracticePool();
     if (pool.length === 0) {
-      alert("No questions match the active filters to launch in Dojo.");
+      showToast("No questions match the active filters to launch in Dojo.", "amber");
       return;
     }
     await openDojoSessionWithQuestions(pool, `Dojo Clinic (${pool.length} Qs)`);
@@ -8014,7 +8245,7 @@ Explanation: ${parentQ.explanation}`;
   async function launchTimedSprintFromPracticePool() {
     const pool = await sampleActivePracticePool();
     if (pool.length === 0) {
-      alert("No questions match the active filters to launch a Timed Sprint.");
+      showToast("No questions match the active filters to launch a Timed Sprint.", "amber");
       return;
     }
     await compileAndLaunchArena(`Timed Sprint (${pool.length} Qs)`, pool, Math.max(5, Math.round(pool.length * 1.0)), false);
@@ -8038,7 +8269,7 @@ Explanation: ${parentQ.explanation}`;
   async function buildMockFromPracticeSelection() {
     const selected = await sampleActivePracticePool();
     if (selected.length === 0) {
-      alert("No questions in the active filter pool to save as a fixed paper.");
+      showToast("No questions in the active filter pool to save as a fixed paper.", "amber");
       return;
     }
     const title = prompt("Enter title for this Custom Fixed Mock Paper:", `Curated Atlas Paper (${selected.length} Qs)`);
@@ -8052,7 +8283,7 @@ Explanation: ${parentQ.explanation}`;
       questions: selected
     });
 
-    alert(`Saved fixed mock "${paper.title}" (${selected.length} Qs) to Dashboard!`);
+    showToast(`Saved fixed mock "${paper.title}" (${selected.length} Qs) to Dashboard!`, "emerald");
     await renderDashboard();
   }
 
@@ -8080,15 +8311,43 @@ Explanation: ${parentQ.explanation}`;
     if (dojoSetupSplitSec === null) {
       dojoSetupSplitSec = dojoStopwatchSec;
       safeSetText("dojo-stopwatch-splits", `[Setup: ${dojoSetupSplitSec}s]`);
+      showToast(`Setup split marked at ${dojoSetupSplitSec}s`, "purple", 1600);
     } else {
       const calcSec = Math.max(0, dojoStopwatchSec - dojoSetupSplitSec);
       safeSetText("dojo-stopwatch-splits", `[Setup: ${dojoSetupSplitSec}s | Calc: ${calcSec}s]`);
     }
   }
 
+  async function saveCurrentDojoMutantToBank() {
+    if (!dojoExam || !dojoExam.questions || dojoExam.questions.length === 0) return;
+    const q = dojoExam.questions[dojoExam.currentIndex];
+    if (!q) return;
+
+    const cleanQuestion = { ...q };
+    delete cleanQuestion.ephemeral;
+    delete cleanQuestion.dojoSequentialNum;
+    if (!cleanQuestion.id || cleanQuestion.id.startsWith("mut_")) {
+      cleanQuestion.id = cleanQuestion.id || `q_mutant_${Date.now()}`;
+    }
+
+    const existing = await QuestionService.get(cleanQuestion.id);
+    if (existing) {
+      await QuestionService.update(cleanQuestion.id, cleanQuestion);
+    } else {
+      await QuestionService.create(cleanQuestion);
+    }
+
+    q.ephemeral = false;
+    const saveMutBtn = document.getElementById("btn-dojo-save-mutant");
+    if (saveMutBtn) saveMutBtn.style.display = "none";
+
+    showToast(`Mutant question (${cleanQuestion.id}) permanently saved to Master Bank!`, "emerald", 2800);
+    await renderDashboard();
+  }
+
   async function openDojoSessionWithQuestions(questionsArray, title = "Dojo Practice Clinic", customFormulaBrief = null) {
     if (!Array.isArray(questionsArray) || questionsArray.length === 0) {
-      alert("No questions available for this Dojo session.");
+      showToast("No questions available for this Dojo session.", "amber");
       return;
     }
 
@@ -8138,7 +8397,7 @@ Explanation: ${parentQ.explanation}`;
       shuffleOptions: true
     });
     if (!inst.questions || inst.questions.length === 0) {
-      alert("No weak questions detected yet! Complete a mock or practice new questions first.");
+      showToast("No weak questions detected yet! Complete a mock or practice new questions first.", "amber");
       return;
     }
     await openDojoSessionWithQuestions(inst.questions, "Weakness Remediation Dojo");
@@ -8191,6 +8450,12 @@ Explanation: ${parentQ.explanation}`;
     safeSetText("dojo-arena-method-badge", q.method || q.subtopic || "General");
     safeSetText("dojo-arena-qnum", q.dojoSequentialNum);
     safeSetText("dojo-arena-total-tag", `Question ${q.dojoSequentialNum} of ${dojoExam.questions.length}`);
+
+    // Bridge 4: Show 1-Tap [📥 Save Mutant to Bank] button when practicing an ephemeral mutant question
+    const saveMutBtn = document.getElementById("btn-dojo-save-mutant");
+    if (saveMutBtn) {
+      saveMutBtn.style.display = q.ephemeral ? "inline-flex" : "none";
+    }
 
     const starBtn = document.getElementById("btn-dojo-star");
     if (starBtn) {
@@ -8328,15 +8593,17 @@ Explanation: ${parentQ.explanation}`;
         clearInterval(dojoStopwatchInterval);
         const solveTimeSec = Math.max(2, dojoStopwatchSec || 12);
 
+        let splitPayload = null;
         if (dojoSetupSplitSec !== null) {
           const calcSec = Math.max(0, dojoStopwatchSec - dojoSetupSplitSec);
+          splitPayload = { setupSec: dojoSetupSplitSec, calcSec };
           safeSetText("dojo-stopwatch-splits", `[Setup: ${dojoSetupSplitSec}s | Calc: ${calcSec}s | Total: ${dojoStopwatchSec}s]`);
         } else {
           safeSetText("dojo-stopwatch-splits", `[Solved in ${dojoStopwatchSec}s]`);
         }
 
-        // Persist Untimed Dojo solve to DOJO_CLINIC telemetry ledger
-        await PerformanceService.recordUntimedPracticeSolve(q, idx, solveTimeSec);
+        // Persist Untimed Dojo solve + [Setup | Calc] Split to DOJO_CLINIC telemetry ledger
+        await PerformanceService.recordUntimedPracticeSolve(q, idx, solveTimeSec, splitPayload);
 
         if (navigator.vibrate) navigator.vibrate(idx === q.correctIndex ? 25 : [40, 40]);
 
@@ -8695,7 +8962,7 @@ Explanation: ${parentQ.explanation}`;
 
   async function drillFilteredTrapQuestions(openInDojo = false) {
     if (activeClinicQuestions.length === 0) {
-      alert("No trap questions available to drill.");
+      showToast("No trap questions available to drill.", "amber");
       return;
     }
     const modal = document.getElementById("modal-trap-clinic");
@@ -8912,27 +9179,55 @@ Explanation: ${parentQ.explanation}`;
       await deleteRecordFromStore("store_attempts", sessionId);
       await renderDashboard();
       renderArchiveList("ALL");
-      alert("Attempt record deleted and statistics updated.");
+      showToast("Attempt record deleted and statistics updated.", "emerald");
     }
   }
 
   /* ==========================================================================
-   * SECTION 25: LIVING KNOWLEDGE STUDIO (GOODNOTES / APPLE NOTES TABLET ENGINE)
+   * SECTION 25: LIVING KNOWLEDGE STUDIO (GOODNOTES / LIQUIDTEXT PDF & SHEET ENGINE)
    * - Unified 3 Reading Surface Presets (Obsidian, Warm Charcoal, Warm Sepia Paper)
+   * - Embedded Multi-Page PDF Studio (pdf.js + pdf-lib) with Blank Page Insert & Flatten
+   * - GoodNotes Recall Tape (🩹), Polygon Lasso (🪢), LiquidText Excerpt (✂️) & 350ms Shape Snap
    * - Instant Brush-Drag Painting across Words + Single-Tap Word Masking & Highlighting
-   * - Page-Anchored Direct Stylus Handwriting Layer (#comp-folio-ink-canvas)
    * - Interactive Copy-Paste / Upload Movable & Inline Images + Sticky Callout Cards
-   * - Auto-Tracked Last Opened Date + Neglected Sheets Filter (Zero SRS Bloat)
    * ========================================================================== */
   let compSheetInkMode = false;
-  let compSheetInkTool = "pen"; // 'pen' | 'marker' | 'eraser'
+  let compSheetInkTool = "pen"; // 'pen' | 'marker' | 'tape' | 'lasso' | 'excerpt' | 'stroke_eraser' | 'eraser'
   let compSheetInkColor = "#38bdf8";
-  let compSheetInkSize = 2.5;
+  let compSheetInkSize = 3.0;
   let compSheetInkFingerDraw = true;
   let activeSheetInkStrokes = [];
   let isDrawingSheetInk = false;
   let currentSheetInkStroke = null;
   let activeSheetMediaBlocks = [];
+
+  // PDF Studio & Excerpt Runtime State
+  let pdfLibraryIndex = [];
+  let activeCompPdfItem = null;
+  let activeCompPdfDocProxy = null;
+  let activeCompPdfRawBytes = null;
+  let activeCompPdfPageNum = 1;
+  let activeCompPdfTotalPages = 1;
+  let activeCompPdfDarkInvert = false;
+  let activeCompPdfThumbnailsOpen = false;
+  let activeCompPdfThumbnailFilter = "ALL";
+  let activeSheetMarginExcerpts = [];
+  let stagedExcerptCrop = null; // { dataUrl, label, pageNum, scrollTop, timestamp }
+
+  // Lasso & Hold-to-Snap State for Folio Ink
+  let folioShapeHoldTimer = null;
+  let lassoPolygonPoints = [];
+  let lassoSelectedStrokeIndices = [];
+  let lassoBoundingBoxNorm = null; // { minX, minY, maxX, maxY }
+  let isDraggingLassoSelection = false;
+  let lassoDragLastNormPt = null;
+  let excerptDragStartNorm = null;
+  let excerptDragCurrNorm = null;
+
+  function isCompPdfActive() {
+    const cur = currentCompSheets && currentCompSheets[activeCompSheetIndex];
+    return !!(cur && cur.isPdf && activeCompPdfItem);
+  }
 
   function toggleCompSheetSwitcherDrawer(forceState = null) {
     if (forceState && typeof forceState === "object") {
@@ -9004,7 +9299,7 @@ Explanation: ${parentQ.explanation}`;
       effectiveSurface = globalTheme === "charcoal" ? "CHARCOAL" : "OBSIDIAN";
     }
 
-    const surfaceLower = effectiveSurface.toLowerCase(); // 'obsidian' | 'charcoal' | 'sepia'
+    const surfaceLower = effectiveSurface.toLowerCase();
     compendiumReadingSurface = surfaceLower;
     if (fsView) {
       fsView.classList.remove("folio-preset-obsidian", "folio-preset-charcoal", "folio-preset-sepia");
@@ -9060,15 +9355,33 @@ Explanation: ${parentQ.explanation}`;
     const selector = compendiumAutoBlurAll
       ? ".user-recall-mask, #comp-studio-doc-body strong, #comp-studio-doc-body .katex-display, #comp-studio-doc-body td"
       : ".user-recall-mask";
-    const allTargets = Array.from(canvas.querySelectorAll(selector));
-    const revealedCount = allTargets.filter(el => el.classList.contains("recall-revealed")).length;
-    progText.innerText = `\uD83D\uDE48 Recalled: ${revealedCount} / ${allTargets.length} Masks`;
+    const allTargets = isCompPdfMode ? [] : Array.from(canvas.querySelectorAll(selector));
+    const revealedDomCount = allTargets.filter(el => el.classList.contains("recall-revealed")).length;
+
+    const tapeStrokes = Array.isArray(activeSheetInkStrokes)
+      ? activeSheetInkStrokes.filter(s => s && String(s.tool || "").toLowerCase() === "tape")
+      : [];
+    const revealedTapeCount = tapeStrokes.filter(s => s.revealed).length;
+
+    const totalMasks = allTargets.length + tapeStrokes.length;
+    const totalRevealed = revealedDomCount + revealedTapeCount;
+    progText.innerText = `\uD83D\uDE48 Recalled: ${totalRevealed} / ${totalMasks} Masks`;
   }
 
   function revealNextCompendiumMask() {
     if (!compendiumRecallMode) toggleCompendiumRecallMode(true);
     const canvas = document.getElementById("comp-studio-canvas");
     if (!canvas) return;
+
+    const nextTape = (activeSheetInkStrokes || []).find(s => s && String(s.tool || "").toLowerCase() === "tape" && !s.revealed);
+    if (nextTape) {
+      nextTape.revealed = true;
+      redrawSheetInkCanvas();
+      saveActiveSheetInkStrokes();
+      updateRecallProgressCounter();
+      return;
+    }
+
     const selector = compendiumAutoBlurAll
       ? ".user-recall-mask, #comp-studio-doc-body strong, #comp-studio-doc-body .katex-display, #comp-studio-doc-body td"
       : ".user-recall-mask";
@@ -9082,8 +9395,20 @@ Explanation: ${parentQ.explanation}`;
 
   function resetCompendiumRevealedMasks() {
     const canvas = document.getElementById("comp-studio-canvas");
-    if (!canvas) return;
-    canvas.querySelectorAll(".recall-revealed").forEach(el => el.classList.remove("recall-revealed"));
+    if (canvas) {
+      canvas.querySelectorAll(".recall-revealed").forEach(el => el.classList.remove("recall-revealed"));
+    }
+    let changedTape = false;
+    (activeSheetInkStrokes || []).forEach(s => {
+      if (s && String(s.tool || "").toLowerCase() === "tape" && s.revealed) {
+        s.revealed = false;
+        changedTape = true;
+      }
+    });
+    if (changedTape) {
+      redrawSheetInkCanvas();
+      saveActiveSheetInkStrokes();
+    }
     updateRecallProgressCounter();
   }
 
@@ -9272,26 +9597,26 @@ Explanation: ${parentQ.explanation}`;
   }
 
   /**
-   * GOODNOTES / APPLE NOTES PAGE-ANCHORED STYLUS INK ENGINE
+   * GOODNOTES / LIQUIDTEXT PAGE-ANCHORED STYLUS INK ENGINE
    * Vector handwriting strokes are stored in normalized page coordinates (0..1)
-   * inside `store_notes` (`sheet_ink_${sheetId}`) and scroll naturally with the sheet!
+   * inside `store_notes` (`sheet_ink_${prefix}`) and scroll naturally with the sheet or PDF page!
    * Supports:
-   *  - 🖊️ Pen (S / M / L)
-   *  - 🖍️ Marker (Chisel Highlighter)
-   *  - 🧽 Stroke Eraser (Touch any specific Marker or Pen stroke to remove it cleanly)
-   *  - 🧼 Wide Area Pixel Eraser (S: 30px, M: 48px, L: 72px with live circular cursor ring)
-   *  - 🗑 Instant Clear (no blocking confirm dialog, 100% undoable via ↩ Undo)
-   *  - Full passthrough for Sheet Navigation ([←] Previous / Next Sheet [→]) and Stylus-Only 1-Finger Scroll
+   *  - 🖊️ Pen & 🖍️ Marker (with 350ms Hold-to-Snap Geometric Shapes: Line, Circle/Ellipse, Rectangle, Triangle)
+   *  - 🩹 Recall Tape (22px frosted occlusion ribbon; tap when not drawing to toggle reveal/hide)
+   *  - 🪢 Polygon Lasso (Circle strokes to select & drag-move them across the page)
+   *  - ✂️ LiquidText Excerpt (Drag rectangle crop marquee over PDF/Sheet + Ink to pin to Margin Rail or send to Question Creator)
+   *  - 🧽 Stroke Eraser & 🧼 Wide Area Pixel Eraser
+   *  - 2-Finger Natural Scroll while in 1-Finger Draw Mode
    */
   let lastClearedSheetInkBackup = null;
   let sheetInkUndoStack = [];
-  let activeEraserCursorPreview = null; // { nx, ny, radiusPx }
+  let activeEraserCursorPreview = null;
 
   function pushSheetInkUndoSnapshot() {
     if (!Array.isArray(activeSheetInkStrokes)) return;
     const cloned = activeSheetInkStrokes.map(s => ({
       ...s,
-      points: Array.isArray(s.points) ? [...s.points] : []
+      points: Array.isArray(s.points) ? s.points.map(p => ({ ...p })) : []
     }));
     sheetInkUndoStack.push(cloned);
     if (sheetInkUndoStack.length > 30) {
@@ -9304,7 +9629,6 @@ Explanation: ${parentQ.explanation}`;
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     if (!pageEl || !inkCanvas) return;
 
-    // Temporarily collapse canvas style height so pageEl.scrollHeight reflects true document height when switching sheets
     const prevStyleH = inkCanvas.style.height;
     inkCanvas.style.height = "0px";
     const w = Math.max(pageEl.scrollWidth, pageEl.clientWidth, 320);
@@ -9326,10 +9650,10 @@ Explanation: ${parentQ.explanation}`;
 
   function getEffectiveEraserPixelWidth(sizeVal) {
     const s = Number(sizeVal) || 3.0;
-    if (s <= 2.0) return 38;   // S: 38px
-    if (s <= 3.5) return 68;   // M: 68px
-    if (s <= 6.0) return 104;  // L: 104px
-    return 148;                // XL: 148px
+    if (s <= 2.0) return 38;
+    if (s <= 3.5) return 68;
+    if (s <= 6.0) return 104;
+    return 148;
   }
 
   function redrawSheetInkCanvas() {
@@ -9347,7 +9671,7 @@ Explanation: ${parentQ.explanation}`;
     ctx.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
     ctx.scale(dpr, dpr);
 
-    const drawSingleStroke = (stroke) => {
+    const drawSingleStroke = (stroke, idx = -1) => {
       if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
       const toolType = String(stroke.tool || "pen").toLowerCase();
       if (toolType === "stroke_eraser") return;
@@ -9359,6 +9683,12 @@ Explanation: ${parentQ.explanation}`;
         ctx.globalCompositeOperation = "destination-out";
         ctx.strokeStyle = "rgba(0,0,0,1)";
         ctx.lineWidth = stroke.eraserWidth || getEffectiveEraserPixelWidth(stroke.size);
+      } else if (toolType === "tape") {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineCap = "butt";
+        ctx.globalAlpha = stroke.revealed ? 0.14 : 0.96;
+        ctx.strokeStyle = stroke.color || "#7c3aed";
+        ctx.lineWidth = 22;
       } else if (toolType === "marker") {
         ctx.globalCompositeOperation = "source-over";
         ctx.globalAlpha = 0.36;
@@ -9380,6 +9710,10 @@ Explanation: ${parentQ.explanation}`;
       ctx.moveTo(pts[0].x, pts[0].y);
       if (pts.length === 1) {
         ctx.lineTo(pts[0].x + 0.1, pts[0].y + 0.1);
+      } else if (stroke.shapeSnap) {
+        for (let i = 1; i < pts.length; i++) {
+          ctx.lineTo(pts[i].x, pts[i].y);
+        }
       } else {
         for (let i = 1; i < pts.length - 1; i++) {
           const midX = (pts[i].x + pts[i + 1].x) / 2;
@@ -9390,17 +9724,81 @@ Explanation: ${parentQ.explanation}`;
         ctx.lineTo(last.x, last.y);
       }
       ctx.stroke();
+
+      // Draw subtle dashed border on Recall Tape so user knows it's interactive
+      if (toolType === "tape" && pts.length >= 2) {
+        ctx.globalAlpha = stroke.revealed ? 0.45 : 0.85;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "#38bdf8";
+        ctx.stroke();
+      }
+
+      if (idx >= 0 && lassoSelectedStrokeIndices.includes(idx)) {
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = "#38bdf8";
+        ctx.stroke();
+      }
       ctx.restore();
     };
 
     if (Array.isArray(activeSheetInkStrokes)) {
-      activeSheetInkStrokes.forEach(drawSingleStroke);
+      activeSheetInkStrokes.forEach((s, idx) => drawSingleStroke(s, idx));
     }
     if (currentSheetInkStroke) {
-      drawSingleStroke(currentSheetInkStroke);
+      drawSingleStroke(currentSheetInkStroke, -1);
     }
 
-    // Draw live circular Eraser cursor indicator when erasing
+    // Draw Lasso Polygon Path or Selected Bounding Box
+    if (lassoPolygonPoints.length > 1) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(lassoPolygonPoints[0].nx * w, lassoPolygonPoints[0].ny * h);
+      for (let i = 1; i < lassoPolygonPoints.length; i++) {
+        ctx.lineTo(lassoPolygonPoints[i].nx * w, lassoPolygonPoints[i].ny * h);
+      }
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(56, 189, 248, 0.08)";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (lassoBoundingBoxNorm && lassoSelectedStrokeIndices.length > 0) {
+      const bx = lassoBoundingBoxNorm.minX * w - 6;
+      const by = lassoBoundingBoxNorm.minY * h - 6;
+      const bw = (lassoBoundingBoxNorm.maxX - lassoBoundingBoxNorm.minX) * w + 12;
+      const bh = (lassoBoundingBoxNorm.maxY - lassoBoundingBoxNorm.minY) * h + 12;
+      ctx.save();
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.fillStyle = "rgba(56, 189, 248, 0.07)";
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.restore();
+    }
+
+    // Draw LiquidText Excerpt Selection Marquee
+    if (excerptDragStartNorm && excerptDragCurrNorm) {
+      const x1 = Math.min(excerptDragStartNorm.nx, excerptDragCurrNorm.nx) * w;
+      const y1 = Math.min(excerptDragStartNorm.ny, excerptDragCurrNorm.ny) * h;
+      const rw = Math.abs(excerptDragCurrNorm.nx - excerptDragStartNorm.nx) * w;
+      const rh = Math.abs(excerptDragCurrNorm.ny - excerptDragStartNorm.ny) * h;
+      ctx.save();
+      ctx.strokeStyle = "#a78bfa";
+      ctx.lineWidth = 2.2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(x1, y1, rw, rh);
+      ctx.fillStyle = "rgba(167, 139, 250, 0.14)";
+      ctx.fillRect(x1, y1, rw, rh);
+      ctx.restore();
+    }
+
     if (activeEraserCursorPreview && isDrawingSheetInk) {
       const ex = activeEraserCursorPreview.nx * w;
       const ey = activeEraserCursorPreview.ny * h;
@@ -9420,10 +9818,6 @@ Explanation: ${parentQ.explanation}`;
     ctx.restore();
   }
 
-  /**
-   * Point-to-segment distance helper for GoodNotes-style Stroke Eraser (`stroke_eraser`).
-   * Removes any Pen or Marker stroke touched by the eraser path (with continuous interpolation along fast swipes)!
-   */
   function distToSegmentSq(px, py, x1, y1, x2, y2) {
     const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
     if (l2 === 0) return (px - x1) * (px - x1) + (py - y1) * (py - y1);
@@ -9432,6 +9826,63 @@ Explanation: ${parentQ.explanation}`;
     const projX = x1 + t * (x2 - x1);
     const projY = y1 + t * (y2 - y1);
     return (px - projX) * (px - projX) + (py - projY) * (py - projY);
+  }
+
+  function isPointInPolygonNorm(nx, ny, polyPts) {
+    let inside = false;
+    for (let i = 0, j = polyPts.length - 1; i < polyPts.length; j = i++) {
+      const xi = polyPts[i].nx, yi = polyPts[i].ny;
+      const xj = polyPts[j].nx, yj = polyPts[j].ny;
+      const intersect = ((yi > ny) !== (yj > ny)) && (nx < (xj - xi) * (ny - yi) / ((yj - yi) || 1e-7) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function computeLassoBoundingBox() {
+    if (!lassoSelectedStrokeIndices.length) {
+      lassoBoundingBoxNorm = null;
+      return;
+    }
+    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+    lassoSelectedStrokeIndices.forEach(idx => {
+      const s = activeSheetInkStrokes[idx];
+      if (!s || !Array.isArray(s.points)) return;
+      s.points.forEach(pt => {
+        if (pt.nx < minX) minX = pt.nx;
+        if (pt.ny < minY) minY = pt.ny;
+        if (pt.nx > maxX) maxX = pt.nx;
+        if (pt.ny > maxY) maxY = pt.ny;
+      });
+    });
+    lassoBoundingBoxNorm = { minX, minY, maxX, maxY };
+  }
+
+  function tryToggleRecallTapeAtNormPoint(nx, ny) {
+    const inkCanvas = document.getElementById("comp-folio-ink-canvas");
+    if (!inkCanvas || !Array.isArray(activeSheetInkStrokes)) return false;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const w = Math.max(inkCanvas.width / dpr, 1);
+    const h = Math.max(inkCanvas.height / dpr, 1);
+    const px = nx * w;
+    const py = ny * h;
+    const hitSq = 18 * 18;
+
+    for (let sIdx = activeSheetInkStrokes.length - 1; sIdx >= 0; sIdx--) {
+      const s = activeSheetInkStrokes[sIdx];
+      if (!s || String(s.tool || "").toLowerCase() !== "tape" || !Array.isArray(s.points)) continue;
+      const pts = s.points.map(pt => ({ x: pt.nx * w, y: pt.ny * h }));
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (distToSegmentSq(px, py, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y) <= hitSq) {
+          s.revealed = !s.revealed;
+          redrawSheetInkCanvas();
+          saveActiveSheetInkStrokes();
+          updateRecallProgressCounter();
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   function eraseWholeStrokesAlongSegment(prevNormPt, currNormPt, hitRadiusPx = 28) {
@@ -9464,7 +9915,7 @@ Explanation: ${parentQ.explanation}`;
       if (tType === "eraser") return true;
       const strokeHalfW = tType === "marker"
         ? Math.max(16, (stroke.size || 3.0) * 6.8) / 2
-        : (stroke.size || 3.0) / 2;
+        : (tType === "tape" ? 11 : (stroke.size || 3.0) / 2);
       const thresholdSq = (hitRadiusPx + strokeHalfW) * (hitRadiusPx + strokeHalfW);
 
       const pts = stroke.points.map(pt => ({
@@ -9491,7 +9942,6 @@ Explanation: ${parentQ.explanation}`;
       return true;
     });
 
-    // If all visible Pen/Marker strokes were removed, clean up any leftover pixel-eraser masks
     if (removedAny && !activeSheetInkStrokes.some(s => s && String(s.tool || "pen").toLowerCase() !== "eraser")) {
       activeSheetInkStrokes = [];
     }
@@ -9500,15 +9950,36 @@ Explanation: ${parentQ.explanation}`;
   }
 
   async function saveActiveSheetInkStrokes() {
-    const sheet = currentCompSheets[activeCompSheetIndex];
-    if (!sheet) return;
-    await putRecord("store_notes", {
-      id: `sheet_ink_${sheet.id}`,
-      sheetId: sheet.id,
-      strokes: activeSheetInkStrokes,
-      timestamp: Date.now()
-    });
+    if (isCompPdfActive() && activeCompPdfItem) {
+      const recId = `pdf_ink_${activeCompPdfItem.id}_p${activeCompPdfPageNum}`;
+      await putRecord("store_notes", {
+        id: recId,
+        pdfId: activeCompPdfItem.id,
+        pageNum: activeCompPdfPageNum,
+        strokes: activeSheetInkStrokes,
+        timestamp: Date.now()
+      });
+      const hasInk = Array.isArray(activeSheetInkStrokes) && activeSheetInkStrokes.length > 0;
+      const annSet = new Set(Array.isArray(activeCompPdfItem.annotatedPages) ? activeCompPdfItem.annotatedPages : []);
+      if (hasInk) annSet.add(activeCompPdfPageNum);
+      else annSet.delete(activeCompPdfPageNum);
+      activeCompPdfItem.annotatedPages = Array.from(annSet).sort((a, b) => a - b);
+      await savePdfLibraryIndex();
+      if (activeCompPdfThumbnailsOpen) {
+        await renderCompPdfThumbnailsStrip();
+      }
+    } else {
+      const sheet = currentCompSheets[activeCompSheetIndex];
+      if (!sheet) return;
+      await putRecord("store_notes", {
+        id: `sheet_ink_${sheet.id}`,
+        sheetId: sheet.id,
+        strokes: activeSheetInkStrokes,
+        timestamp: Date.now()
+      });
+    }
     updateCompMaskAndHighlightBadge();
+    updateRecallProgressCounter();
   }
 
   function syncSheetInkPointerPassthrough() {
@@ -9524,10 +9995,6 @@ Explanation: ${parentQ.explanation}`;
       }
       return;
     }
-    // Critical fix: When "Stylus Only (1-Finger Scrolls)" is selected (!compSheetInkFingerDraw),
-    // set pointerEvents = "none" on the canvas AND add .stylus-only-scroll on #comp-folio-page
-    // so 1-finger scrolling AND tapping sheet buttons ([←] Previous Sheet, Next Sheet [→], TOC links)
-    // pass straight through naturally, while active stylus (pointerType === "pen") writes/erases immediately!
     if (compSheetInkFingerDraw) {
       inkCanvas.style.pointerEvents = "auto";
       inkCanvas.style.touchAction = "none";
@@ -9556,6 +10023,12 @@ Explanation: ${parentQ.explanation}`;
       isDrawingSheetInk = false;
       currentSheetInkStroke = null;
       activeEraserCursorPreview = null;
+      lassoPolygonPoints = [];
+      lassoSelectedStrokeIndices = [];
+      lassoBoundingBoxNorm = null;
+      excerptDragStartNorm = null;
+      excerptDragCurrNorm = null;
+      clearTimeout(folioShapeHoldTimer);
     }
 
     const pageEl = document.getElementById("comp-folio-page");
@@ -9583,24 +10056,36 @@ Explanation: ${parentQ.explanation}`;
     if (norm === "stroke_eraser") compSheetInkTool = "stroke_eraser";
     else if (norm === "eraser") compSheetInkTool = "eraser";
     else if (norm === "marker") compSheetInkTool = "marker";
+    else if (norm === "tape") compSheetInkTool = "tape";
+    else if (norm === "lasso") compSheetInkTool = "lasso";
+    else if (norm === "excerpt") compSheetInkTool = "excerpt";
     else compSheetInkTool = "pen";
 
-    const penBtn = document.getElementById("btn-folio-pen") || document.getElementById("ink-tool-pen");
-    const markerBtn = document.getElementById("btn-folio-marker");
-    const strokeEraserBtn = document.getElementById("btn-folio-stroke-eraser");
-    const eraserBtn = document.getElementById("btn-folio-eraser") || document.getElementById("ink-tool-eraser");
+    lassoPolygonPoints = [];
+    lassoSelectedStrokeIndices = [];
+    lassoBoundingBoxNorm = null;
+    excerptDragStartNorm = null;
+    excerptDragCurrNorm = null;
+    redrawSheetInkCanvas();
 
-    const syncBtn = (btn, isActive) => {
+    const btnMap = {
+      pen: document.getElementById("btn-folio-pen") || document.getElementById("ink-tool-pen"),
+      marker: document.getElementById("btn-folio-marker"),
+      tape: document.getElementById("btn-folio-tape"),
+      lasso: document.getElementById("btn-folio-lasso"),
+      excerpt: document.getElementById("btn-folio-excerpt"),
+      stroke_eraser: document.getElementById("btn-folio-stroke-eraser"),
+      eraser: document.getElementById("btn-folio-eraser") || document.getElementById("ink-tool-eraser")
+    };
+
+    Object.keys(btnMap).forEach(k => {
+      const btn = btnMap[k];
       if (!btn) return;
+      const isActive = compSheetInkTool === k;
       btn.classList.toggle("active", isActive);
       btn.classList.toggle("btn-cyan", isActive);
       btn.classList.toggle("btn-secondary", !isActive);
-    };
-
-    syncBtn(penBtn, compSheetInkTool === "pen");
-    syncBtn(markerBtn, compSheetInkTool === "marker");
-    syncBtn(strokeEraserBtn, compSheetInkTool === "stroke_eraser");
-    syncBtn(eraserBtn, compSheetInkTool === "eraser");
+    });
   }
 
   function setCompendiumFolioInkTool(tool = "PEN") {
@@ -9609,7 +10094,7 @@ Explanation: ${parentQ.explanation}`;
 
   function setCompSheetInkColor(color = "#38bdf8", btnEl = null) {
     compSheetInkColor = color;
-    if (compSheetInkTool === "eraser" || compSheetInkTool === "stroke_eraser") {
+    if (compSheetInkTool === "eraser" || compSheetInkTool === "stroke_eraser" || compSheetInkTool === "lasso" || compSheetInkTool === "excerpt") {
       setCompSheetInkTool("pen");
     }
     document.querySelectorAll("#comp-folio-ink-toolbar .folio-ink-swatch, #comp-folio-ink-toolbar .ink-swatch").forEach(el => {
@@ -9677,17 +10162,13 @@ Explanation: ${parentQ.explanation}`;
     activeSheetInkStrokes = [];
     currentSheetInkStroke = null;
     activeEraserCursorPreview = null;
+    lassoPolygonPoints = [];
+    lassoSelectedStrokeIndices = [];
+    lassoBoundingBoxNorm = null;
     isDrawingSheetInk = false;
     redrawSheetInkCanvas();
     await saveActiveSheetInkStrokes();
-
-    // Also clear any Global Screen Scratchpad strokes bound to this sheet so no lingering overlay ink remains
-    const sheet = currentCompSheets[activeCompSheetIndex];
-    if (sheet && activeInkContextKey === `sheet_${sheet.id}`) {
-      scratchpadStrokes = [];
-      inkMemoryByContextKey[activeInkContextKey] = [];
-      redrawScratchpad();
-    }
+    showToast("Page ink cleared (Tap Undo to restore).", "cyan", 1800);
   }
 
   async function clearCompendiumFolioInk() {
@@ -9702,6 +10183,7 @@ Explanation: ${parentQ.explanation}`;
 
     let strokeEraserModified = false;
     let lastEraserNormPt = null;
+    let folioTwoFingerScrollY = null;
 
     const getNormalizedPoint = (e) => {
       const rect = inkCanvas.getBoundingClientRect();
@@ -9715,14 +10197,67 @@ Explanation: ${parentQ.explanation}`;
       };
     };
 
-    // Check if user tapped an interactive button/link/input underneath the ink canvas (e.g., Previous/Next Sheet)
     const getUnderlyingInteractiveControl = (clientX, clientY) => {
       const prevPe = inkCanvas.style.pointerEvents;
       inkCanvas.style.pointerEvents = "none";
       const elUnder = document.elementFromPoint(clientX, clientY);
       inkCanvas.style.pointerEvents = prevPe;
       if (!elUnder) return null;
-      return elUnder.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap");
+      return elUnder.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap");
+    };
+
+    // 2-Finger Natural Scroll on Folio Ink Canvas when 1-Finger Draw Mode is ON
+    inkCanvas.addEventListener("touchstart", (te) => {
+      if (te.touches && te.touches.length >= 2) {
+        clearTimeout(folioShapeHoldTimer);
+        if (isDrawingSheetInk) {
+          isDrawingSheetInk = false;
+          currentSheetInkStroke = null;
+          redrawSheetInkCanvas();
+        }
+        folioTwoFingerScrollY = (te.touches[0].clientY + te.touches[1].clientY) / 2;
+      }
+    }, { passive: true });
+
+    inkCanvas.addEventListener("touchmove", (te) => {
+      if (te.touches && te.touches.length >= 2 && folioTwoFingerScrollY !== null) {
+        const midY = (te.touches[0].clientY + te.touches[1].clientY) / 2;
+        const dy = folioTwoFingerScrollY - midY;
+        folioTwoFingerScrollY = midY;
+        const scrollContainer = document.getElementById("comp-studio-canvas") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
+        if (scrollContainer) scrollContainer.scrollTop += dy;
+      }
+    }, { passive: true });
+
+    inkCanvas.addEventListener("touchend", (te) => {
+      if (!te.touches || te.touches.length < 2) {
+        folioTwoFingerScrollY = null;
+      }
+    }, { passive: true });
+
+    const scheduleFolioShapeSnap = () => {
+      clearTimeout(folioShapeHoldTimer);
+      if (!isDrawingSheetInk || !currentSheetInkStroke || currentSheetInkStroke.shapeSnap) return;
+      const t = String(currentSheetInkStroke.tool || "pen").toLowerCase();
+      if (t !== "pen" && t !== "marker") return;
+
+      folioShapeHoldTimer = setTimeout(() => {
+        if (!isDrawingSheetInk || !currentSheetInkStroke || currentSheetInkStroke.points.length < 6) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        const w = Math.max(inkCanvas.width / dpr, 1);
+        const h = Math.max(inkCanvas.height / dpr, 1);
+        const pxPts = currentSheetInkStroke.points.map(p => ({ x: p.nx * w, y: p.ny * h }));
+        const snappedPx = snapStrokeToGeometricShape(pxPts);
+        if (snappedPx && snappedPx.length >= 2) {
+          currentSheetInkStroke.points = snappedPx.map(sp => ({
+            nx: Math.max(0, Math.min(1, sp.x / w)),
+            ny: Math.max(0, Math.min(1, sp.y / h))
+          }));
+          currentSheetInkStroke.shapeSnap = true;
+          if (navigator.vibrate) navigator.vibrate(18);
+          redrawSheetInkCanvas();
+        }
+      }, 350);
     };
 
     const beginInkAtEvent = (e) => {
@@ -9730,6 +10265,40 @@ Explanation: ${parentQ.explanation}`;
       const effectiveTool = isHardwareEraser ? "stroke_eraser" : compSheetInkTool;
       const pt = getNormalizedPoint(e);
       const eraserW = getEffectiveEraserPixelWidth(compSheetInkSize);
+
+      // LASSO TOOL: Check if dragging existing selection box or starting new lasso loop
+      if (effectiveTool === "lasso") {
+        if (lassoBoundingBoxNorm && lassoSelectedStrokeIndices.length > 0) {
+          if (
+            pt.nx >= lassoBoundingBoxNorm.minX - 0.02 &&
+            pt.nx <= lassoBoundingBoxNorm.maxX + 0.02 &&
+            pt.ny >= lassoBoundingBoxNorm.minY - 0.02 &&
+            pt.ny <= lassoBoundingBoxNorm.maxY + 0.02
+          ) {
+            pushSheetInkUndoSnapshot();
+            isDraggingLassoSelection = true;
+            isDrawingSheetInk = true;
+            lassoDragLastNormPt = pt;
+            return;
+          }
+        }
+        isDraggingLassoSelection = false;
+        lassoSelectedStrokeIndices = [];
+        lassoBoundingBoxNorm = null;
+        lassoPolygonPoints = [pt];
+        isDrawingSheetInk = true;
+        redrawSheetInkCanvas();
+        return;
+      }
+
+      // LIQUIDTEXT EXCERPT TOOL: Begin rectangular crop marquee
+      if (effectiveTool === "excerpt") {
+        excerptDragStartNorm = pt;
+        excerptDragCurrNorm = pt;
+        isDrawingSheetInk = true;
+        redrawSheetInkCanvas();
+        return;
+      }
 
       isDrawingSheetInk = true;
       strokeEraserModified = false;
@@ -9760,14 +10329,45 @@ Explanation: ${parentQ.explanation}`;
         color: compSheetInkColor,
         size: compSheetInkSize,
         eraserWidth: eraserW,
+        revealed: false,
         points: [pt]
       };
       redrawSheetInkCanvas();
     };
 
     const moveInkAtEvent = (e) => {
-      if (!compSheetInkMode || !isDrawingSheetInk || !currentSheetInkStroke) return;
+      if (!compSheetInkMode || !isDrawingSheetInk) return;
       const pt = getNormalizedPoint(e);
+
+      if (compSheetInkTool === "lasso") {
+        if (isDraggingLassoSelection && lassoDragLastNormPt) {
+          const dx = pt.nx - lassoDragLastNormPt.nx;
+          const dy = pt.ny - lassoDragLastNormPt.ny;
+          lassoDragLastNormPt = pt;
+          lassoSelectedStrokeIndices.forEach(idx => {
+            const s = activeSheetInkStrokes[idx];
+            if (!s || !Array.isArray(s.points)) return;
+            s.points.forEach(p => {
+              p.nx = Math.max(0, Math.min(1, p.nx + dx));
+              p.ny = Math.max(0, Math.min(1, p.ny + dy));
+            });
+          });
+          computeLassoBoundingBox();
+          redrawSheetInkCanvas();
+          return;
+        }
+        lassoPolygonPoints.push(pt);
+        redrawSheetInkCanvas();
+        return;
+      }
+
+      if (compSheetInkTool === "excerpt") {
+        excerptDragCurrNorm = pt;
+        redrawSheetInkCanvas();
+        return;
+      }
+
+      if (!currentSheetInkStroke) return;
       const eraserW = getEffectiveEraserPixelWidth(compSheetInkSize);
 
       if (currentSheetInkStroke.tool === "stroke_eraser") {
@@ -9785,11 +10385,22 @@ Explanation: ${parentQ.explanation}`;
         activeEraserCursorPreview = { nx: pt.nx, ny: pt.ny, radiusPx: Math.round(eraserW / 2) };
       }
 
+      const prevPt = currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1];
+      if (currentSheetInkStroke.shapeSnap) {
+        currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1] = pt;
+        redrawSheetInkCanvas();
+        return;
+      }
+
       currentSheetInkStroke.points.push(pt);
+      if (!prevPt || Math.hypot(pt.nx - prevPt.nx, pt.ny - prevPt.ny) > 0.004) {
+        scheduleFolioShapeSnap();
+      }
       redrawSheetInkCanvas();
     };
 
     const finishStroke = async (e) => {
+      clearTimeout(folioShapeHoldTimer);
       if (!isDrawingSheetInk) return;
       isDrawingSheetInk = false;
       activeEraserCursorPreview = null;
@@ -9801,6 +10412,46 @@ Explanation: ${parentQ.explanation}`;
         pageEl.style.touchAction = "pan-y pinch-zoom";
       }
 
+      if (compSheetInkTool === "lasso") {
+        if (isDraggingLassoSelection) {
+          isDraggingLassoSelection = false;
+          lassoDragLastNormPt = null;
+          await saveActiveSheetInkStrokes();
+          showToast("Moved selected strokes.", "cyan", 1400);
+          return;
+        }
+        if (lassoPolygonPoints.length >= 3) {
+          lassoSelectedStrokeIndices = [];
+          activeSheetInkStrokes.forEach((s, idx) => {
+            if (!s || !Array.isArray(s.points) || s.tool === "eraser") return;
+            const insideCount = s.points.filter(p => isPointInPolygonNorm(p.nx, p.ny, lassoPolygonPoints)).length;
+            if (insideCount >= Math.max(1, Math.floor(s.points.length * 0.35))) {
+              lassoSelectedStrokeIndices.push(idx);
+            }
+          });
+          lassoPolygonPoints = [];
+          computeLassoBoundingBox();
+          redrawSheetInkCanvas();
+          if (lassoSelectedStrokeIndices.length > 0) {
+            showToast(`${lassoSelectedStrokeIndices.length} stroke(s) selected — drag box to move.`, "cyan", 2000);
+          }
+        } else {
+          lassoPolygonPoints = [];
+          redrawSheetInkCanvas();
+        }
+        return;
+      }
+
+      if (compSheetInkTool === "excerpt") {
+        if (excerptDragStartNorm && excerptDragCurrNorm) {
+          await finalizeExcerptSelectionMarquee(excerptDragStartNorm, excerptDragCurrNorm);
+        }
+        excerptDragStartNorm = null;
+        excerptDragCurrNorm = null;
+        redrawSheetInkCanvas();
+        return;
+      }
+
       if (currentSheetInkStroke && currentSheetInkStroke.tool === "stroke_eraser") {
         currentSheetInkStroke = null;
         redrawSheetInkCanvas();
@@ -9808,13 +10459,24 @@ Explanation: ${parentQ.explanation}`;
           strokeEraserModified = false;
           await saveActiveSheetInkStrokes();
         } else if (sheetInkUndoStack.length > 0) {
-          // Nothing was erased during this stroke-eraser gesture; pop unused undo snapshot
           sheetInkUndoStack.pop();
         }
         return;
       }
 
       if (currentSheetInkStroke && currentSheetInkStroke.points.length > 0) {
+        // If user tapped a Recall Tape ribbon with minimal drag, toggle its reveal state instead of drawing a tiny dot
+        if (currentSheetInkStroke.tool === "tape" && currentSheetInkStroke.points.length <= 3) {
+          const p0 = currentSheetInkStroke.points[0];
+          const pLast = currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1];
+          if (Math.hypot(pLast.nx - p0.nx, pLast.ny - p0.ny) < 0.012) {
+            currentSheetInkStroke = null;
+            if (sheetInkUndoStack.length > 0) sheetInkUndoStack.pop();
+            if (tryToggleRecallTapeAtNormPoint(p0.nx, p0.ny)) return;
+            redrawSheetInkCanvas();
+            return;
+          }
+        }
         activeSheetInkStrokes.push(currentSheetInkStroke);
         currentSheetInkStroke = null;
         redrawSheetInkCanvas();
@@ -9825,13 +10487,11 @@ Explanation: ${parentQ.explanation}`;
       }
     };
 
-    // 1. Direct Canvas Pointer Listeners (when Finger & Stylus Write is ON)
     inkCanvas.addEventListener("pointerdown", (e) => {
       if (!compSheetInkMode) return;
       if (!compSheetInkFingerDraw && e.pointerType !== "pen") return;
       if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
 
-      // Allow buttons (Previous Sheet, Next Sheet, +Image, +Sticky, TOC pills) to be clicked even when Ink Mode is ON!
       const interactiveEl = getUnderlyingInteractiveControl(e.clientX, e.clientY);
       if (interactiveEl) {
         const clickable = interactiveEl.closest("button, a, input, select, textarea") || interactiveEl;
@@ -9846,7 +10506,7 @@ Explanation: ${parentQ.explanation}`;
     });
 
     inkCanvas.addEventListener("pointermove", (e) => {
-      if (!compSheetInkMode || !isDrawingSheetInk || !currentSheetInkStroke) return;
+      if (!compSheetInkMode || !isDrawingSheetInk) return;
       e.preventDefault();
       e.stopPropagation();
       moveInkAtEvent(e);
@@ -9855,9 +10515,7 @@ Explanation: ${parentQ.explanation}`;
     inkCanvas.addEventListener("pointerup", finishStroke);
     inkCanvas.addEventListener("pointercancel", finishStroke);
 
-    // 2. Active Stylus Capture Listener on Page (when "Stylus Only / 1-Finger Scrolls" is ON and canvas has pointer-events: none)
     if (pageEl) {
-      // When Stylus hovers over page, lock touch-action to none so vertical stylus strokes never scroll the page
       pageEl.addEventListener("pointerover", (e) => {
         if (!compSheetInkMode || compSheetInkFingerDraw) return;
         if (e.pointerType === "pen") {
@@ -9868,13 +10526,22 @@ Explanation: ${parentQ.explanation}`;
       }, { capture: true });
 
       pageEl.addEventListener("pointerdown", (e) => {
+        // Allow tapping Recall Tape ribbons when Ink Mode is OFF or in Stylus-Only Touch mode
+        if (!compSheetInkMode || (!compSheetInkFingerDraw && e.pointerType === "touch")) {
+          const pt = getNormalizedPoint(e);
+          if (tryToggleRecallTapeAtNormPoint(pt.nx, pt.ny)) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
         if (!compSheetInkMode || compSheetInkFingerDraw) return;
         if (e.pointerType === "touch") {
           pageEl.style.touchAction = "pan-y pinch-zoom";
           return;
         }
         if (e.pointerType !== "pen") return;
-        if (e.target && e.target.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap")) {
+        if (e.target && e.target.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap")) {
           return;
         }
         pageEl.style.touchAction = "none";
@@ -9892,7 +10559,7 @@ Explanation: ${parentQ.explanation}`;
       }, { capture: true });
 
       pageEl.addEventListener("touchmove", (e) => {
-        if (compSheetInkMode && isDrawingSheetInk && e.cancelable) {
+        if (compSheetInkMode && isDrawingSheetInk && (!e.touches || e.touches.length < 2) && e.cancelable) {
           e.preventDefault();
         }
       }, { passive: false });
@@ -10007,7 +10674,7 @@ Explanation: ${parentQ.explanation}`;
     const urlInput = document.getElementById("sheet-media-url-input")?.value.trim() || "";
     const finalSrc = stagedSheetMediaBase64 || urlInput;
     if (!finalSrc) {
-      alert("Please choose an image file, paste an image from your clipboard, or enter an image URL first.");
+      showToast("Choose an image file, paste from clipboard, or enter an image URL first.", "amber");
       return;
     }
     const caption = document.getElementById("sheet-media-caption-input")?.value.trim() || "";
@@ -10022,6 +10689,7 @@ Explanation: ${parentQ.explanation}`;
       width: 260
     });
     document.getElementById("modal-sheet-media-studio")?.classList.remove("active");
+    showToast("Visual block added to workspace.", "emerald", 1800);
   }
 
   function openAddSheetMediaPrompt(defaultMode = "floating") {
@@ -10120,9 +10788,17 @@ Explanation: ${parentQ.explanation}`;
     await addCompSheetStickyNote();
   }
 
-  async function insertMediaBlockIntoActiveSheet(blockSpec) {
+  function getActiveMediaBlocksStorageKey() {
+    if (isCompPdfActive()) {
+      return `pdf_media_${activeCompPdfItem.id}_p${activeCompPdfPageNum}`;
+    }
     const sheet = currentCompSheets[activeCompSheetIndex];
-    if (!sheet) return;
+    return sheet ? `sheet_media_${sheet.id}` : null;
+  }
+
+  async function insertMediaBlockIntoActiveSheet(blockSpec) {
+    const key = getActiveMediaBlocksStorageKey();
+    if (!key) return;
     const newBlock = {
       id: "media_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
       type: blockSpec.type || "image",
@@ -10141,11 +10817,10 @@ Explanation: ${parentQ.explanation}`;
   }
 
   async function saveActiveSheetMediaBlocks() {
-    const sheet = currentCompSheets[activeCompSheetIndex];
-    if (!sheet) return;
+    const key = getActiveMediaBlocksStorageKey();
+    if (!key) return;
     await putRecord("store_notes", {
-      id: `sheet_media_${sheet.id}`,
-      sheetId: sheet.id,
+      id: key,
       blocks: activeSheetMediaBlocks,
       timestamp: Date.now()
     });
@@ -10261,7 +10936,6 @@ Explanation: ${parentQ.explanation}`;
       resizeHandle.title = "Drag to resize";
       card.appendChild(resizeHandle);
 
-      // Dragging for Floating Cards
       if (isFloating) {
         dragBar.addEventListener("pointerdown", (e) => {
           if (e.target.closest("button")) return;
@@ -10291,7 +10965,6 @@ Explanation: ${parentQ.explanation}`;
         });
       }
 
-      // Resizing for both Floating & Inline Cards
       resizeHandle.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -10328,7 +11001,7 @@ Explanation: ${parentQ.explanation}`;
    * of a word/phrase ONLY masks that exact k-th occurrence!
    */
   async function toggleCustomMaskPhraseOnActiveSheet(phraseText, occurrence = null, targetSheetId = null) {
-    const sheetId = targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
+    const sheetId = targetSheetId || (!isCompPdfActive() && currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
     if (!sheetId) return;
     const cleanP = String(phraseText || "").replace(/\s+/g, " ").trim();
     if (cleanP.length < 1) return;
@@ -10384,7 +11057,7 @@ Explanation: ${parentQ.explanation}`;
    * Stores { phrase, color, occurrence } in store_notes (highlights_${sheetId}).
    */
   async function toggleCustomHighlightOnActiveSheet(phraseText, color = "yellow", occurrence = null, targetSheetId = null) {
-    const sheetId = targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
+    const sheetId = targetSheetId || (!isCompPdfActive() && currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
     if (!sheetId) return;
     const cleanP = String(phraseText || "").replace(/\s+/g, " ").trim();
     if (cleanP.length < 1) return;
@@ -10448,10 +11121,21 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function updateCompMaskAndHighlightBadge() {
+    if (isCompPdfActive()) {
+      const tapeCount = (activeSheetInkStrokes || []).filter(s => s && s.tool === "tape").length;
+      const inkCount = (activeSheetInkStrokes || []).filter(s => s && s.tool !== "tape").length;
+      const exCount = Array.isArray(activeSheetMarginExcerpts) ? activeSheetMarginExcerpts.length : 0;
+      safeSetText(
+        "comp-mask-count-badge",
+        `Page ${activeCompPdfPageNum}/${activeCompPdfTotalPages} \u2022 ${tapeCount} Tape${tapeCount === 1 ? "" : "s"} \u2022 ${inkCount} Ink \u2022 ${exCount} Excerpt${exCount === 1 ? "" : "s"}`
+      );
+      return;
+    }
     const sheet = currentCompSheets[activeCompSheetIndex];
     if (!sheet) return;
-    const inlineBraceCount = (sheet.content.match(/\{\{[\s\S]+?\}\}/g) || []).length;
-    const totalMasks = activeSheetCustomMasks.length + inlineBraceCount;
+    const inlineBraceCount = ((sheet.content || "").match(/\{\{[\s\S]+?\}\}/g) || []).length;
+    const tapeCount = (activeSheetInkStrokes || []).filter(s => s && s.tool === "tape").length;
+    const totalMasks = activeSheetCustomMasks.length + inlineBraceCount + tapeCount;
     const inkCount = Array.isArray(activeSheetInkStrokes) ? activeSheetInkStrokes.length : 0;
     safeSetText(
       "comp-mask-count-badge",
@@ -10463,6 +11147,11 @@ Explanation: ${parentQ.explanation}`;
    * Re-renders only `#comp-studio-doc-body` + margin annotations without resetting scroll position!
    */
   function refreshActiveSheetDomAnnotationsOnly() {
+    if (isCompPdfActive()) {
+      updateCompMaskAndHighlightBadge();
+      renderCompMarginAnnotationsList();
+      return;
+    }
     const sheet = currentCompSheets[activeCompSheetIndex];
     const bodyEl = document.getElementById("comp-studio-doc-body");
     if (!sheet || !bodyEl) return;
@@ -10496,6 +11185,212 @@ Explanation: ${parentQ.explanation}`;
     refreshActiveSheetDomAnnotationsOnly();
   }
 
+  async function deleteCompMarginExcerpt(excerptId) {
+    const idx = activeSheetMarginExcerpts.findIndex(x => x.id === excerptId);
+    if (idx === -1) return;
+    activeSheetMarginExcerpts.splice(idx, 1);
+    const exKey = isCompPdfActive()
+      ? `excerpts_pdf_${activeCompPdfItem.id}`
+      : (currentCompSheets[activeCompSheetIndex] ? `excerpts_${currentCompSheets[activeCompSheetIndex].id}` : null);
+    if (exKey) {
+      await putRecord("store_notes", {
+        id: exKey,
+        excerpts: activeSheetMarginExcerpts,
+        timestamp: Date.now()
+      });
+    }
+    updateCompMaskAndHighlightBadge();
+    renderCompMarginAnnotationsList();
+    showToast("Excerpt removed from Margin Rail.", "cyan", 1500);
+  }
+
+  async function sendMarginExcerptToQuestionCreator(excerptId) {
+    const ex = activeSheetMarginExcerpts.find(x => x.id === excerptId);
+    if (!ex || !ex.dataUrl) return;
+    closeCompendiumStudio();
+    await openNewQuestionCreatorModal();
+    currentNewQuestionImageBase64 = ex.dataUrl;
+    const subSel = document.getElementById("new-q-subject");
+    if (subSel && activeCompSubject) {
+      subSel.value = activeCompSubject;
+      await syncNewQuestionChapterSelect(activeCompSubject, activeCompChapter);
+    }
+    const prevWrap = document.getElementById("new-q-img-preview-wrap");
+    const prevImg = document.getElementById("new-q-img-preview");
+    if (prevWrap && prevImg) {
+      prevImg.src = ex.dataUrl;
+      prevWrap.style.display = "block";
+    }
+    showToast("Excerpt attached to Question Creator!", "emerald", 2400);
+  }
+
+  /**
+   * LIQUIDTEXT EXCERPT COMPOSITE CAPTURE ENGINE:
+   * Captures a high-resolution composite of the selected rectangular marquee
+   * (PDF page canvas OR Markdown Folio sheet background/text + live vector ink annotations)
+   * and opens the floating Excerpt Action Bar to Pin to Margin Rail or Send to Question Creator.
+   */
+  async function finalizeExcerptSelectionMarquee(startNorm, endNorm) {
+    const inkCanvas = document.getElementById("comp-folio-ink-canvas");
+    if (!inkCanvas || !startNorm || !endNorm) return;
+
+    const minNx = Math.max(0, Math.min(startNorm.nx, endNorm.nx));
+    const maxNx = Math.min(1, Math.max(startNorm.nx, endNorm.nx));
+    const minNy = Math.max(0, Math.min(startNorm.ny, endNorm.ny));
+    const maxNy = Math.min(1, Math.max(startNorm.ny, endNorm.ny));
+
+    const normW = maxNx - minNx;
+    const normH = maxNy - minNy;
+    if (normW < 0.025 || normH < 0.018) return;
+
+    try {
+      const offCanvas = document.createElement("canvas");
+      const outW = Math.min(1100, Math.max(240, Math.round(inkCanvas.width * normW)));
+      const outH = Math.min(900, Math.max(100, Math.round(inkCanvas.height * normH)));
+      offCanvas.width = outW;
+      offCanvas.height = outH;
+      const octx = offCanvas.getContext("2d");
+
+      // Fill background matching reading surface
+      octx.fillStyle = compendiumReadingSurface === "sepia"
+        ? "#f4ecd8"
+        : (compendiumReadingSurface === "charcoal" ? "#161920" : "#0b101d");
+      octx.fillRect(0, 0, outW, outH);
+
+      // 1. If PDF mode is active, composite the cropped region from #comp-pdf-render-canvas
+      const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
+      if (isCompPdfActive() && pdfCanvas && pdfCanvas.width > 0 && pdfCanvas.height > 0) {
+        const inkRect = inkCanvas.getBoundingClientRect();
+        const pdfRect = pdfCanvas.getBoundingClientRect();
+        const cropLeftClient = inkRect.left + minNx * inkRect.width;
+        const cropTopClient = inkRect.top + minNy * inkRect.height;
+        const cropWidthClient = normW * inkRect.width;
+        const cropHeightClient = normH * inkRect.height;
+
+        const sx = ((cropLeftClient - pdfRect.left) / Math.max(pdfRect.width, 1)) * pdfCanvas.width;
+        const sy = ((cropTopClient - pdfRect.top) / Math.max(pdfRect.height, 1)) * pdfCanvas.height;
+        const sw = (cropWidthClient / Math.max(pdfRect.width, 1)) * pdfCanvas.width;
+        const sh = (cropHeightClient / Math.max(pdfRect.height, 1)) * pdfCanvas.height;
+
+        octx.save();
+        if (activeCompPdfDarkInvert) {
+          octx.filter = "invert(0.92) hue-rotate(180deg)";
+        }
+        octx.drawImage(pdfCanvas, sx, sy, sw, sh, 0, 0, outW, outH);
+        octx.restore();
+      } else {
+        // Markdown Sheet fallback: render visible text lines inside the cropped vertical band
+        const docBody = document.getElementById("comp-studio-doc-body");
+        if (docBody) {
+          const inkRect = inkCanvas.getBoundingClientRect();
+          const bandTop = inkRect.top + minNy * inkRect.height;
+          const bandBottom = inkRect.top + maxNy * inkRect.height;
+          const blocks = Array.from(docBody.querySelectorAll("h1, h2, h3, p, li, tr, .clinical-callout"));
+          const matchedLines = [];
+          blocks.forEach(b => {
+            const r = b.getBoundingClientRect();
+            if (r.bottom >= bandTop && r.top <= bandBottom) {
+              const txt = (b.innerText || "").replace(/\s+/g, " ").trim();
+              if (txt && !matchedLines.includes(txt)) matchedLines.push(txt);
+            }
+          });
+          octx.fillStyle = compendiumReadingSurface === "sepia" ? "#261f14" : "#e2e8f0";
+          octx.font = "600 15px Inter, system-ui, sans-serif";
+          let ty = 28;
+          matchedLines.slice(0, 8).forEach(line => {
+            octx.fillText(line.slice(0, 88), 16, ty);
+            ty += 24;
+          });
+        }
+      }
+
+      // 2. Composite the live vector ink layer over the cropped region
+      const ix = minNx * inkCanvas.width;
+      const iy = minNy * inkCanvas.height;
+      const iw = normW * inkCanvas.width;
+      const ih = normH * inkCanvas.height;
+      octx.drawImage(inkCanvas, ix, iy, iw, ih, 0, 0, outW, outH);
+
+      const dataUrl = offCanvas.toDataURL("image/png", 0.92);
+      const curSheet = currentCompSheets[activeCompSheetIndex];
+      stagedExcerptCrop = {
+        id: "ex_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        dataUrl,
+        pageNum: isCompPdfActive() ? activeCompPdfPageNum : null,
+        scrollTop: getActiveCompendiumScrollTop(),
+        label: isCompPdfActive()
+          ? `${activeCompPdfItem.title} \u2022 Page ${activeCompPdfPageNum}`
+          : `${curSheet ? curSheet.title : "Knowledge Sheet"}`,
+        timestamp: Date.now()
+      };
+
+      const bar = document.getElementById("comp-excerpt-action-bar");
+      if (bar) bar.style.display = "flex";
+      showToast("Region captured! Choose Pin to Margin Rail or Send to Question Creator.", "cyan", 2600);
+    } catch (err) {
+      showToast(`Excerpt capture error: ${err.message}`, "rose");
+    }
+  }
+
+  async function pinActiveExcerptToMarginRail() {
+    if (!stagedExcerptCrop) return;
+    if (!Array.isArray(activeSheetMarginExcerpts)) activeSheetMarginExcerpts = [];
+    activeSheetMarginExcerpts.unshift(stagedExcerptCrop);
+
+    const exKey = isCompPdfActive()
+      ? `excerpts_pdf_${activeCompPdfItem.id}`
+      : (currentCompSheets[activeCompSheetIndex] ? `excerpts_${currentCompSheets[activeCompSheetIndex].id}` : null);
+
+    if (exKey) {
+      await putRecord("store_notes", {
+        id: exKey,
+        excerpts: activeSheetMarginExcerpts,
+        timestamp: Date.now()
+      });
+    }
+
+    stagedExcerptCrop = null;
+    const bar = document.getElementById("comp-excerpt-action-bar");
+    if (bar) bar.style.display = "none";
+
+    updateCompMaskAndHighlightBadge();
+    renderCompMarginAnnotationsList();
+    showToast("Pinned excerpt to Margin Rail!", "emerald", 1800);
+  }
+
+  async function sendActiveExcerptToQuestionCreator() {
+    if (!stagedExcerptCrop || !stagedExcerptCrop.dataUrl) return;
+    const capturedUrl = stagedExcerptCrop.dataUrl;
+    stagedExcerptCrop = null;
+    const bar = document.getElementById("comp-excerpt-action-bar");
+    if (bar) bar.style.display = "none";
+
+    closeCompendiumStudio();
+    await openNewQuestionCreatorModal();
+    currentNewQuestionImageBase64 = capturedUrl;
+    const subSel = document.getElementById("new-q-subject");
+    if (subSel && activeCompSubject) {
+      subSel.value = activeCompSubject;
+      await syncNewQuestionChapterSelect(activeCompSubject, activeCompChapter);
+    }
+    const prevWrap = document.getElementById("new-q-img-preview-wrap");
+    const prevImg = document.getElementById("new-q-img-preview");
+    if (prevWrap && prevImg) {
+      prevImg.src = capturedUrl;
+      prevWrap.style.display = "block";
+    }
+    showToast("Excerpt loaded into Question Creator!", "emerald", 2400);
+  }
+
+  function cancelActiveExcerptCrop() {
+    stagedExcerptCrop = null;
+    excerptDragStartNorm = null;
+    excerptDragCurrNorm = null;
+    const bar = document.getElementById("comp-excerpt-action-bar");
+    if (bar) bar.style.display = "none";
+    redrawSheetInkCanvas();
+  }
+
   // Legacy stub kept so external calls never throw
   async function rateCurrentSheetRecall() {}
 
@@ -10519,6 +11414,7 @@ Explanation: ${parentQ.explanation}`;
 
   function applyCompendiumZoomStyle() {
     const docEl = document.getElementById("comp-studio-doc-content");
+    const pdfStage = document.getElementById("comp-pdf-canvas-stage");
     const badgeEl = document.getElementById("comp-zoom-pct-btn") || document.getElementById("comp-zoom-badge");
     if (badgeEl) {
       badgeEl.innerText = `${Math.round(compendiumZoomScale * 100)}%`;
@@ -10530,6 +11426,9 @@ Explanation: ${parentQ.explanation}`;
       } else {
         docEl.style.zoom = String(compendiumZoomScale);
       }
+    }
+    if (pdfStage && isCompPdfActive()) {
+      pdfStage.style.zoom = Math.abs(compendiumZoomScale - 1.0) < 0.02 ? "" : String(compendiumZoomScale);
     }
     setTimeout(syncSheetInkCanvasGeometry, 40);
   }
@@ -10547,6 +11446,598 @@ Explanation: ${parentQ.explanation}`;
     document.documentElement.style.setProperty("--reader-font-scale", "1");
     putRecord("store_config", { key: "reader_font_scale", value: 1.0 });
     applyCompendiumZoomStyle();
+  }
+
+  /**
+   * ==========================================================================
+   * EMBEDDED GOODNOTES / LIQUIDTEXT PDF STUDIO ENGINE
+   * ==========================================================================
+   */
+  async function loadPdfLibraryIndex() {
+    const rec = await getRecord("store_config", "pdf_library_index");
+    pdfLibraryIndex = (rec && Array.isArray(rec.value)) ? rec.value : [];
+    return pdfLibraryIndex;
+  }
+
+  async function savePdfLibraryIndex() {
+    await putRecord("store_config", {
+      key: "pdf_library_index",
+      value: pdfLibraryIndex
+    });
+  }
+
+  function uint8ArrayToBase64(bytes) {
+    let binary = "";
+    const len = bytes.byteLength;
+    const chunkSize = 0x8000;
+    for (let i = 0; i < len; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, len)));
+    }
+    return btoa(binary);
+  }
+
+  function base64ToUint8Array(base64) {
+    const bin = atob(base64);
+    const len = bin.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  function triggerPdfUploadPrompt() {
+    closeCompMorePopover();
+    const fileInput = document.getElementById("comp-pdf-file-input");
+    if (fileInput) {
+      fileInput.value = "";
+      fileInput.click();
+    }
+  }
+
+  async function handlePdfDocumentUpload(input) {
+    if (!input || !input.files || !input.files[0]) return;
+    const file = input.files[0];
+    if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+      showToast("Please select a valid PDF document (.pdf).", "rose");
+      return;
+    }
+
+    showToast(`Importing "${file.name}" into ${activeCompChapter || "Studio"}...`, "cyan", 2600);
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const pdfBytes = new Uint8Array(arrayBuf);
+      let numPages = 1;
+      if (window.pdfjsLib) {
+        const loadingTask = window.pdfjsLib.getDocument({ data: pdfBytes.slice(0) });
+        const pdfDoc = await loadingTask.promise;
+        numPages = pdfDoc.numPages || 1;
+      }
+
+      const pdfId = "pdf_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      const cleanTitle = file.name.replace(/\.pdf$/i, "").trim() || "Imported PDF Document";
+      const targetSub = activeCompSubject || "QA";
+      const targetChap = activeCompChapter || (TAXONOMY[targetSub]?.chapters?.[0] || "QA_PERCENTAGE");
+
+      const metaItem = {
+        id: pdfId,
+        isPdf: true,
+        subject: targetSub,
+        chapter: targetChap,
+        title: cleanTitle,
+        subtitle: `PDF Document \u2022 ${numPages} Page${numPages === 1 ? "" : "s"}`,
+        numPages,
+        bookmarkedPages: [],
+        annotatedPages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+
+      await putRecord("store_notes", {
+        id: `pdf_doc_${pdfId}`,
+        pdfId,
+        base64Data: uint8ArrayToBase64(pdfBytes),
+        numPages,
+        timestamp: Date.now()
+      });
+
+      await loadPdfLibraryIndex();
+      pdfLibraryIndex.push(metaItem);
+      await savePdfLibraryIndex();
+
+      document.getElementById("modal-all-sheets-index")?.classList.remove("active");
+      await renderCompStudioSheets();
+      const idx = currentCompSheets.findIndex(item => item.id === pdfId);
+      if (idx !== -1) {
+        activeCompSheetIndex = idx;
+        await renderActiveCompSheet();
+      }
+      showToast(`Imported "${cleanTitle}" (${numPages} pages)!`, "emerald", 2600);
+    } catch (err) {
+      showToast(`PDF import failed: ${err.message || "Corrupt PDF"}`, "rose", 3200);
+    }
+  }
+
+  async function openCompendiumToPdf(pdfId, pageNum = 1) {
+    await loadPdfLibraryIndex();
+    const meta = pdfLibraryIndex.find(p => p.id === pdfId);
+    if (!meta) {
+      showToast("PDF document not found in index.", "rose");
+      return;
+    }
+    document.querySelectorAll(".modal-overlay.active").forEach(m => m.classList.remove("active"));
+    activeCompSubject = meta.subject || "QA";
+    activeCompChapter = meta.chapter || "QA_PERCENTAGE";
+
+    pushNavLayer("compendium-fullscreen-view", () => {
+      safeSetDisplay("compendium-fullscreen-view", "none");
+      toggleScratchpadCanvas(false);
+    });
+    safeSetDisplay("compendium-fullscreen-view", "flex");
+    initCompendiumRecallTapHandler();
+    bindSheetInkCanvasEvents();
+
+    const subSelect = document.getElementById("comp-studio-subject-select");
+    if (subSelect) subSelect.value = activeCompSubject;
+    await handleCompStudioSubjectChange(activeCompSubject);
+
+    const chapSelect = document.getElementById("comp-studio-chapter-select");
+    if (chapSelect && chapSelect.value !== activeCompChapter) {
+      chapSelect.value = activeCompChapter;
+      await renderCompStudioSheets();
+    }
+
+    const idx = currentCompSheets.findIndex(s => s.id === pdfId);
+    if (idx !== -1) {
+      activeCompSheetIndex = idx;
+      activeCompPdfPageNum = Math.max(1, pageNum || 1);
+      await renderActiveCompSheet();
+    }
+  }
+
+  async function renderActiveCompPdfDocument(targetPageNum = null) {
+    const item = currentCompSheets[activeCompSheetIndex];
+    if (!item || !item.isPdf) return;
+    activeCompPdfItem = item;
+
+    const pdfBar = document.getElementById("comp-pdf-studio-bar");
+    const pdfStage = document.getElementById("comp-pdf-canvas-stage");
+    const docContent = document.getElementById("comp-studio-doc-content");
+    if (pdfBar) pdfBar.style.display = "flex";
+    if (pdfStage) pdfStage.style.display = "flex";
+    if (docContent) {
+      docContent.style.display = "none";
+      docContent.innerHTML = "";
+    }
+
+    safeSetText("comp-studio-header-title", `\uD83D\uDCC4 ${item.title}`);
+    safeSetText("comp-studio-header-sub", `${item.chapter} \u2022 PDF Studio`);
+
+    // Auto-Track Last Opened Date
+    const prevOpenRec = await getRecord("store_notes", `last_opened_${item.id}`);
+    const prevEpoch = prevOpenRec && prevOpenRec.lastOpenedAt ? prevOpenRec.lastOpenedAt : null;
+    const badgeSpec = formatLastOpenedBadgeText(prevEpoch);
+    const lastOpenedBadge = document.getElementById("comp-zen-last-opened-badge");
+    if (lastOpenedBadge) {
+      lastOpenedBadge.innerText = badgeSpec.text;
+      lastOpenedBadge.style.color = badgeSpec.color;
+      lastOpenedBadge.style.background = badgeSpec.bg;
+    }
+    await putRecord("store_notes", {
+      id: `last_opened_${item.id}`,
+      sheetId: item.id,
+      lastOpenedAt: Date.now(),
+      openCount: (prevOpenRec && prevOpenRec.openCount ? prevOpenRec.openCount : 0) + 1
+    });
+
+    // Load binary PDF from IndexedDB if not cached for this pdfId
+    if (!activeCompPdfDocProxy || activeCompPdfDocProxy._cglPdfId !== item.id) {
+      const pdfRec = await getRecord("store_notes", `pdf_doc_${item.id}`);
+      if (!pdfRec || !pdfRec.base64Data) {
+        showToast("PDF binary record missing in IndexedDB.", "rose");
+        return;
+      }
+      activeCompPdfRawBytes = base64ToUint8Array(pdfRec.base64Data);
+      if (window.pdfjsLib) {
+        const loadingTask = window.pdfjsLib.getDocument({ data: activeCompPdfRawBytes.slice(0) });
+        activeCompPdfDocProxy = await loadingTask.promise;
+        activeCompPdfDocProxy._cglPdfId = item.id;
+      }
+    }
+
+    activeCompPdfTotalPages = (activeCompPdfDocProxy && activeCompPdfDocProxy.numPages) || item.numPages || 1;
+    if (targetPageNum !== null && !Number.isNaN(Number(targetPageNum))) {
+      activeCompPdfPageNum = Math.max(1, Math.min(activeCompPdfTotalPages, Number(targetPageNum)));
+    } else {
+      activeCompPdfPageNum = Math.max(1, Math.min(activeCompPdfTotalPages, activeCompPdfPageNum || 1));
+    }
+
+    safeSetValue("comp-pdf-page-input", activeCompPdfPageNum);
+    safeSetText("comp-pdf-total-pages", `/ ${activeCompPdfTotalPages}`);
+
+    // Update Bookmark button state for this page
+    const isBookmarked = Array.isArray(item.bookmarkedPages) && item.bookmarkedPages.includes(activeCompPdfPageNum);
+    const bmBtn = document.getElementById("btn-pdf-bookmark-page");
+    if (bmBtn) {
+      bmBtn.innerText = isBookmarked ? "\u2605" : "\u2606";
+      bmBtn.style.color = isBookmarked ? "#fbbf24" : "";
+    }
+
+    // Update Dark Invert filter on PDF canvas
+    const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
+    const invBtn = document.getElementById("btn-pdf-dark-invert");
+    if (pdfCanvas) {
+      pdfCanvas.classList.toggle("pdf-dark-invert", !!activeCompPdfDarkInvert);
+    }
+    if (invBtn) {
+      invBtn.classList.toggle("active", !!activeCompPdfDarkInvert);
+    }
+
+    // Render current PDF page onto #comp-pdf-render-canvas at crisp retina DPI
+    if (activeCompPdfDocProxy && pdfCanvas) {
+      try {
+        const page = await activeCompPdfDocProxy.getPage(activeCompPdfPageNum);
+        const pageEl = document.getElementById("comp-folio-page");
+        const availW = Math.max(320, Math.min(820, (pageEl ? pageEl.clientWidth : 740) - 24));
+        const unscaledVp = page.getViewport({ scale: 1 });
+        const cssScale = availW / Math.max(unscaledVp.width, 1);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
+        const renderViewport = page.getViewport({ scale: cssScale * dpr });
+
+        pdfCanvas.width = Math.floor(renderViewport.width);
+        pdfCanvas.height = Math.floor(renderViewport.height);
+        pdfCanvas.style.width = `${Math.floor(unscaledVp.width * cssScale)}px`;
+        pdfCanvas.style.height = `${Math.floor(unscaledVp.height * cssScale)}px`;
+
+        const ctx = pdfCanvas.getContext("2d");
+        ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+        await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+      } catch (err) {
+        console.warn("PDF page render notice:", err);
+      }
+    }
+
+    // Load per-page ink strokes, media blocks, and PDF-level margin excerpts
+    const pageInkRec = await getRecord("store_notes", `pdf_ink_${item.id}_p${activeCompPdfPageNum}`);
+    activeSheetInkStrokes = pageInkRec && Array.isArray(pageInkRec.strokes) ? pageInkRec.strokes : [];
+    sheetInkUndoStack = [];
+    lastClearedSheetInkBackup = null;
+    currentSheetInkStroke = null;
+    lassoSelectedStrokeIndices = [];
+    lassoBoundingBoxNorm = null;
+
+    const pageMediaRec = await getRecord("store_notes", `pdf_media_${item.id}_p${activeCompPdfPageNum}`);
+    activeSheetMediaBlocks = pageMediaRec && Array.isArray(pageMediaRec.blocks) ? pageMediaRec.blocks : [];
+
+    const exRec = await getRecord("store_notes", `excerpts_pdf_${item.id}`);
+    activeSheetMarginExcerpts = exRec && Array.isArray(exRec.excerpts) ? exRec.excerpts : [];
+
+    activeSheetCustomMasks = [];
+    activeSheetHighlights = [];
+
+    renderActiveSheetMediaBlocks();
+    updateCompMaskAndHighlightBadge();
+    renderCompMarginAnnotationsList();
+    applyCompendiumZoomStyle();
+    updateRecallProgressCounter();
+    syncSheetInkPointerPassthrough();
+    setTimeout(syncSheetInkCanvasGeometry, 55);
+
+    if (activeCompPdfThumbnailsOpen) {
+      await renderCompPdfThumbnailsStrip();
+    }
+
+    // Populate Chapter Linked Questions in Margin Rail
+    const linkedQs = await ConceptService.getLinkedQuestions(item.id, item.chapter);
+    safeSetText("comp-linked-q-count", `${linkedQs.length} Associated Question${linkedQs.length === 1 ? "" : "s"}`);
+    safeSetText("dock-drill-q-badge", `${linkedQs.length} Qs`);
+    safeSetText("comp-rail-q-badge", `${linkedQs.length} Qs`);
+    safeSetText("comp-dock-drill-label", `Drill (${linkedQs.length})`);
+
+    const noteKey = `scratch_${item.id}`;
+    const savedNote = await getRecord("store_notes", noteKey);
+    safeSetValue("comp-studio-scratchpad", savedNote ? savedNote.content : "");
+  }
+
+  async function navCompPdfPage(delta) {
+    if (!isCompPdfActive()) return;
+    const next = activeCompPdfPageNum + delta;
+    if (next < 1 || next > activeCompPdfTotalPages) return;
+    await renderActiveCompPdfDocument(next);
+  }
+
+  async function jumpCompPdfToPage(pageVal) {
+    if (!isCompPdfActive()) return;
+    const num = parseInt(pageVal, 10);
+    if (Number.isNaN(num)) return;
+    await renderActiveCompPdfDocument(Math.max(1, Math.min(activeCompPdfTotalPages, num)));
+  }
+
+  async function toggleCompPdfBookmarkPage() {
+    if (!isCompPdfActive() || !activeCompPdfItem) return;
+    if (!Array.isArray(activeCompPdfItem.bookmarkedPages)) {
+      activeCompPdfItem.bookmarkedPages = [];
+    }
+    const idx = activeCompPdfItem.bookmarkedPages.indexOf(activeCompPdfPageNum);
+    if (idx === -1) {
+      activeCompPdfItem.bookmarkedPages.push(activeCompPdfPageNum);
+      activeCompPdfItem.bookmarkedPages.sort((a, b) => a - b);
+      showToast(`Bookmarked Page ${activeCompPdfPageNum}`, "amber", 1500);
+    } else {
+      activeCompPdfItem.bookmarkedPages.splice(idx, 1);
+      showToast(`Removed bookmark on Page ${activeCompPdfPageNum}`, "cyan", 1500);
+    }
+    await savePdfLibraryIndex();
+    await renderActiveCompPdfDocument(activeCompPdfPageNum);
+  }
+
+  function toggleCompPdfDarkInvert() {
+    activeCompPdfDarkInvert = !activeCompPdfDarkInvert;
+    const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
+    const invBtn = document.getElementById("btn-pdf-dark-invert");
+    if (pdfCanvas) pdfCanvas.classList.toggle("pdf-dark-invert", activeCompPdfDarkInvert);
+    if (invBtn) invBtn.classList.toggle("active", activeCompPdfDarkInvert);
+    showToast(activeCompPdfDarkInvert ? "PDF Dark Invert enabled." : "Natural PDF colors restored.", "cyan", 1500);
+  }
+
+  async function toggleCompPdfThumbnailsBar() {
+    activeCompPdfThumbnailsOpen = !activeCompPdfThumbnailsOpen;
+    const scrubber = document.getElementById("comp-pdf-thumb-scrubber");
+    const btn = document.getElementById("btn-pdf-thumbnails");
+    if (scrubber) scrubber.style.display = activeCompPdfThumbnailsOpen ? "flex" : "none";
+    if (btn) btn.classList.toggle("active", activeCompPdfThumbnailsOpen);
+    if (activeCompPdfThumbnailsOpen) {
+      await renderCompPdfThumbnailsStrip();
+    }
+    setTimeout(syncSheetInkCanvasGeometry, 60);
+  }
+
+  async function setCompPdfThumbnailFilter(filterKey) {
+    activeCompPdfThumbnailFilter = filterKey || "ALL";
+    ["ALL", "ANNOTATED", "BOOKMARKED"].forEach(k => {
+      document.getElementById(`pdf-thumb-filter-${k}`)?.classList.toggle("active", k === activeCompPdfThumbnailFilter);
+    });
+    await renderCompPdfThumbnailsStrip();
+  }
+
+  async function renderCompPdfThumbnailsStrip() {
+    const track = document.getElementById("comp-pdf-thumb-track");
+    if (!track || !isCompPdfActive() || !activeCompPdfItem) return;
+    track.innerHTML = "";
+
+    const total = activeCompPdfTotalPages || 1;
+    const annotatedSet = new Set(Array.isArray(activeCompPdfItem.annotatedPages) ? activeCompPdfItem.annotatedPages : []);
+    const bookmarkedSet = new Set(Array.isArray(activeCompPdfItem.bookmarkedPages) ? activeCompPdfItem.bookmarkedPages : []);
+
+    const pagesToShow = [];
+    for (let p = 1; p <= total; p++) {
+      if (activeCompPdfThumbnailFilter === "ANNOTATED" && !annotatedSet.has(p)) continue;
+      if (activeCompPdfThumbnailFilter === "BOOKMARKED" && !bookmarkedSet.has(p)) continue;
+      pagesToShow.push(p);
+    }
+
+    if (pagesToShow.length === 0) {
+      track.innerHTML = `<div style="font-size:11px; color:var(--text-muted); padding:8px 12px;">No pages match filter (${activeCompPdfThumbnailFilter.toLowerCase()}).</div>`;
+      return;
+    }
+
+    for (const pNum of pagesToShow) {
+      const card = document.createElement("div");
+      card.className = "comp-pdf-thumb-card" + (pNum === activeCompPdfPageNum ? " active" : "");
+      const hasInk = annotatedSet.has(pNum);
+      const hasStar = bookmarkedSet.has(pNum);
+      card.innerHTML = `
+        <div class="comp-pdf-thumb-preview">P.${pNum}</div>
+        <div class="comp-pdf-thumb-meta">
+          <span>#${pNum}</span>
+          <span>${hasInk ? "\u270F\uFE0F" : ""}${hasStar ? "\u2B50" : ""}</span>
+        </div>
+      `;
+      card.addEventListener("click", () => renderActiveCompPdfDocument(pNum));
+      track.appendChild(card);
+    }
+  }
+
+  async function insertBlankPageIntoActivePdf() {
+    if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
+    if (!window.PDFLib || !window.PDFLib.PDFDocument) {
+      showToast("pdf-lib is still loading. Try again in a moment.", "amber");
+      return;
+    }
+    try {
+      const pdfDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
+      const currentIdx = Math.max(0, Math.min(pdfDoc.getPageCount() - 1, activeCompPdfPageNum - 1));
+      const refPage = pdfDoc.getPage(currentIdx);
+      const { width, height } = refPage.getSize();
+      const insertAtIndex = currentIdx + 1;
+      const newPage = pdfDoc.insertPage(insertAtIndex, [width || 595.28, height || 841.89]);
+
+      // Subtle dot-grid header note on inserted scratch page
+      newPage.drawText(`Scratchpad & Derivations — Inserted after Page ${activeCompPdfPageNum}`, {
+        x: 28,
+        y: (height || 841.89) - 26,
+        size: 9,
+        color: window.PDFLib.rgb(0.45, 0.52, 0.62)
+      });
+
+      const updatedBytes = await pdfDoc.save();
+      activeCompPdfRawBytes = new Uint8Array(updatedBytes);
+
+      // Shift existing per-page ink & media records for pages > activeCompPdfPageNum up by 1
+      const oldTotal = activeCompPdfTotalPages;
+      for (let p = oldTotal; p > activeCompPdfPageNum; p--) {
+        const oldInk = await getRecord("store_notes", `pdf_ink_${activeCompPdfItem.id}_p${p}`);
+        if (oldInk) {
+          await putRecord("store_notes", {
+            ...oldInk,
+            id: `pdf_ink_${activeCompPdfItem.id}_p${p + 1}`,
+            pageNum: p + 1
+          });
+          await deleteRecord("store_notes", `pdf_ink_${activeCompPdfItem.id}_p${p}`);
+        }
+        const oldMedia = await getRecord("store_notes", `pdf_media_${activeCompPdfItem.id}_p${p}`);
+        if (oldMedia) {
+          await putRecord("store_notes", {
+            ...oldMedia,
+            id: `pdf_media_${activeCompPdfItem.id}_p${p + 1}`
+          });
+          await deleteRecord("store_notes", `pdf_media_${activeCompPdfItem.id}_p${p}`);
+        }
+      }
+
+      if (Array.isArray(activeCompPdfItem.annotatedPages)) {
+        activeCompPdfItem.annotatedPages = activeCompPdfItem.annotatedPages.map(p => (p > activeCompPdfPageNum ? p + 1 : p));
+      }
+      if (Array.isArray(activeCompPdfItem.bookmarkedPages)) {
+        activeCompPdfItem.bookmarkedPages = activeCompPdfItem.bookmarkedPages.map(p => (p > activeCompPdfPageNum ? p + 1 : p));
+      }
+
+      activeCompPdfTotalPages = pdfDoc.getPageCount();
+      activeCompPdfItem.numPages = activeCompPdfTotalPages;
+      activeCompPdfItem.subtitle = `PDF Document \u2022 ${activeCompPdfTotalPages} Pages`;
+      activeCompPdfItem.updatedAt = Date.now();
+
+      await putRecord("store_notes", {
+        id: `pdf_doc_${activeCompPdfItem.id}`,
+        pdfId: activeCompPdfItem.id,
+        base64Data: uint8ArrayToBase64(activeCompPdfRawBytes),
+        numPages: activeCompPdfTotalPages,
+        timestamp: Date.now()
+      });
+      await savePdfLibraryIndex();
+
+      if (window.pdfjsLib) {
+        const loadingTask = window.pdfjsLib.getDocument({ data: activeCompPdfRawBytes.slice(0) });
+        activeCompPdfDocProxy = await loadingTask.promise;
+        activeCompPdfDocProxy._cglPdfId = activeCompPdfItem.id;
+      }
+
+      await renderActiveCompPdfDocument(activeCompPdfPageNum + 1);
+      showToast(`Inserted blank page at Page ${activeCompPdfPageNum}!`, "emerald", 2200);
+    } catch (err) {
+      showToast(`Could not insert blank page: ${err.message}`, "rose");
+    }
+  }
+
+  function hexToPdfRgb(hexStr) {
+    const clean = String(hexStr || "#38bdf8").replace("#", "").trim();
+    const num = parseInt(clean.length === 3 ? clean.split("").map(c => c + c).join("") : clean, 16) || 0x38bdf8;
+    const r = ((num >> 16) & 255) / 255;
+    const g = ((num >> 8) & 255) / 255;
+    const b = (num & 255) / 255;
+    return window.PDFLib.rgb(r, g, b);
+  }
+
+  /**
+   * Flattens/bakes all vector ink strokes across all annotated pages into the PDF binary via `pdf-lib`
+   * AND preserves the live editable vector strokes in `store_notes` so future Undo / Lasso moves remain available!
+   */
+  async function flattenAndSaveActivePdf(downloadCopy = false) {
+    if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
+    if (!window.PDFLib || !window.PDFLib.PDFDocument) {
+      showToast("pdf-lib is not loaded yet.", "amber");
+      return;
+    }
+
+    try {
+      showToast(downloadCopy ? "Baking annotations & preparing PDF download..." : "Baking ink vectors into PDF binary...", "cyan", 2000);
+      const pdfDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
+      const totalPages = pdfDoc.getPageCount();
+      let bakedStrokeCount = 0;
+
+      for (let pNum = 1; pNum <= totalPages; pNum++) {
+        const inkRec = await getRecord("store_notes", `pdf_ink_${activeCompPdfItem.id}_p${pNum}`);
+        const strokes = (inkRec && Array.isArray(inkRec.strokes)) ? inkRec.strokes : [];
+        if (strokes.length === 0) continue;
+
+        const pdfPage = pdfDoc.getPage(pNum - 1);
+        const { width, height } = pdfPage.getSize();
+
+        strokes.forEach(stroke => {
+          if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
+          const tool = String(stroke.tool || "pen").toLowerCase();
+          if (tool === "eraser" || tool === "stroke_eraser") return;
+
+          const isMarker = tool === "marker";
+          const isTape = tool === "tape";
+          const colorRgb = hexToPdfRgb(stroke.color || (isMarker ? "#facc15" : "#38bdf8"));
+          const opacity = isMarker ? 0.34 : (isTape ? 0.92 : 0.95);
+          const thickness = isTape
+            ? Math.max(18, (stroke.size || 3) * 6.5)
+            : (isMarker ? Math.max(10, (stroke.size || 3) * 4.5) : Math.max(1.5, stroke.size || 2.5));
+
+          for (let i = 1; i < stroke.points.length; i++) {
+            const p0 = stroke.points[i - 1];
+            const p1 = stroke.points[i];
+            pdfPage.drawLine({
+              start: { x: p0.nx * width, y: (1 - p0.ny) * height },
+              end: { x: p1.nx * width, y: (1 - p1.ny) * height },
+              thickness,
+              color: colorRgb,
+              opacity
+            });
+          }
+          bakedStrokeCount++;
+        });
+      }
+
+      const bakedBytes = new Uint8Array(await pdfDoc.save());
+
+      // Save updated binary into IndexedDB while keeping per-page live vector strokes intact!
+      await putRecord("store_notes", {
+        id: `pdf_doc_${activeCompPdfItem.id}`,
+        pdfId: activeCompPdfItem.id,
+        base64Data: uint8ArrayToBase64(bakedBytes),
+        numPages: totalPages,
+        lastBakedAt: Date.now(),
+        timestamp: Date.now()
+      });
+
+      activeCompPdfItem.updatedAt = Date.now();
+      await savePdfLibraryIndex();
+
+      if (downloadCopy) {
+        const blob = new Blob([bakedBytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${activeCompPdfItem.title.replace(/[^a-zA-Z0-9_-]/g, "_")}_annotated.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1200);
+        showToast(`Exported annotated PDF (${bakedStrokeCount} strokes baked)!`, "emerald", 2800);
+      } else {
+        showToast(`Baked ${bakedStrokeCount} stroke(s) into PDF & preserved editable vectors!`, "emerald", 2600);
+      }
+    } catch (err) {
+      showToast(`PDF Bake error: ${err.message}`, "rose", 3000);
+    }
+  }
+
+  async function deleteActiveCompPdfDocument() {
+    if (!isCompPdfActive() || !activeCompPdfItem) return;
+    if (!confirm(`Permanently delete PDF "${activeCompPdfItem.title}" and all its annotations?`)) return;
+
+    const pdfId = activeCompPdfItem.id;
+    await deleteRecord("store_notes", `pdf_doc_${pdfId}`);
+    await deleteRecord("store_notes", `excerpts_pdf_${pdfId}`);
+    for (let p = 1; p <= (activeCompPdfTotalPages || 1); p++) {
+      await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${p}`);
+      await deleteRecord("store_notes", `pdf_media_${pdfId}_p${p}`);
+    }
+
+    await loadPdfLibraryIndex();
+    pdfLibraryIndex = pdfLibraryIndex.filter(x => x.id !== pdfId);
+    await savePdfLibraryIndex();
+
+    activeCompPdfItem = null;
+    activeCompPdfDocProxy = null;
+    activeCompPdfRawBytes = null;
+    showToast("PDF document deleted.", "emerald", 1800);
+    await renderCompStudioSheets();
   }
 
   /**
@@ -11076,6 +12567,8 @@ Explanation: ${parentQ.explanation}`;
     );
     const term = (document.getElementById("sheets-index-search")?.value || "").trim().toLowerCase();
     const allConcepts = await ConceptService.getAll();
+    const allPdfs = await loadPdfLibraryIndex();
+    const combinedDocs = [...allConcepts, ...allPdfs];
     const allNotes = await getAllRecords("store_notes");
     const openedMap = {};
     const now = Date.now();
@@ -11086,13 +12579,15 @@ Explanation: ${parentQ.explanation}`;
       }
     });
 
-    const filtered = allConcepts.filter(c => {
+    const filtered = combinedDocs.filter(c => {
       if (subFilter !== "ALL" && c.subject !== subFilter) return false;
       const openedRec = openedMap[c.id];
       const lastEpoch = openedRec && openedRec.lastOpenedAt ? openedRec.lastOpenedAt : 0;
       const daysSince = lastEpoch > 0 ? (now - lastEpoch) / 86400000 : Infinity;
 
-      if (neglectedFilter === "NEGLECTED_3D") {
+      if (neglectedFilter === "PDF_ONLY") {
+        if (!c.isPdf) return false;
+      } else if (neglectedFilter === "NEGLECTED_3D") {
         if (daysSince < 3) return false;
       } else if (neglectedFilter === "NEGLECTED_7D") {
         if (daysSince < 7) return false;
@@ -11116,7 +12611,6 @@ Explanation: ${parentQ.explanation}`;
       return true;
     });
 
-    // Sort neglected / oldest opened first when a Neglected filter is active
     if (neglectedFilter === "NEGLECTED_7D" || neglectedFilter === "NEGLECTED_14D") {
       filtered.sort((a, b) => {
         const tA = openedMap[a.id]?.lastOpenedAt || 0;
@@ -11131,11 +12625,11 @@ Explanation: ${parentQ.explanation}`;
       });
     }
 
-    safeSetText("all-sheets-index-sub", `Showing ${filtered.length} of ${allConcepts.length} Living Knowledge Sheets`);
+    safeSetText("all-sheets-index-sub", `Showing ${filtered.length} of ${combinedDocs.length} Living Sheets & PDFs (${allPdfs.length} PDFs)`);
     listEl.innerHTML = "";
 
     if (filtered.length === 0) {
-      listEl.innerHTML = `<div style="text-align:center; padding:30px; color:var(--text-muted);">No sheets match your filter.</div>`;
+      listEl.innerHTML = `<div style="text-align:center; padding:30px; color:var(--text-muted);">No sheets or PDFs match your filter.</div>`;
       return;
     }
 
@@ -11149,7 +12643,7 @@ Explanation: ${parentQ.explanation}`;
     Object.keys(grouped).forEach(groupKey => {
       const head = document.createElement("div");
       head.style.cssText = "font-size:11px; font-weight:800; color:var(--accent-cyan); margin:10px 0 6px 0; text-transform:uppercase; font-family:var(--font-mono);";
-      head.innerText = `// ${groupKey} (${grouped[groupKey].length} Sheets)`;
+      head.innerText = `// ${groupKey} (${grouped[groupKey].length} Items)`;
       listEl.appendChild(head);
 
       grouped[groupKey].forEach(sheet => {
@@ -11165,13 +12659,17 @@ Explanation: ${parentQ.explanation}`;
             statusPill = `<span class="badge" style="background:rgba(148,163,184,0.14); color:#cbd5e1; font-size:9.5px;">${days}d ago</span>`;
           }
         }
+        const pdfBadge = sheet.isPdf
+          ? `<span class="badge" style="background:rgba(168,85,247,0.22); color:#d8b4fe; border:1px solid rgba(168,85,247,0.45); font-size:9.5px;">\uD83D\uDCC4 PDF (${sheet.numPages || 1}p)</span>`
+          : "";
         const row = document.createElement("div");
         row.className = "tree-node-row";
         row.style.marginBottom = "6px";
         row.innerHTML = `
           <div style="overflow:hidden; flex:1;">
             <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-              <b style="font-size:13px; color:#fff;">\uD83D\uDCD6 ${sheet.title}</b>
+              <b style="font-size:13px; color:#fff;">${sheet.isPdf ? "\uD83D\uDCC4" : "\uD83D\uDCD6"} ${sheet.title}</b>
+              ${pdfBadge}
               ${statusPill}
             </div>
             <div style="font-size:11px; color:var(--text-muted);">${sheet.subtitle || sheet.id}</div>
@@ -11180,7 +12678,11 @@ Explanation: ${parentQ.explanation}`;
         `;
         row.onclick = () => {
           document.getElementById("modal-all-sheets-index")?.classList.remove("active");
-          openCompendiumToSheet(sheet.id, sheet.subject, sheet.chapter);
+          if (sheet.isPdf) {
+            openCompendiumToPdf(sheet.id, 1);
+          } else {
+            openCompendiumToSheet(sheet.id, sheet.subject, sheet.chapter);
+          }
         };
         listEl.appendChild(row);
       });
@@ -11196,13 +12698,13 @@ Explanation: ${parentQ.explanation}`;
   }
 
   async function runAiSheetArchitectTask(mode) {
-    const sheet = currentCompSheets[activeCompSheetIndex];
+    const sheet = !isCompPdfActive() ? currentCompSheets[activeCompSheetIndex] : null;
     const manualKeyId = document.getElementById("ai-sheet-key-override")?.value || "WATERFALL_AUTO";
     const badge = document.getElementById("ai-sheet-source-badge");
     const customInst = document.getElementById("ai-sheet-custom-instruction")?.value.trim() || "";
 
     if (!sheet && mode !== "CUSTOM") {
-      alert("Select or create a sheet first.");
+      showToast("Select a Markdown Knowledge Sheet first (or use Custom Instruction).", "amber");
       return;
     }
 
@@ -11217,7 +12719,7 @@ Explanation: ${parentQ.explanation}`;
       userPrompt = `Take this existing SSC CGL Knowledge Sheet and append a comprehensive '> [!trap]' callout block and a Markdown summary comparison table at the bottom covering high-frequency TCS traps for this topic:\n\n${sheet.content}`;
     } else {
       if (!customInst) {
-        alert("Enter your custom instruction first.");
+        showToast("Enter your custom instruction first.", "amber");
         return;
       }
       userPrompt = sheet
@@ -11239,16 +12741,21 @@ Explanation: ${parentQ.explanation}`;
 
       openConceptEditorModal(!sheet);
       safeSetValue("concept-edit-body", res.rawText.trim());
-      alert(`🪄 Sheet staged by ${res.sourceLabel}! Review the Markdown in the editor and tap 'Save Living Sheet' to commit.`);
+      showToast(`Sheet staged by ${res.sourceLabel}! Review and tap Save.`, "emerald", 3200);
     } catch (err) {
       if (badge) badge.innerText = "\u26A0\uFE0F Fallback to Clipboard";
-      alert(err.message);
+      showToast(err.message, "rose", 3200);
     }
   }
 
   async function openCompendiumToSheet(conceptId, targetSub, targetChap) {
     const openModals = document.querySelectorAll(".modal-overlay.active");
     openModals.forEach(m => m.classList.remove("active"));
+
+    if (conceptId && String(conceptId).startsWith("pdf_")) {
+      await openCompendiumToPdf(conceptId, 1);
+      return;
+    }
 
     let item = null;
     if (conceptId) {
@@ -11296,8 +12803,12 @@ Explanation: ${parentQ.explanation}`;
     chapSelect.innerHTML = "";
 
     const allDossiers = await ConceptService.getAll();
+    const allPdfs = await loadPdfLibraryIndex();
     const canonChaps = (TAXONOMY[sub] && Array.isArray(TAXONOMY[sub].chapters)) ? TAXONOMY[sub].chapters : [];
-    const existingChaps = [...new Set(allDossiers.filter(d => d.subject === sub).map(d => d.chapter))];
+    const existingChaps = [...new Set([
+      ...allDossiers.filter(d => d.subject === sub).map(d => d.chapter),
+      ...allPdfs.filter(p => p.subject === sub).map(p => p.chapter)
+    ])];
     const combined = [...new Set([...canonChaps, ...existingChaps])];
 
     combined.forEach(c => {
@@ -11324,7 +12835,10 @@ Explanation: ${parentQ.explanation}`;
 
   async function renderCompStudioSheets() {
     const allDossiers = await ConceptService.getAll();
-    currentCompSheets = allDossiers.filter(d => d.subject === activeCompSubject && d.chapter === activeCompChapter);
+    const allPdfs = await loadPdfLibraryIndex();
+    const mdSheets = allDossiers.filter(d => d.subject === activeCompSubject && d.chapter === activeCompChapter);
+    const pdfDocs = allPdfs.filter(p => p.subject === activeCompSubject && p.chapter === activeCompChapter);
+    currentCompSheets = [...mdSheets, ...pdfDocs];
 
     const tabsBar = document.getElementById("comp-studio-sheet-tabs");
     const docContent = document.getElementById("comp-studio-doc-content");
@@ -11332,12 +12846,20 @@ Explanation: ${parentQ.explanation}`;
     if (docContent) docContent.innerHTML = "";
 
     if (currentCompSheets.length === 0) {
+      activeCompPdfItem = null;
+      safeSetDisplay("comp-pdf-studio-bar", "none");
+      safeSetDisplay("comp-pdf-thumb-scrubber", "none");
+      safeSetDisplay("comp-pdf-canvas-stage", "none");
       if (docContent) {
+        docContent.style.display = "block";
         docContent.innerHTML = `
           <div style="text-align:center; padding:50px 14px; color:var(--text-muted);">
-            <h3 style="font-size:16px; margin-bottom:8px; color:#fff;">No Topic Sheets in ${activeCompChapter}</h3>
-            <p style="font-size:12px; margin-bottom:14px;">This chapter has no living sheets yet. Author your first sheet below or use 🪄 AI Sheet Architect.</p>
-            <button class="btn" onclick="CGL_OS.openConceptEditorModal(true)">+ Create First Sheet</button>
+            <h3 style="font-size:16px; margin-bottom:8px; color:#fff;">No Sheets or PDFs in ${activeCompChapter}</h3>
+            <p style="font-size:12px; margin-bottom:14px;">Author a Markdown Knowledge Sheet or import a local PDF textbook/handout into this chapter.</p>
+            <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+              <button class="btn" onclick="CGL_OS.openConceptEditorModal(true)">+ Create First Sheet</button>
+              <button class="btn btn-purple" onclick="CGL_OS.triggerPdfUploadPrompt()">\uD83D\uDCC4 + Import PDF</button>
+            </div>
           </div>
         `;
       }
@@ -11353,7 +12875,9 @@ Explanation: ${parentQ.explanation}`;
       currentCompSheets.forEach((sheet, idx) => {
         const tab = document.createElement("button");
         tab.className = "comp-sheet-tab" + (idx === activeCompSheetIndex ? " active" : "");
-        tab.innerText = sheet.title || `Sheet ${idx + 1}`;
+        tab.innerHTML = sheet.isPdf
+          ? `\uD83D\uDCC4 ${sheet.title || "PDF"} <span style="font-size:9px; opacity:0.75; margin-left:3px;">(${sheet.numPages || 1}p)</span>`
+          : (sheet.title || `Sheet ${idx + 1}`);
         tab.addEventListener("click", () => {
           activeCompSheetIndex = idx;
           renderActiveCompSheet();
@@ -11369,12 +12893,25 @@ Explanation: ${parentQ.explanation}`;
     const sheet = currentCompSheets[activeCompSheetIndex];
     if (!sheet) return;
 
-    // Switch per-sheet ink context automatically
-    switchScratchpadContext(`sheet_${sheet.id}`);
-
     document.querySelectorAll(".comp-sheet-tab").forEach((t, i) => {
       t.classList.toggle("active", i === activeCompSheetIndex);
     });
+
+    if (sheet.isPdf) {
+      await renderActiveCompPdfDocument(activeCompPdfItem && activeCompPdfItem.id === sheet.id ? activeCompPdfPageNum : 1);
+      return;
+    }
+
+    // Standard Markdown Knowledge Sheet Mode: Hide PDF Studio Bar & Stage
+    activeCompPdfItem = null;
+    safeSetDisplay("comp-pdf-studio-bar", "none");
+    safeSetDisplay("comp-pdf-thumb-scrubber", "none");
+    safeSetDisplay("comp-pdf-canvas-stage", "none");
+    const docContentEl = document.getElementById("comp-studio-doc-content");
+    if (docContentEl) docContentEl.style.display = "block";
+
+    // Switch per-sheet ink context automatically
+    switchScratchpadContext(`sheet_${sheet.id}`);
 
     safeSetText("comp-studio-header-title", sheet.title);
     safeSetText("comp-studio-header-sub", `${sheet.chapter} \u2022 Sheet ${activeCompSheetIndex + 1}/${currentCompSheets.length}`);
@@ -11419,17 +12956,22 @@ Explanation: ${parentQ.explanation}`;
     const rawHls = savedHlRec && Array.isArray(savedHlRec.highlights) ? savedHlRec.highlights : [];
     activeSheetHighlights = rawHls.filter(h => h && h.phrase && h.phrase !== "[object Object]");
 
-    // Load persisted page-anchored stylus ink strokes & interactive media blocks
+    // Load persisted page-anchored stylus ink strokes, media blocks & LiquidText Excerpts
     const savedInkRec = await getRecord("store_notes", `sheet_ink_${sheet.id}`);
     activeSheetInkStrokes = savedInkRec && Array.isArray(savedInkRec.strokes) ? savedInkRec.strokes : [];
     sheetInkUndoStack = [];
     lastClearedSheetInkBackup = null;
     currentSheetInkStroke = null;
     activeEraserCursorPreview = null;
+    lassoSelectedStrokeIndices = [];
+    lassoBoundingBoxNorm = null;
     isDrawingSheetInk = false;
 
     const savedMediaRec = await getRecord("store_notes", `sheet_media_${sheet.id}`);
     activeSheetMediaBlocks = savedMediaRec && Array.isArray(savedMediaRec.blocks) ? savedMediaRec.blocks : [];
+
+    const savedExRec = await getRecord("store_notes", `excerpts_${sheet.id}`);
+    activeSheetMarginExcerpts = savedExRec && Array.isArray(savedExRec.excerpts) ? savedExRec.excerpts : [];
 
     updateCompMaskAndHighlightBadge();
 
@@ -11514,6 +13056,7 @@ Explanation: ${parentQ.explanation}`;
               <button class="btn btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.triggerCompSheetImageUpload()" title="Insert or paste an image onto this sheet">\uD83D\uDDBC\uFE0F +Image</button>
               <button class="btn btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.addCompSheetStickyNote()" title="Add a movable sticky callout card">\uD83D\uDCCC +Sticky</button>
               <button class="btn btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.toggleCompendiumFolioInkMode()" title="Write directly on this sheet with stylus or finger">\u270D\uFE0F Direct Ink</button>
+              <button class="btn btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.triggerPdfUploadPrompt()" title="Import a PDF into this chapter">\uD83D\uDCC4 +PDF</button>
               <span style="font-size:10.5px; color:var(--text-muted); font-family:var(--font-mono);">ID: ${sheet.id}</span>
             </div>
           </div>
@@ -11526,9 +13069,9 @@ Explanation: ${parentQ.explanation}`;
         <div id="comp-studio-inline-media-slot" style="margin-top:16px;"></div>
 
         <div class="folio-sheet-nav-footer" style="position:relative; z-index:45; display:flex; justify-content:space-between; align-items:center; margin-top:34px; padding-top:16px; border-top:1px solid var(--border-color);">
-          <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(-1)">[ \u2190 ] Previous Sheet</button>
-          <span style="font-size:12px; font-weight:700; color:var(--text-muted); font-family:var(--font-mono);">Sheet ${activeCompSheetIndex + 1} of ${currentCompSheets.length}</span>
-          <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(1)">Next Sheet [ \u2192 ]</button>
+          <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(-1)">[ \u2190 ] Previous Item</button>
+          <span style="font-size:12px; font-weight:700; color:var(--text-muted); font-family:var(--font-mono);">Item ${activeCompSheetIndex + 1} of ${currentCompSheets.length}</span>
+          <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(1)">Next Item [ \u2192 ]</button>
         </div>
       `;
       const bodyEl = document.getElementById("comp-studio-doc-body");
@@ -11551,16 +13094,40 @@ Explanation: ${parentQ.explanation}`;
 
   function renderCompMarginAnnotationsList() {
     const listEl = document.getElementById("comp-rail-annotations-list") || document.getElementById("comp-margin-annotations-list");
-    const totalCount = activeSheetCustomMasks.length + activeSheetHighlights.length;
+    const excerptCount = Array.isArray(activeSheetMarginExcerpts) ? activeSheetMarginExcerpts.length : 0;
+    const totalCount = activeSheetCustomMasks.length + activeSheetHighlights.length + excerptCount;
     safeSetText("comp-rail-ann-count", `${totalCount} item${totalCount === 1 ? "" : "s"}`);
     if (!listEl) return;
 
     if (totalCount === 0) {
-      listEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">Slide your finger/stylus across words in 🖌️ Mask or 🖍️ Highlight mode (or tap any word) to build your surgical sheet index.</span>`;
+      listEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">Slide your finger/stylus across words in 🖌️ Mask or 🖍️ Highlight mode, or use ✂️ Excerpt in Ink mode to pin visual crops here.</span>`;
       return;
     }
 
     const chips = [];
+
+    // Render pinned LiquidText Visual Excerpt cards at top of Margin Rail
+    if (excerptCount > 0) {
+      activeSheetMarginExcerpts.forEach(ex => {
+        const pageBadge = ex.pageNum ? `<span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; font-size:9px; cursor:pointer;" onclick="CGL_OS.jumpCompPdfToPage(${ex.pageNum})">Page ${ex.pageNum} \u2794</span>` : "";
+        chips.push(`
+          <div class="comp-margin-excerpt-card" style="width:100%;">
+            <img src="${ex.dataUrl}" alt="Excerpt">
+            <div class="comp-margin-excerpt-meta">
+              <div style="display:flex; align-items:center; gap:5px;">
+                <span>\u2702\uFE0F Excerpt</span>
+                ${pageBadge}
+              </div>
+              <div style="display:flex; gap:4px;">
+                <button class="btn btn-purple" style="padding:1px 6px; font-size:9.5px;" onclick="CGL_OS.sendMarginExcerptToQuestionCreator('${ex.id}')" title="Send cropped image to Question Creator">\u2795 Q</button>
+                <button class="btn btn-secondary" style="padding:1px 6px; font-size:9.5px; color:#fb7185;" onclick="CGL_OS.deleteCompMarginExcerpt('${ex.id}')" title="Delete excerpt">\u2715</button>
+              </div>
+            </div>
+          </div>
+        `);
+      });
+    }
+
     activeSheetCustomMasks.forEach((m, idx) => {
       const parsed = parseMaskOrHighlightKey(m);
       const phrase = parsed.phrase;
@@ -11594,7 +13161,7 @@ Explanation: ${parentQ.explanation}`;
     const perfMap = await PerformanceService.getQuestionPerformanceMap();
     const failed = linked.filter(q => perfMap[q.id] && (perfMap[q.id].lastWasIncorrect || perfMap[q.id].wrong > 0));
     if (failed.length === 0) {
-      alert("No failed questions linked to this sheet.");
+      showToast("No failed questions linked to this sheet.", "amber");
       return;
     }
     closeCompendiumStudio();
@@ -11623,8 +13190,13 @@ Explanation: ${parentQ.explanation}`;
   async function deleteCurrentCompendiumSheet() {
     if (!currentCompSheets || currentCompSheets.length === 0) return;
     const curr = currentCompSheets[activeCompSheetIndex];
+    if (curr.isPdf) {
+      await deleteActiveCompPdfDocument();
+      return;
+    }
     if (confirm(`Permanently delete living sheet: "${curr.title}"?`)) {
       await ConceptService.delete(curr.id);
+      showToast("Living sheet deleted.", "emerald");
       await renderCompStudioSheets();
     }
   }
@@ -11639,8 +13211,9 @@ Explanation: ${parentQ.explanation}`;
       const cSel = document.getElementById("comp-studio-chapter-select");
       if (cSel) cSel.value = formatted;
       await handleCompStudioChapterChange(formatted);
+      showToast(`Chapter ${formatted} created.`, "emerald");
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "rose");
     }
   }
 
@@ -11674,7 +13247,7 @@ Explanation: ${parentQ.explanation}`;
     const linked = await ConceptService.getLinkedQuestions(sheet.id, sheet.chapter);
 
     if (linked.length === 0) {
-      alert(`No questions in bank for ${sheet.chapter}.`);
+      showToast(`No questions in bank for ${sheet.chapter}.`, "amber");
       return;
     }
 
@@ -11708,19 +13281,22 @@ Explanation: ${parentQ.explanation}`;
     if (compSheetInkMode) toggleCompSheetInkMode(false);
     toggleCompStudioMoreMenu(false);
     document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
+    cancelActiveExcerptCrop();
   }
 
   async function openConceptEditorModal(isNew = true) {
     closeCompMorePopover();
     currentConceptImageBase64 = "";
-    safeSetText("concept-editor-title", isNew ? "Add Topic Sheet" : "Edit Topic Sheet");
+    const currItem = currentCompSheets[activeCompSheetIndex];
+    const forceNew = isNew || !currItem || !!currItem.isPdf;
+    safeSetText("concept-editor-title", forceNew ? "Add Topic Sheet" : "Edit Topic Sheet");
 
     const subSel = document.getElementById("concept-edit-subject");
     if (subSel && subSel.options.length === 0) {
       await syncAllTaxonomyDropdowns();
     }
 
-    if (isNew || currentCompSheets.length === 0) {
+    if (forceNew) {
       const targetSub = activeCompSubject || "QA";
       safeSetValue("concept-edit-id", "top_" + Date.now());
       safeSetValue("concept-edit-subject", targetSub);
@@ -11732,7 +13308,7 @@ Explanation: ${parentQ.explanation}`;
       safeSetValue("concept-edit-img-url", "");
       safeSetValue("concept-edit-img-file", "");
     } else {
-      const curr = currentCompSheets[activeCompSheetIndex];
+      const curr = currItem;
       safeSetValue("concept-edit-id", curr.id);
       safeSetValue("concept-edit-subject", curr.subject);
       await syncEditorChapterDropdown("concept-edit-subject", "concept-edit-chapter");
@@ -11774,7 +13350,7 @@ Explanation: ${parentQ.explanation}`;
     const urlInput = document.getElementById("concept-edit-img-url")?.value.trim();
 
     if (!title || !content || !chapter) {
-      alert("Chapter, Topic Title, and Content are required.");
+      showToast("Chapter, Topic Title, and Content are required.", "amber");
       return;
     }
 
@@ -11798,6 +13374,7 @@ Explanation: ${parentQ.explanation}`;
 
     const m = document.getElementById("modal-concept-editor");
     if (m) m.classList.remove("active");
+    showToast(`Saved sheet "${title}".`, "emerald");
     openCompendiumToSheet(id, subject, chapter);
   }
 
@@ -11806,7 +13383,7 @@ Explanation: ${parentQ.explanation}`;
     const m = document.getElementById("modal-comp-omni-search");
     if (m) m.classList.add("active");
     safeSetValue("comp-omni-search-input", "");
-    safeSetHtml("comp-omni-results-list", `<p style="color:var(--text-muted); text-align:center; padding:20px;">Type keywords above to query across all living sheets.</p>`);
+    safeSetHtml("comp-omni-results-list", `<p style="color:var(--text-muted); text-align:center; padding:20px;">Type keywords above to query across all living sheets and imported PDFs.</p>`);
     setTimeout(() => {
       const inp = document.getElementById("comp-omni-search-input");
       if (inp) inp.focus();
@@ -11818,12 +13395,14 @@ Explanation: ${parentQ.explanation}`;
     if (!list) return;
     const term = keyword.trim().toLowerCase();
     if (!term) {
-      list.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px;">Type keywords above to query across all living sheets.</p>`;
+      list.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px;">Type keywords above to query across all living sheets and imported PDFs.</p>`;
       return;
     }
 
     const allDossiers = await ConceptService.getAll();
-    const results = allDossiers.filter(d =>
+    const allPdfs = await loadPdfLibraryIndex();
+    const combined = [...allDossiers, ...allPdfs];
+    const results = combined.filter(d =>
       (d.id && d.id.toLowerCase().includes(term)) ||
       (d.title && d.title.toLowerCase().includes(term)) ||
       (d.subtitle && d.subtitle.toLowerCase().includes(term)) ||
@@ -11833,7 +13412,7 @@ Explanation: ${parentQ.explanation}`;
 
     list.innerHTML = "";
     if (results.length === 0) {
-      list.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px;">No matching formulas, traps, or sheets found.</p>`;
+      list.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px;">No matching formulas, traps, sheets, or PDFs found.</p>`;
       return;
     }
 
@@ -11845,17 +13424,21 @@ Explanation: ${parentQ.explanation}`;
       div.style.cursor = "pointer";
       div.innerHTML = `
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-          <span class="badge" style="background:#1f6feb;">${res.subject} \u2022 ${res.chapter}</span>
+          <span class="badge" style="background:${res.isPdf ? "#7e22ce" : "#1f6feb"};">${res.subject} \u2022 ${res.chapter} ${res.isPdf ? "\u2022 PDF" : ""}</span>
           <span style="font-size:10px; font-family:var(--font-mono); color:var(--text-muted);">${res.id}</span>
         </div>
-        <b style="font-size:14px; color:#fff;">${res.title}</b>
+        <b style="font-size:14px; color:#fff;">${res.isPdf ? "\uD83D\uDCC4 " : ""}${res.title}</b>
         <div style="font-size:11px; color:var(--accent-cyan); font-family:var(--font-mono); margin-bottom:4px;">${res.subtitle || ""}</div>
-        <div style="font-size:12px; color:var(--text-muted); max-height:40px; overflow:hidden; text-overflow:ellipsis;">${res.content.slice(0, 100)}...</div>
+        <div style="font-size:12px; color:var(--text-muted); max-height:40px; overflow:hidden; text-overflow:ellipsis;">${(res.content || "Imported PDF Document").slice(0, 100)}...</div>
       `;
       div.addEventListener("click", () => {
         const modal = document.getElementById("modal-comp-omni-search");
         if (modal) modal.classList.remove("active");
-        openCompendiumToSheet(res.id, res.subject, res.chapter);
+        if (res.isPdf) {
+          openCompendiumToPdf(res.id, 1);
+        } else {
+          openCompendiumToSheet(res.id, res.subject, res.chapter);
+        }
       });
       list.appendChild(div);
     });
@@ -12001,7 +13584,7 @@ Explanation: ${parentQ.explanation}`;
       shuffleOptions: true
     });
     if (!instance.questions || instance.questions.length === 0) {
-      alert(`Zero questions currently banked in ${chap}.`);
+      showToast(`Zero questions currently banked in ${chap}.`, "amber");
       return;
     }
     if (openInDojo) {
@@ -12016,7 +13599,7 @@ Explanation: ${parentQ.explanation}`;
     if (modal) modal.classList.remove("active");
     const linkedQs = await ConceptService.getLinkedQuestions(conceptId, chapter);
     if (linkedQs.length === 0) {
-      alert(`No questions linked to sheet ${conceptId}.`);
+      showToast(`No questions linked to sheet ${conceptId}.`, "amber");
       return;
     }
     if (openInDojo) {
@@ -12057,6 +13640,7 @@ Explanation: ${parentQ.explanation}`;
   async function renderDashboard() {
     const allQs = await getAllRecords("store_questions");
     const allConcepts = await ConceptService.getAll();
+    const allPdfs = await loadPdfLibraryIndex();
     const metrics = await PerformanceService.calculateGlobalMetrics();
     const weakChapters = await PerformanceService.getWeakChapters();
     const neglect = await PerformanceService.calculateNeglect();
@@ -12064,22 +13648,31 @@ Explanation: ${parentQ.explanation}`;
     const perfMap = await PerformanceService.getQuestionPerformanceMap();
 
     safeSetText("dash-stat-questions", allQs.length);
-    safeSetText("dash-stat-sheets", allConcepts.length);
+    safeSetText("dash-stat-sheets", allConcepts.length + allPdfs.length);
     safeSetText("dash-stat-accuracy", metrics.totalMocks > 0 ? `${metrics.accuracy}%` : "--");
     safeSetText("dash-stat-weak", weakChapters.length);
     const hrs = Math.floor((metrics.totalStudyTimeSec || 0) / 3600);
     const mins = Math.floor(((metrics.totalStudyTimeSec || 0) % 3600) / 60);
     safeSetText("dash-stat-time", `${hrs}h ${mins}m`);
 
-    const mistakeDebtCount = allQs.filter(q => perfMap[q.id] && perfMap[q.id].lastWasIncorrect).length;
+    const now = Date.now();
+    const COOLING_LOCK_MS = 18 * 3600 * 1000;
+    const mistakeDebts = allQs.filter(q => perfMap[q.id] && perfMap[q.id].lastWasIncorrect);
+    const mistakeDebtCount = mistakeDebts.length;
+    const coolingMistakeCount = mistakeDebts.filter(q => {
+      const lastInc = perfMap[q.id]?.lastIncorrectEpoch || 0;
+      return lastInc > 0 && (now - lastInc) < COOLING_LOCK_MS;
+    }).length;
+    const readyMistakeCount = Math.max(0, mistakeDebtCount - coolingMistakeCount);
     const starredCount = allQs.filter(q => q.bookmarked).length;
 
     if (completedAttempts.length === 0) {
       safeSetText("dash-continue-title", "Baseline Calibration Needed");
       safeSetText("dash-continue-sub", "Zero completed tests detected. Tap to run diagnostic onboarding mock.");
     } else if (mistakeDebtCount > 0 || starredCount > 0) {
-      safeSetText("dash-continue-title", `Daily Priority Queue (${mistakeDebtCount} Mistake Debts \u2022 ${starredCount} Starred)`);
-      safeSetText("dash-continue-sub", `Combines unresolved mistakes, ${neglect ? neglect.chapter + " decay" : "weak chapters"}, and unseen problems`);
+      const coolingNote = coolingMistakeCount > 0 ? ` \u2022 \u2744\uFE0F ${coolingMistakeCount} Cooling (<18h)` : "";
+      safeSetText("dash-continue-title", `Daily Priority Queue (${readyMistakeCount} Ready Debts${coolingNote} \u2022 ${starredCount} Starred)`);
+      safeSetText("dash-continue-sub", `Spaced 18h mistake lock prevents rote option recall \u2022 Combines ${neglect ? neglect.chapter + " decay" : "weak chapters"} & unseen Qs`);
     } else if (weakChapters.length > 0) {
       const targetWeak = weakChapters[0];
       safeSetText("dash-continue-title", `${targetWeak.chapter} \u2014 Weakness Drill`);
@@ -12183,6 +13776,7 @@ Explanation: ${parentQ.explanation}`;
 
     const trapColors = {
       TIME_TRAP_Q4: "#f43f5e",
+      ABANDONED_TIME_SINK: "#fb923c",
       SECOND_GUESS_BLUNDER: "#f59e0b",
       PANIC_SLIP: "#e11d48",
       SPEED_MISREAD: "#ec4899",
@@ -12236,8 +13830,24 @@ Explanation: ${parentQ.explanation}`;
     const selectedQueue = [];
     const usedIds = new Set();
     const targetCount = 20;
+    const now = Date.now();
+    const COOLING_LOCK_MS = 18 * 3600 * 1000;
 
-    const debtPool = MockService.shuffle(allQs.filter(q => (perfMap[q.id] && perfMap[q.id].lastWasIncorrect) || q.bookmarked));
+    // 18-Hour Spaced Mistake Cooling Lock:
+    // In Timed Priority Sprints (!openInDojo), exclude mistakes failed within the last 18 hours
+    // so the candidate solves genuine memory retrieval rather than recent option recall.
+    const debtPool = MockService.shuffle(allQs.filter(q => {
+      const p = perfMap[q.id];
+      const isMistakeDebt = p && p.lastWasIncorrect;
+      if (isMistakeDebt && !openInDojo) {
+        const lastInc = p.lastIncorrectEpoch || 0;
+        if (lastInc > 0 && (now - lastInc) < COOLING_LOCK_MS) {
+          return false;
+        }
+      }
+      return isMistakeDebt || q.bookmarked;
+    }));
+
     for (const q of debtPool) {
       if (selectedQueue.length >= 8) break;
       if (!q.parentPassageId && !usedIds.has(q.id)) {
@@ -12277,7 +13887,7 @@ Explanation: ${parentQ.explanation}`;
     }
 
     if (selectedQueue.length === 0) {
-      alert("Question bank is currently empty.");
+      showToast("Question bank is currently empty.", "amber");
       return;
     }
 
@@ -12558,7 +14168,9 @@ Explanation: ${parentQ.explanation}`;
           att.questions.forEach(q => {
             if (q.chapter === chap) {
               const resp = att.userResponses[q.id];
-              if (resp && resp.selectedOption !== null && resp.selectedOption !== undefined && resp.selectedOption !== q.correctIndex) {
+              const isWrong = resp && resp.selectedOption !== null && resp.selectedOption !== undefined && resp.selectedOption !== q.correctIndex;
+              const isAbandonedSink = resp && resp.errorTag === "ABANDONED_TIME_SINK";
+              if (isWrong || isAbandonedSink) {
                 errorMap.push({ q, resp, timeIST: att.timeIST });
               }
             }
@@ -12858,7 +14470,7 @@ Explanation: ${parentQ.explanation}`;
 
   function exportCurrentReviewMockJson() {
     if (!activeReviewAttempt) {
-      alert("No active mock review loaded.");
+      showToast("No active mock review loaded.", "amber");
       return;
     }
     exportSpecificMockJson(activeReviewAttempt);
@@ -12868,7 +14480,7 @@ Explanation: ${parentQ.explanation}`;
     const attempts = await getAllRecords("store_attempts");
     const target = attempts.find(a => a.sessionId === sessionId);
     if (!target) {
-      alert(`Mock session ${sessionId} not found.`);
+      showToast(`Mock session ${sessionId} not found.`, "rose");
       return;
     }
     exportSpecificMockJson(target);
@@ -13007,9 +14619,11 @@ Explanation: ${parentQ.explanation}`;
           if (sub === "ALL" || q.subject === sub) {
             const resp = att.userResponses[q.id];
             const trapThreshold = getSubjectThresholds(q.subject).trapSec;
-            if (resp && resp.selectedOption !== null && resp.selectedOption !== undefined) {
-              const isCor = resp.selectedOption === q.correctIndex ? 1 : 0;
-              const isTrap = (resp.timeSpentSec > trapThreshold && isCor === 0) || (resp.isPanicSlip) || (resp.switches > 0 && isCor === 0);
+            const isAtt = resp && resp.selectedOption !== null && resp.selectedOption !== undefined;
+            const isAbandonedSink = resp && resp.errorTag === "ABANDONED_TIME_SINK";
+            if (isAtt || isAbandonedSink) {
+              const isCor = isAtt && resp.selectedOption === q.correctIndex ? 1 : 0;
+              const isTrap = isAbandonedSink || (resp.timeSpentSec > trapThreshold && isCor === 0) || (resp.isPanicSlip) || (resp.switches > 0 && isCor === 0);
 
               if (filter === "ALL" || (filter === "TRAPS_ONLY" && isTrap) || (filter === "PANIC_ONLY" && resp.isPanicSlip)) {
                 telemetryRows.push({
@@ -13019,7 +14633,7 @@ Explanation: ${parentQ.explanation}`;
                   qId: q.id,
                   subject: q.subject,
                   chapter: q.chapter,
-                  sel: resp.selectedOption,
+                  sel: isAtt ? resp.selectedOption : -1,
                   cor: q.correctIndex,
                   t: resp.timeSpentSec || 0,
                   sw: resp.switches || 0,
@@ -13158,13 +14772,13 @@ Explanation: ${parentQ.explanation}`;
   function copyInspectedJsonToClipboard() {
     if (!activeInspectedJsonString) return;
     navigator.clipboard.writeText(activeInspectedJsonString);
-    alert("Record JSON copied to clipboard!");
+    showToast("Record JSON copied to clipboard!", "emerald");
   }
 
   async function wipeTestAttempts() {
     if (confirm("Permanently clear mock test history? (Question bank and Living Sheets remain 100% intact)")) {
       await clearStore("store_attempts");
-      alert("Test history cleared.");
+      showToast("Test history cleared.", "emerald");
       await renderDashboard();
       refreshDbInspector();
     }
@@ -13181,7 +14795,7 @@ Explanation: ${parentQ.explanation}`;
         await clearStore(sName);
       }
       await seedData();
-      alert("Factory reset complete.");
+      showToast("Factory reset complete.", "emerald");
       SearchService.invalidate();
       await AiGatewayService.loadVault();
       await syncAllTaxonomyDropdowns();
@@ -13208,8 +14822,9 @@ Explanation: ${parentQ.explanation}`;
       const isSlow = (r.timeSpentSec || 0) > parSec * 1.35;
       const hasSwitch = (r.switches || 0) > 0;
       const isStarred = !!liveQ.bookmarked;
+      const isAbandonedSink = r.errorTag === "ABANDONED_TIME_SINK";
 
-      if (!isCor || isSlow || hasSwitch || isStarred) {
+      if (!isCor || isSlow || hasSwitch || isStarred || isAbandonedSink) {
         criticalQuestions.push({
           id: q.id,
           subject: q.subject,
@@ -13218,7 +14833,7 @@ Explanation: ${parentQ.explanation}`;
           method: liveQ.method || "",
           conceptIds: liveQ.conceptIds || (liveQ.conceptId ? [liveQ.conceptId] : []),
           bookmarked: isStarred,
-          outcome: isCor ? "CORRECT_BUT_FLAGGED" : (isAtt ? "INCORRECT" : "UNATTEMPTED"),
+          outcome: isCor ? "CORRECT_BUT_FLAGGED" : (isAtt ? "INCORRECT" : (isAbandonedSink ? "ABANDONED_TIME_SINK" : "UNATTEMPTED")),
           userSelectedOptionIndex: isAtt ? r.selectedOption : null,
           userSelectedOptionText: isAtt && q.options[r.selectedOption] ? q.options[r.selectedOption] : null,
           correctOptionIndex: q.correctIndex,
@@ -13265,7 +14880,7 @@ Explanation: ${parentQ.explanation}`;
     const biopsyObj = await generateCompactBiopsyPayload(activeReviewAttempt);
     const jsonStr = JSON.stringify(biopsyObj, null, 2);
     navigator.clipboard.writeText(jsonStr)
-      .then(() => alert(`1-Tap AI Biopsy copied (${biopsyObj.criticalQuestionsForBiopsy.length} critical questions + Rolling Clinical Memory)! Paste directly into Gemini.`))
+      .then(() => showToast(`1-Tap AI Biopsy copied (${biopsyObj.criticalQuestionsForBiopsy.length} critical Qs)! Paste into Gemini.`, "emerald", 3200))
       .catch(() => downloadFileResilient(`cgl_biopsy_${activeReviewAttempt.sessionId}.json`, "application/json", jsonStr));
   }
 
@@ -13352,7 +14967,7 @@ Explanation: ${parentQ.explanation}`;
   function copyAiExportToClipboard() {
     const text = document.getElementById("ai-export-preview")?.value || "";
     navigator.clipboard.writeText(text);
-    alert("Payload copied! Paste into chat with AI coach to diagnose vulnerabilities.");
+    showToast("Payload copied! Paste into chat with AI coach.", "emerald", 2800);
     const m = document.getElementById("modal-ai-export");
     if (m) m.classList.remove("active");
   }
@@ -13426,7 +15041,7 @@ Explanation: ${parentQ.explanation}`;
     const concepts = await ConceptService.getAll();
     const consultations = await getAllRecords("store_ai_consultations");
 
-    const manifest = `# SSC CGL Intelligence OS - Live Runtime Introspection Manifest (V7.2)
+    const manifest = `# SSC CGL Intelligence OS - Live Runtime Introspection Manifest (V9.0)
 Generated at: ${formatISTDate(Date.now())}
 Target Candidate: Ankit Kumar (SSC CGL 2026 Tier 1 & Tier 2 Master Preparation)
 
@@ -13434,6 +15049,7 @@ Target Candidate: Ankit Kumar (SSC CGL 2026 Tier 1 & Tier 2 Master Preparation)
 - Master Question Pool: ${questions.length}
 - Completed Mocks: ${attempts.filter(a => a.completed && a.mockType !== "STUDY_VIEW").length}
 - Living Knowledge Sheets: ${concepts.length}
+- Imported PDF Documents: ${pdfLibraryIndex.length}
 - Clinical Consultations Logged: ${consultations.length}
 - Local Waterfall API Keys Configured: ${AiGatewayService.keys.length}
 
@@ -13460,7 +15076,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
 - REQUEST_HISTORICAL_DUMP / SAVE_MOCK_PRESET / MODIFY_TAXONOMY / RAW_DB_OPERATION
 `;
     navigator.clipboard.writeText(manifest);
-    alert("Live AI Introspection Manifest (V7.2) copied to clipboard!");
+    showToast("Live AI Introspection Manifest (V9.0) copied to clipboard!", "emerald", 2800);
   }
 
   /* ==========================================================================
@@ -13663,7 +15279,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     }
 
     window.getSelection()?.removeAllRanges();
-    alert("Saved highlight to your Personal Cue!");
+    showToast("Saved highlight to your Personal Cue!", "emerald");
   }
 
   function switchTab(tId, btn) {
@@ -13846,14 +15462,12 @@ ${JSON.stringify(TAXONOMY, null, 2)}
   function initWebApkServiceWorkerAndInstallPrompt() {
     if (typeof window === "undefined") return;
 
-    // Register Offline-First Service Worker (works on HTTPS / GitHub Pages & localhost)
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
         navigator.serviceWorker.register("./sw.js").catch(() => {});
       });
     }
 
-    // Hide install button if already running as installed standalone WebAPK
     const isStandalone =
       (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
       window.navigator.standalone === true;
@@ -13969,6 +15583,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     try {
       await getDB();
       await hydratePersistedUiConfig();
+      await loadPdfLibraryIndex();
       await AiGatewayService.loadVault();
       await loadPracticeSavedPresets();
       initUniversalEngagementTracker();
@@ -13994,7 +15609,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     initializeApplication();
   }
 
-  // --- Complete Public API Export (V8.0) ---
+  // --- Complete Public API Export (V9.0) ---
   return {
     TaxonomyService,
     QuestionService,
@@ -14004,6 +15619,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     PerformanceService,
     AiGatewayService,
 
+    showToast,
     switchTab,
     pushNavLayer,
     popNavLayer,
@@ -14131,6 +15747,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     openCompendiumStudio,
     closeCompendiumStudio,
     openCompendiumToSheet,
+    openCompendiumToPdf,
     openAllSheetsIndexModal,
     renderAllSheetsIndexList,
     toggleCompSheetSwitcherDrawer,
@@ -14176,6 +15793,31 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     deleteCompSheetMediaBlock,
     removeCustomMaskByIndex,
     removeCustomHighlightByIndex,
+    deleteCompMarginExcerpt,
+    sendMarginExcerptToQuestionCreator,
+    pinActiveExcerptToMarginRail,
+    pinStagedExcerptToMarginRail: pinActiveExcerptToMarginRail,
+    sendActiveExcerptToQuestionCreator,
+    extractStagedExcerptToQuestionCreator: sendActiveExcerptToQuestionCreator,
+    cancelActiveExcerptCrop,
+    cancelStagedExcerptSelection: cancelActiveExcerptCrop,
+    triggerPdfUploadPrompt,
+    handlePdfDocumentUpload,
+    renderActiveCompPdfDocument,
+    navCompPdfPage,
+    jumpCompPdfToPage,
+    jumpToCompPdfPage: jumpCompPdfToPage,
+    toggleCompPdfBookmarkPage,
+    toggleActivePdfPageBookmark: toggleCompPdfBookmarkPage,
+    toggleCompPdfDarkInvert,
+    toggleActivePdfDarkInvert: toggleCompPdfDarkInvert,
+    toggleCompPdfThumbnailsBar,
+    toggleCompPdfThumbnailScrubber: toggleCompPdfThumbnailsBar,
+    setCompPdfThumbnailFilter,
+    setCompPdfThumbFilter: setCompPdfThumbnailFilter,
+    insertBlankPageIntoActivePdf,
+    flattenAndSaveActivePdf,
+    deleteActiveCompPdfDocument,
     rateCurrentSheetRecall,
     launchFailedSheetQuestionsDojo,
     adjustCompendiumZoom,
@@ -14213,6 +15855,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
 
     openDojoSessionWithQuestions,
     recordDojoStopwatchSplit,
+    saveCurrentDojoMutantToBank,
     launchWeakAreasDojo,
     launchDojoFromMockMistakes,
     exitDojoArena,
@@ -14287,3 +15930,4 @@ ${JSON.stringify(TAXONOMY, null, 2)}
 })();
 
 window.CGL_OS = CGL_OS;
+

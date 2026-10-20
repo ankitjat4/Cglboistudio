@@ -3106,3 +3106,232 @@ mark.user-hl-purple {
   }
 }
 
+/* === ZONE 27: V9.0 FLOATING GLASS TOAST HUD, EMBEDDED PDF STUDIO & LIQUIDTEXT EXCERPTS === */
+.cgl-toast-container {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 9500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(380px, calc(100vw - 28px));
+  pointer-events: none;
+}
+
+.cgl-toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 11px;
+  background: rgba(9, 14, 26, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-left: 4px solid var(--accent-cyan);
+  color: #f8fafc;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.72), 0 0 16px rgba(56, 189, 248, 0.16);
+  transform: translate3d(24px, -6px, 0) scale(0.97);
+  opacity: 0;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cgl-toast-item.toast-visible {
+  transform: translate3d(0, 0, 0) scale(1);
+  opacity: 1;
+}
+
+.cgl-toast-item.toast-emerald {
+  border-color: rgba(16, 185, 129, 0.45);
+  border-left-color: var(--status-green);
+}
+
+.cgl-toast-item.toast-amber {
+  border-color: rgba(245, 158, 11, 0.45);
+  border-left-color: var(--status-amber);
+}
+
+.cgl-toast-item.toast-red {
+  border-color: rgba(244, 63, 94, 0.5);
+  border-left-color: var(--status-red);
+}
+
+.cgl-toast-item.toast-purple {
+  border-color: rgba(167, 139, 250, 0.45);
+  border-left-color: var(--accent-purple-light);
+}
+
+/* Embedded PDF Studio Bar & Multi-Page Scrubber */
+.comp-pdf-studio-bar {
+  position: relative;
+  z-index: 65;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 12px;
+  margin-bottom: 12px;
+  background: rgba(8, 13, 25, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+#compendium-fullscreen-view.folio-preset-sepia .comp-pdf-studio-bar {
+  background: #ede4d2;
+  border-color: rgba(120, 102, 78, 0.35);
+  color: #1e293b;
+}
+
+.pdf-page-jump-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 7px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+#compendium-fullscreen-view.folio-preset-sepia .pdf-page-jump-pill {
+  background: #f8f3e8;
+  color: #0f172a;
+  border-color: rgba(120, 102, 78, 0.35);
+}
+
+.pdf-page-jump-pill input {
+  width: 44px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: center;
+  padding: 1px 4px;
+}
+
+.comp-pdf-thumb-scrubber {
+  position: relative;
+  z-index: 64;
+  background: rgba(7, 11, 20, 0.94);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.comp-pdf-thumb-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.comp-pdf-thumb-card {
+  flex: 0 0 auto;
+  min-width: 68px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #0e1628;
+  border: 1.5px solid var(--border-color);
+  cursor: pointer;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+}
+
+.comp-pdf-thumb-card:hover {
+  border-color: var(--accent-cyan);
+  color: #fff;
+}
+
+.comp-pdf-thumb-card.active {
+  background: rgba(37, 99, 235, 0.28);
+  border-color: var(--accent-cyan);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
+
+.comp-pdf-canvas-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: rgba(4, 7, 14, 0.4);
+  border-radius: 10px;
+  overflow: hidden;
+  min-height: 420px;
+}
+
+.comp-pdf-render-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  transition: filter 0.2s ease;
+}
+
+.comp-pdf-render-canvas.pdf-dark-inverted {
+  filter: invert(0.92) hue-rotate(180deg) contrast(1.06);
+}
+
+/* LiquidText Excerpt Action Bar & Margin Rail Excerpt Cards */
+.comp-excerpt-action-bar {
+  position: sticky;
+  bottom: 72px;
+  left: 0;
+  right: 0;
+  margin: 12px auto 0 auto;
+  z-index: 80;
+  background: rgba(9, 14, 28, 0.96);
+  backdrop-filter: blur(16px);
+  border: 1.5px solid var(--accent-cyan);
+  border-radius: 12px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.8), 0 0 16px rgba(56, 189, 248, 0.25);
+}
+
+.excerpt-rail-item {
+  background: rgba(14, 21, 38, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: 9px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.excerpt-rail-item img {
+  width: 100%;
+  max-height: 130px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #060911;
+  margin: 5px 0;
+  display: block;
+}
+
+
