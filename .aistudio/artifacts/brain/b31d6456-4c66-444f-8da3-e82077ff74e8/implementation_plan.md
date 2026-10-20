@@ -1,145 +1,125 @@
-# Production-Grade Academic Reader, Tablet Studio & Systemic Telemetry Upgrade
+# Living Knowledge Studio — GoodNotes & Apple Notes Tablet Experience Overhaul
 
-This plan transforms the Living Knowledge Studio and Question Showcase from a congested, border-heavy web layout into a calm, distraction-free **Academic Reader & Tablet Studio** (inspired by GoodNotes, LiquidText, Apple Books, and Readwise Reader)—while permanently fixing the **Global Word-Masking Regex Bug** and closing the **Systemic Preparation & Telemetry Blind Spots** across Dojo Clinic, Mistake Debt, Spaced Repetition, and Daily Autopilot.
+This upgrade transforms the Living Knowledge Studio into a tactile, zero-bug tablet note-taking and active-recall environment inspired by GoodNotes, Apple Notes, and Samsung Notes—completely removing the Spaced Repetition (SRS) system in favor of automatic "Neglected Sheets" tracking, restoring every header/theme/dock control, enabling smooth finger/stylus slide-painting for highlights and masks, anchoring stylus handwriting directly to the sheet page, and adding movable/resizable pasted images and visual cards.
 
 ---
 
-### User Review & Confirmed Architectural Decisions
+## User Review & Confirmed Decisions
 
 > [!IMPORTANT]
-> The following architectural decisions and systemic fixes are locked into this implementation blueprint:
+> All four architectural preferences from our design discussion are locked into this plan, alongside a complete fix for every broken button, theme switch, and selection handler audited in the Knowledge Studio.
 
-1. **Confirmed UX Decision 1 — Tablet Landscape Split-Studio**: On tablet landscape viewports (`min-width: 820px` and `orientation: landscape`), Knowledge Studio renders a side-by-side workspace with the elevated **A4 Academic Folio** on the left (`65%` width) and a dedicated **Margin Notes, Recall Mastery & Linked Questions Rail** on the right (`35%` width).
-2. **Confirmed UX Decision 2 — Reading Surface Presets**: Knowledge Studio follows the global Midnight/Charcoal theme by default and adds an instant **Paper Surface Switcher** (`Obsidian Studio`, `Warm Charcoal`, and `Warm Sepia / Ivory Paper`) with per-sheet and studio-level persistence to eliminate astigmatism halation during daytime study.
-3. **Confirmed UX Decision 3 — Dual-Trigger Highlighter & Recall Masking**: Both workflows operate seamlessly:
-   - **Floating Selection Action Bar**: Selecting any text pops up a contextual pill with `[ 🙈 Mask ]`, 4 semantic highlighter swatches (`🟡 Fact`, `🟢 Formula`, `🔴 Trap`, `🟣 Vocab`), and `[ 📌 Cue ]`.
-   - **Persistent Dock Highlighter / Mask Mode**: Tapping `🖌️ Mask` or `🖍️ Highlight` in the bottom Floating Action Dock lets you continuously tap or drag across words/formulas with your OnePlus Stylo 2 or finger.
-4. **Systemic Fix Part I — Occurrence-Indexed & Source-Anchored Masking/Highlighting**: Replaces the global `new RegExp(..., "g")` word-masking bug with **Exact Occurrence Indexing (`phrase::occurrenceIndex`)**. Tapping or selecting `"home"`, `"1/2"`, or `"angle"` in Paragraph 3 masks or highlights *only* that exact $k$-th occurrence in the document—never touching other instances of the same word elsewhere on the sheet.
-5. **Systemic Fix Part II — Closing the "Half-Built Bridges" (Dojo Telemetry, Sheet SRS & Bi-Directional Trap Alerts)**:
-   - **Dojo Clinic & Showcase Telemetry Bridge**: Solves in Untimed Dojo and Master Showcase persist immediately to a dedicated `DOJO_CLINIC` telemetry ledger so practiced questions graduate out of `Unseen`, and correctly solved `Mistake Debt` questions are redeemed—without polluting Timed Mock ERI or score averages.
-   - **Sheet Spaced-Repetition (SRS) & Active Recall Progress**: Tracks per-sheet recall progress (`Recalled X / Y Masks`) and 1-tap SRS confidence scheduling (`🔴 Forgot 1d`, `🟡 Effortful 4d`, `🟢 Mastered 10d`) that feeds directly into Daily Autopilot.
-   - **Bi-Directional Mistake & Trap Callouts on Sheets**: Opening any Knowledge Sheet surfaces past exam mistakes and cognitive traps (`FORMULA_AMNESIA`, `TIME_TRAP_Q4`, etc.) from linked questions right inside the Margin Rail / Sheet Header.
+- **Confirmed Decision 1 — Complete Removal of SRS & Auto-Tracked Neglected Sheets**: The Spaced Repetition (`SRS`) system, rating bars, and interval badges are completely removed. The studio now automatically logs when each sheet is opened and lets you filter or sort by **Neglected Sheets** (never opened, not opened in $3+$ or $7+$ days, or oldest read first).
+- **Confirmed Decision 2 — Instant Brush-Drag Painting + Single-Tap for Highlight & Mask**: When Highlight or Mask mode is active in the bottom dock, sliding your finger or stylus across text smoothly paints a live range selection across words and formulas (`pointerdown` → `pointermove` → `pointerup`) and applies an occurrence-exact highlight or mask on release, while tapping a single word or existing highlight/mask toggles that exact instance.
+- **Confirmed Decision 3 — Page-Anchored Stylus Ink Layer**: Direct stylus handwriting is rendered on a high-DPI vector canvas anchored directly inside the Knowledge Sheet folio page so handwritten derivations, arrows, and underlines scroll naturally with the paragraphs and formulas they annotate.
+- **Confirmed Decision 4 — Dual-Mode Interactive Media & Visual Blocks**: Images (via direct clipboard paste, drag-and-drop, or upload) and visual sticky cards can be placed on any Knowledge Sheet and switched between **Free-Floating Movable/Resizable Cards** over the page and **Inline Resizable Blocks** snapped into the document flow.
 
 ---
 
-### 1. Overview & Core Concept
+## 1. Overview & Core Concept
 
-- **What It Does**:
-  1. **De-Congests the Reader Geometry**: Replaces the 4 stacked header bars (~190px of vertical chrome) and nested box-in-box borders with a single **52px Auto-Collapsing Zen Header**, a centered **Floating Glass Action Dock**, and an elevated **A4 Academic Folio** (`max-width: 740px`) with generous paper margins and clean editorial typography.
-  2. **Fixes Global Word-Masking Collisions**: Upgrades custom masks and 4-color highlights from flat string regexes to **occurrence-indexed DOM/text anchors (`phrase::occurrenceIndex`)**, plus optional direct Markdown `{{...}}` surgical wrapping.
-  3. **Unifies the SSC CGL Preparation Loop**: Connects Untimed Dojo Clinic, Master Showcase, Timed Mocks, Mistake Debt, and Living Knowledge Sheets into a single closed-loop telemetry engine.
-
----
-
-### 2. User Experience & Visual Design
-
-#### A. Zen Immersive Chrome & Floating Glass Action Dock
-- **Single Top Bar (`52px`) + Auto-Hide on Scroll**:
-  - Displays `← Back`, the active **Chapter / Sheet Switcher Trigger** (`📑 QA_TRIGONOMETRY • Sheet 1/6 ▾`), and the `[ ••• ]` Studio Overflow Menu.
-  - Scrolling down `> 30px` smoothly retracts the top bar (`transform: translateY(-100%)`), yielding **100% full-screen reading real estate**. Scrolling up `> 15px` or tapping near the top edge restores it.
-- **Floating Bottom Glass Dock (`#comp-floating-dock`)**:
-  - Sits at the bottom-center (`backdrop-filter: blur(16px)`) with 5 core single-line studio tools:
-    - `[ 📑 Sheets ]` — Toggles the collapsible Chapter/Sheet Switcher & 370-Sheet Index
-    - `[ 🙈 Recall ]` — Toggles Active Recall Blur + shows live `Recalled X/Y` counter & `+Auto-Blur`
-    - `[ 🖌️ Mask ]` — Toggles occurrence-exact Stylo/Finger Recall Masking mode
-    - `[ 🖍️ Highlight ]` — Toggles 4-Color Highlighter mode + inline color dot picker (`🟡 🟢 🔴 🟣`)
-    - `[ ⚡ Drill Qs ]` — Launches Untimed Dojo or Timed Sprint for the sheet's linked questions
-  - Secondary tools (`A- / 100% / A+` zoom, Reading Surface Presets, `✏️ Sketchpad Ink`, `🪄 AI Architect`, `🔍 Omni-Search`, `✎ Edit Markdown`, `🗑 Delete Sheet`) reside cleanly inside the `[ ••• ]` Studio Popover.
-
-#### B. Three Reading Surface Presets & Editorial Typography
-- **Surface Presets**:
-  1. **Obsidian Studio (`preset-obsidian`)**: Deep slate canvas (`#060912`), elevated folio (`#0b101e`), crisp alabaster ink (`#f1f5f9`).
-  2. **Warm Charcoal (`preset-charcoal`)**: Low-glare matte canvas (`#14161b`), warm graphite folio (`#1c1f26`), soft warm-white ink (`#e5e7eb`).
-  3. **Warm Sepia / Ivory Paper (`preset-sepia`)**: Textbook ivory paper folio (`#f6f1e7`) on warm stone backdrop (`#e6dfd3`), deep slate-navy ink (`#1e293b`), and high-contrast KaTeX math (`#0f172a`) for zero daytime halation.
-- **De-Boxed Editorial Rhythm**:
-  - `###` and `##` headings use generous top breathing room (`26px` top, `10px` bottom) with a subtle hairline divider rather than boxed sub-cards.
-  - Bullet rows use clean hanging indents (`1.15em` spacing) without per-bullet border noise.
+- **What It Does**: Evolves the Knowledge Studio from a static web reader into an interactive academic folio where candidates can read across three eye-safe paper surfaces, slide their finger or stylus to highlight and mask exact word/phrase occurrences, write directly onto the sheet paper with a stylus, paste and maneuver diagrams/screenshots freely, and drill linked SSC CGL questions without leaving their study flow.
+- **Target Audience / Persona**: Tablet and mobile exam aspirants using a stylus (such as OnePlus Stylo 2) or touch gestures across 370+ high-density Quant, Reasoning, English, and General Awareness sheets.
+- **Key Value**: Eliminates broken UI controls and awkward mobile long-press selection traps while giving complete spatial control over handwritten annotations, pasted diagrams, and neglected-topic discovery.
 
 ---
 
-### 3. Deep Audit Fixes: Masking Engine & Systemic Preparation Loop
+## 2. User Experience & Visual Design
 
-#### Part I: Permanent Fix for the Global Word-Masking Bug (`phrase::occurrenceIndex`)
-- **Root Cause Eliminated**:
-  - Previously, `activeSheetCustomMasks` stored raw strings like `["home", "180°"]` and `formatRichText()` ran `new RegExp(escapeRegExp(cleanP), "g")`, which blindly masked every occurrence of `"home"` across the entire sheet.
-- **New Occurrence-Indexed Mask & Highlight Engine**:
-  1. **Exact Occurrence Calculation (`computeOccurrenceIndexInContainer`)**:
-     - When you tap a word/formula or select a phrase inside `#comp-studio-doc-content` (or `#split-sheet-body`), the engine walks the rendered text nodes up to your exact tap/selection `Range` and counts which occurrence ($0$-based index $k$) of `phrase` you targeted.
-  2. **Targeted Token Encoding (`phrase::k`)**:
-     - Custom masks are stored in `store_notes` (`masks_${sheet.id}`) as `"phrase::k"` (with full backward compatibility for legacy un-indexed phrases).
-     - Multi-color highlights are stored in `store_notes` (`highlights_${sheet.id}`) as `{ phrase, occurrence: k, color: 'yellow'|'green'|'red'|'purple' }`.
-  3. **Occurrence-Aware Replacement in `formatRichText()`**:
-     - During rendering, `formatRichText()` tracks a running match counter `matchIdx` for each target phrase and wraps **only** the exact occurrence `matchIdx === k` in `<span class="user-recall-mask" data-mask-key="phrase::k">...</span>` or `<mark class="user-hl user-hl-color" data-hl-key="phrase::k">...</mark>`.
-     - Tapping an already-masked or highlighted span reads its exact `data-mask-key` / `data-hl-key` and removes only that specific instance.
+### Key User Flows
 
-#### Part II: Systemic Preparation Upgrades (Closing the 4 Execution Flaws)
+1. **Zero-Friction Reading & Surface Switching**:
+   - Tapping the `🌑 Obsidian`, `🪨 Warm Charcoal`, or `📜 Warm Sepia Paper` buttons in the top Zen header immediately switches the entire folio workspace, typography contrast, table headers, and callout surfaces, saving your preference per sheet (with automatic fallback to the global app theme).
+   - Tapping the `•••` overflow button opens the studio menu for typography zoom (`A-`, `100%`, `A+`), AI Sheet Architect, Omni-Search, Markdown editing, and sheet creation/deletion.
+2. **Smooth Finger/Stylus Brush-Drag Highlighting & Masking**:
+   - Activating `🖌️ Mask` or `🖍️ Highlight` (with `🟡 Yellow`, `🟢 Green`, `🔴 Red`, or `🟣 Purple` swatches) in the floating bottom dock switches the sheet into direct brush-painting mode.
+   - Sliding a finger or stylus across any phrase or line visually highlights the live character range in real time and commits an occurrence-indexed mask or 4-color highlight on lift—without requiring a browser long-press. Tapping any single word or existing mask/highlight toggles that exact instance on or off.
+3. **Page-Anchored Direct Stylus Handwriting**:
+   - Tapping `✏️ Ink on Sheet` activates the page-anchored vector ink layer directly inside the A4 folio surface.
+   - A compact floating ink pill lets you switch between Fine Ballpoint Pen, Chisel Highlighter, and Stroke Eraser, pick from 5 ink colors, toggle **Stylus-Only vs. Finger Draw** (so 1-finger touch scrolls the page effortlessly while the stylus writes immediately), and undo or clear strokes. All handwriting scrolls locked to the sheet text and auto-saves per sheet.
+4. **Interactive Pasted Images & Movable Visual Cards**:
+   - Pressing `Ctrl+V` / tapping `🖼️ Add Image / Card` pastes a clipboard screenshot or uploads an image directly onto the active sheet.
+   - Any image or sticky visual block can be dragged anywhere on the sheet (`Free-Floating Mode`) or snapped inline (`Inline Block Mode`), resized smoothly via corner/width drag handles, captioned, or deleted.
+5. **Finding Neglected Sheets (Zero SRS Clutter)**:
+   - Opening `📑 Index` (or the collapsible Sheet Switcher) displays each sheet's clean "Last Read" status (`Never read`, `Read today`, `8d ago`) with one-tap filters for **Neglected (7+ Days / Unread)**, **Neglected (3+ Days)**, **Never Read**, and **Has Mistake Debt**, sorted oldest-first so neglected topics surface immediately.
 
-1. **Bridge 1 — Dojo Clinic & Showcase Telemetry Persistence (`recordUntimedPracticeSolve`)**:
-   - **Problem**: Practicing 30 questions in Untimed Dojo or Master Showcase existed only in RAM (`dojoExam.userResponses`) and vanished on exit—leaving practiced questions stuck as `Unseen` and mastered mistakes stuck in `Mistake Debt`.
-   - **Solution**:
-     - Whenever you answer a question in **Dojo Clinic** (`renderDojoArenaQuestion`) or **Master Showcase** (`selectShowcaseCardOption`), the engine immediately records the outcome (`questionId`, `isCorrect`, `timeSpentSec`, `timestamp`) into a persistent `store_attempts` session (`sessionId: "dojo_ledger_" + YYYY_MM_DD`, `mockType: "DOJO_CLINIC"`, `completed: true`).
-     - **Clean Separation of Official Mock Metrics vs. Question Mastery**:
-       - `PerformanceService.calculateGlobalMetrics()` and `renderRecentHistory()` exclude `mockType === "DOJO_CLINIC"` so untimed Dojo practice **never distorts your official Timed Mock ERI, Mock Accuracy, or Mock History cards**.
-       - `PerformanceService.getQuestionPerformanceMap()`, `getChapterStats()`, and `calculateNeglect()` **include `DOJO_CLINIC` records** so:
-         - Questions solved in Dojo immediately graduate from `Unseen` to `Attempted` (`🟢 / 🟡 / 🔴` badge in Practice Lab).
-         - Solving a `Mistake Debt` (`lastWasIncorrect: true`) question **correctly** on the first try in Dojo redeems `lastWasIncorrect = false` so your Mistake Debt counter drops in real time!
-         - Missing a question in Dojo flags `lastWasIncorrect = true` so it automatically enters your Mistake Debt & Daily Autopilot queue.
-     - **End-of-Dojo Session Summary Toast/Modal**: Exiting Dojo displays a concise summary (`Solved: 18 • Accuracy: 83% • 5 Mistake Debts Redeemed`).
+### Visual Identity & Theme
 
-2. **Bridge 2 — Sheet Spaced-Repetition (SRS) & Active Recall Progress Bar**:
-   - **Problem**: All 370+ Knowledge Sheets were static documents with no memory of which sheets you mastered vs. forgot, or how many masks you recalled.
-   - **Solution**:
-     - **Live Recall Progress Counter**: When `🙈 Recall Mode` is active, a floating progress bar at the top of the folio shows `Recalled: 0 / N Masks` with `[ 👁️ Reveal Next ]` and `[ ↺ Reset Masks ]`. Tapping each blurred mask increments your recalled count.
-     - **1-Tap Sheet SRS Check-In Footer**: At the bottom of every sheet (and in the Tablet Margin Rail), a compact **Sheet Mastery Check-In Bar** lets you rate the sheet:
-       - `[ 🔴 Hard / Forgot (Review in 1d) ]`
-       - `[ 🟡 Good Recall (Review in 4d) ]`
-       - `[ 🟢 Mastered (Review in 10d) ]`
-     - Stores `{ id: "srs_" + sheet.id, rating, lastReviewedEpoch, nextDueEpoch, reviewCount }` in `store_notes`.
-     - **370-Sheet Index & Dashboard Integration**: Adds a `🔥 Due for Recall` filter in the Sheet Index Modal and surfaces due sheets in the Dashboard's Daily Priority Queue.
-
-3. **Bridge 3 — Bi-Directional Exam Trap & Mistake Alert Inside Knowledge Studio**:
-   - **Problem**: Tagging an error (`FORMULA_AMNESIA`, `CALCULATION_SLIP`, `TIME_TRAP_Q4`) in Mock Review never warned you when reading the corresponding Knowledge Sheet later.
-   - **Solution**:
-     - When `renderActiveCompSheet()` loads a sheet, it cross-checks `PerformanceService.getQuestionPerformanceMap()` for all linked questions.
-     - If any linked questions have `lastWasIncorrect === true` or recorded `traps`, the Folio & Margin Rail display a **"⚠️ Past Exam Vulnerability on This Topic"** card listing the exact trap tags and question IDs with a 1-tap `[ 🧘 Remediate N Mistakes in Dojo ]` button.
+- **Aesthetic Direction**: Tactile Academic Folio & Digital Paper Studio (GoodNotes / Apple Books / Readwise Reader).
+- **Color Palette & Surface Tokens**:
+  - *Obsidian Studio (`folio-preset-obsidian`)*: Deep OLED canvas (`#050811`), elevated folio sheet (`#0b101d`), crisp bone-white prose (`#f1f5f9`), cyan/purple structural accents.
+  - *Warm Charcoal (`folio-preset-charcoal`)*: Low-glare slate backdrop (`#12141a`), warm graphite sheet (`#1a1d24`), soft alabaster text (`#e5e7eb`).
+  - *Warm Sepia Paper (`folio-preset-sepia`)*: Archival daylight parchment (`#f5efe6`), espresso ink prose (`#27211c`), warm umber headings (`#7c2d12`), and high-contrast warm highlight washes.
+- **Typography & Hierarchy**: Editorial serif/sans reading measure (`68ch` max prose width inside an `820px` folio page), generous `1.78` line height, tabular numerals for mathematical tables, and zero code-comment clutter.
+- **Layout & Ergonomics**: Auto-collapsing `52px` top Zen bar, floating glass bottom action dock (`44px+` touch targets), and a responsive 2-column split workspace on tablet landscape (`65%` A4 Folio with page-anchored ink + `35%` Margin Rail for Linked Questions, Personal Cue, and Mask/Highlight index).
 
 ---
 
-### 4. Technical Architecture & Component Diagram
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Custom Pointer-Range Brush Engine vs. Native OS Text Selection in Dock Modes**
+  - *Chosen Approach*: Implement a dedicated `pointerdown` / `pointermove` / `pointerup` character-range tracker using `caretRangeFromPoint` / `caretPositionFromPoint` when Mask or Highlight mode is active in the dock.
+  - *Why*: Mobile and tablet browsers block immediate drag-selection unless the user performs a slow 600ms long-press, which caused the "can only tap one word at a time" bug. A live pointer-range brush lets users slide across words or lines in one fluid motion while still supporting single-word tap toggling and native selection popovers in standard reading mode.
+- **Decision 2: Folio-Embedded Ink Canvas vs. Fixed Viewport Overlay**
+  - *Chosen Approach*: Mount a dedicated `<canvas id="comp-folio-ink-canvas">` inside `.comp-folio-page` sized dynamically via `ResizeObserver` to match the full scrollable height of the sheet, storing strokes in normalized folio coordinates (`xRatio`, `yPx`).
+  - *Why*: A fixed viewport canvas detaches handwriting from the underlying text as soon as the user scrolls. Anchoring the canvas inside `.comp-folio-page` ensures underlined words, circled formulas, and margin notes stay permanently aligned with the sheet content.
+- **Decision 3: Passive Activity Telemetry ("Neglected Sheets") vs. Spaced Repetition (SRS)**
+  - *Chosen Approach*: Remove all manual SRS grading buttons and interval math; automatically record `lastOpenedEpoch` and `openCount` whenever a sheet is viewed.
+  - *Why*: Manual SRS grading adds cognitive friction and visual clutter to every sheet. Automatic timestamp tracking lets the user effortlessly filter for sheets they haven't touched in days without ever clicking a grading button.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+### Architecture & Component Diagram
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                     KNOWLEDGE STUDIO (#compendium-fullscreen-view)           │
+│                  LIVING KNOWLEDGE STUDIO (#compendium-fullscreen-view)       │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│  [Zen Auto-Hide Top Bar (52px)]  ←── Scroll ΔY Detector (>30px hide)         │
-│   ├── ← Back  │  📑 Subject / Chapter / Sheet Drawer  │  [•••] Studio Menu   │
-│   └── Collapsible Drawer: Subject/Chapter Selects + Horizontal Sheet Tabs    │
-├───────────────────────────────────────────────┬──────────────────────────────┤
-│  LEFT / CENTER: A4 ACADEMIC FOLIO SURFACE     │  RIGHT: TABLET LANDSCAPE     │
-│  (.comp-folio-page | max-width: 740px)        │  MARGIN RAIL (≥820px Land.)  │
-│  ┌─────────────────────────────────────────┐  │  ┌────────────────────────┐  │
-│  │ • Surface: Obsidian | Charcoal | Sepia  │  │  │ ⚠️ Past Exam Traps &   │  │
-│  │ • Recall Progress: [Recalled 4/12 Masks]│  │  │    Mistake Debt Alert  │  │
-│  │ • In-Sheet TOC Anchor Pills             │  │  ├────────────────────────┤  │
-│  │ • Occurrence-Exact Masks (phrase::k)    │  │  │ 📌 Sheet Revision Cue  │  │
-│  │ • 4-Color Highlights (.user-hl-*)       │  │  ├────────────────────────┤  │
-│  │ • Sheet SRS Footer: [🔴 1d][🟡 4d][🟢10d]│  │  │ 🖍️ Active Highlights & │  │
-│  └─────────────────────────────────────────┘  │  │ ⚡ Linked Questions    │  │
-│                                               │  └────────────────────────┘  │
-├───────────────────────────────────────────────┴──────────────────────────────┤
-│              FLOATING BOTTOM GLASS DOCK (#comp-floating-dock)                │
-│   [ 📑 Sheets ] • [ 🙈 Recall ] • [ 🖌️ Mask ] • [ 🖍️ Highlight ] • [ ⚡ Drill ]│
+│  TOP ZEN HEADER (#comp-zen-header)                                           │
+│  ├── Sheet Switcher Pill ──► Collapsible Drawer (#comp-sheet-switcher-drawer)│
+│  ├── Surface Presets ──────► [🌑 Obsidian] [🪨 Charcoal] [📜 Sepia]          │
+│  ├── Studio Quick Actions ─► [📑 Index (Neglected Filter)] [✏️ Sheet Ink]    │
+│  └── Overflow Menu (•••) ──► [A-/100%/A+] [🖼️ Paste/Add Image] [🪄 AI] [✎]  │
+├──────────────────────────────────────┬───────────────────────────────────────┤
+│  LEFT: A4 ACADEMIC FOLIO PAGE        │  RIGHT: TABLET MARGIN RAIL            │
+│  (#comp-folio-page)                  │  (#comp-margin-rail)                  │
+│  ├── Active Recall HUD Bar           │  ├── ⚡ Linked Questions & Trap List   │
+│  │   [Reveal Next] [Reset] [+Auto]   │  │   [🧘 Dojo Drill] [⚡ Timed Sprint] │
+│  ├── Exam Vulnerability Callout      │  ├── 📌 Personal Margin Notes & Cue   │
+│  ├── Prose & KaTeX Body              │  └── 🖍️ Active Sheet Masks &          │
+│  │   ├── Occurrence-Exact Masks      │      4-Color Highlights Ledger        │
+│  │   ├── 4-Color Semantic Highlights │      (1-tap jump or remove)           │
+│  │   └── Inline Resizable Images     │                                       │
+│  ├── Free-Floating Movable Cards     │                                       │
+│  │   (Drag + Corner Resize Handles)  │                                       │
+│  └── Page-Anchored Stylus Ink Layer  │                                       │
+│      (#comp-folio-ink-canvas)        │                                       │
+├──────────────────────────────────────┴───────────────────────────────────────┤
+│  FLOATING BOTTOM GLASS DOCK (#comp-floating-dock)                            │
+│  [📑 Sheets] • [🙈 Recall] • [🖌️ Mask] • [🖍️ Highlight 🟡🟢🔴🟣] •          │
+│  [✏️ Ink] • [🖼️ Media] • [⚡ Drill Qs]                                       │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Summary of Files & Sections to Update
-- **`index.html`**:
-  - Replace the 4 stacked Compendium bars with the **Zen Top Header**, collapsible **Sheet Switcher Drawer**, **Split-Studio Workspace** (`#comp-folio-column` + `#comp-margin-rail`), **Floating Bottom Glass Dock** (`#comp-floating-dock`), and **`[ ••• ]` Studio Overflow Popover**.
-  - Upgrade `#selection-action-popover` with `[ 🙈 Mask ]`, 4 semantic highlight color dots (`🟡 🟢 🔴 🟣`), and `[ 📌 Cue ]`.
-- **`style.css`**:
-  - Add `.comp-folio-page` A4 geometry, `.folio-preset-obsidian`, `.folio-preset-charcoal`, and `.folio-preset-sepia` theme variables, `.zen-header-hidden` smooth scroll transition, `.comp-floating-dock` glass pill styling, `.user-hl-{yellow|green|red|purple}` multi-color highlight styles, and `@media (min-width: 820px) and (orientation: landscape)` split-studio layout rules.
-- **`app.js`**:
-  - **Section 7 (`formatRichText`)**: Replace global regex custom masking with occurrence-indexed masking (`phrase::k`) and 4-color highlight injection (`highlights_${sheet.id}`), plus de-boxed editorial spacing.
-  - **Section 17 (`PerformanceService`)**: Integrate `DOJO_CLINIC` telemetry records into `getQuestionPerformanceMap()`, `getChapterStats()`, and `calculateNeglect()` while keeping `calculateGlobalMetrics()` strictly scoped to Timed Mocks.
-  - **Section 22 & 23 (`selectShowcaseCardOption` & `renderDojoArenaQuestion`)**: Call `recordUntimedPracticeSolve()` on option selection so Unseen status and Mistake Debt update live in IndexedDB.
-  - **Section 25 (`Knowledge Studio`)**: Implement Zen scroll controller, Reading Surface Preset switcher, Occurrence-Indexed Mask & 4-Color Highlight engines, Sheet SRS confidence rating (`rateCurrentSheetRecall`), Recall Progress counter, and Tablet Margin Rail synchronization.
+### Data Model & Local Persistence (`store_notes` in IndexedDB)
+
+1. **Sheet Activity & Neglected Tracker (`sheet_activity_${sheetId}`)**:
+   - `{ id: "sheet_activity_<sheetId>", sheetId, lastOpenedEpoch, openCount }`
+   - Updated automatically whenever `renderActiveCompSheet()` or `openSplitSheetDrawer()` opens a sheet. Any legacy `srs_*` records are ignored and cleaned up.
+2. **Occurrence-Exact Masks (`masks_${sheetId}`) & 4-Color Highlights (`highlights_${sheetId}`)**:
+   - Masks: `[{ phrase, occurrence }]` rendered as `<span class="user-recall-mask" data-mask-key="phrase::occurrence">`.
+   - Highlights: `[{ phrase, color: "yellow"|"green"|"red"|"purple", occurrence }]` rendered as `<mark class="user-hl user-hl-${color}" data-hl-key="phrase::occurrence">`.
+3. **Page-Anchored Sheet Ink (`folio_ink_${sheetId}`)**:
+   - `{ id: "folio_ink_<sheetId>", strokes: [{ mode: "pen"|"highlighter", color, size, points: [{ xRatio, yRatio, yPx }] }], baseHeight }`
+   - Rendered onto `#comp-folio-ink-canvas` inside `#comp-folio-page` so strokes scroll natively with the document and scale cleanly across zoom levels.
+4. **Interactive Sheet Media & Visual Cards (`media_blocks_${sheetId}`)**:
+   - `{ id: "media_blocks_<sheetId>", blocks: [{ blockId, type: "image"|"note", layout: "floating"|"inline", dataUrl, caption, xPct, yPx, widthPct, heightPx }] }`
+   - Supports direct clipboard image paste (`paste` event listener when Knowledge Studio is open), file upload, drag-to-move, corner-handle resize, and 1-tap toggle between Free-Floating and Inline Snapped modes.
+
+### Interactive Component & Handler Mapping
+
+- **Header & Overflow Handlers**: Unify `setCompendiumReadingSurface`, `toggleCompMorePopover`, `closeCompMorePopover`, `adjustReaderFontScale`, and `resetCompendiumZoom` with the exact DOM IDs in `index.html`.
+- **Brush-Drag & Tap Engine**: Bind pointer listeners on `#comp-studio-doc-body` that detect whether `compendiumMaskEditMode` or `compendiumHighlightMode` is active; on drag, compute the start-to-end DOM `Range` via `caretRangeFromPoint`, preview the selection highlight, and persist the exact phrase + occurrence index on `pointerup`.
+- **Margin Rail & Recall Progress Synchronization**: Populate `#comp-rail-linked-qs-list`, `#comp-rail-q-badge`, `#comp-rail-annotations-list`, `#comp-rail-ann-count`, `#comp-sheet-trap-banner`, and `#comp-recall-progress-bar` (`revealNextCompendiumMask`, `resetCompendiumRevealedMasks`) on every sheet render and mask/highlight update.

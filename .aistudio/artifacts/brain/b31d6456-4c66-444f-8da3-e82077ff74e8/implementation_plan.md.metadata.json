@@ -1,6 +1,6 @@
 {
-  "summary": "Revised Architectural & Systemic Implementation Plan for the Production-Grade Academic Reader & Tablet Studio, incorporating Part I (Occurrence-Indexed & Source-Anchored Word/Phrase Masking & Highlighting to fix the global regex bug) and Part II (Systemic Preparation Engine Upgrades: Dojo-to-Telemetry & Mistake Debt Redemption Bridge, Sheet Spaced-Repetition Mastery & Recall Progress Engine, and Bi-Directional Exam Trap Callouts inside Knowledge Sheets).",
-  "updatedAt": "2026-10-20T07:41:16.950824494Z",
+  "summary": "Architectural & UX implementation plan to overhaul the Living Knowledge Studio into a GoodNotes / Apple Notes / Samsung Notes tablet workspace: completely removing SRS in favor of auto-tracked Neglected Sheets filtering, fixing all broken header/dock/theme/margin-rail handlers, adding instant finger/stylus brush-drag highlighting and masking, embedding a page-anchored stylus ink layer that scrolls with the sheet, and supporting copy-pasteable free-floating and inline resizable image/note blocks.",
+  "updatedAt": "2026-10-20T09:03:48.836091216Z",
   "requestFeedback": true,
   "userFacing": true
 }

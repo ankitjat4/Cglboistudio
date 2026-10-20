@@ -260,6 +260,7 @@ const CGL_OS = (() => {
   let compendiumAutoBlurAll = false;
   let activeSheetCustomMasks = [];
   let activeSheetCustomHighlights = [];
+  let compendiumPaperPreset = "FOLLOW_GLOBAL";
   let compendiumReadingSurface = "obsidian";
   let compendiumZoomScale = 1.0;
 
@@ -945,6 +946,13 @@ const CGL_OS = (() => {
         const wrapper = document.createElement(tagName);
         wrapper.className = className;
         wrapper.setAttribute(dataAttrName, encodedKey);
+        if (dataAttrName === "data-mask-key") {
+          wrapper.setAttribute("data-mask-phrase", cleanP);
+          wrapper.setAttribute("data-mask-occ", String(targetOcc));
+        } else if (dataAttrName === "data-hl-key") {
+          wrapper.setAttribute("data-hl-phrase", cleanP);
+          wrapper.setAttribute("data-hl-occ", String(targetOcc));
+        }
         r.surroundContents(wrapper);
       } catch (_) {}
     }
@@ -956,13 +964,14 @@ const CGL_OS = (() => {
 
     // 1. Apply 4-color highlights first
     if (Array.isArray(customHighlights)) {
+      const validColors = ["yellow", "amber", "green", "emerald", "cyan", "blue", "red", "pink", "rose", "purple"];
       customHighlights.forEach(hl => {
         if (!hl || !hl.phrase) return;
         const cleanP = String(hl.phrase).trim();
         const occ = typeof hl.occurrence === "number" ? hl.occurrence : 0;
-        const color = ["yellow", "green", "red", "purple"].includes(hl.color) ? hl.color : "yellow";
+        const color = validColors.includes(hl.color) ? hl.color : "yellow";
         const rawKey = `${cleanP}::${occ}`;
-        wrapOccurrenceInDom(rootEl, cleanP, occ, "mark", `user-hl user-hl-${color}`, "data-hl-key", rawKey);
+        wrapOccurrenceInDom(rootEl, cleanP, occ, "mark", `user-hl user-highlight user-hl-${color}`, "data-hl-key", rawKey);
       });
     }
 
@@ -8815,9 +8824,22 @@ Explanation: ${parentQ.explanation}`;
   }
 
   /* ==========================================================================
-   * SECTION 25: LIVING KNOWLEDGE STUDIO, OCCURRENCE-INDEXED 🙈 RECALL MASKS,
-   * 4-COLOR SEMANTIC HIGHLIGHTER, 3 READING SURFACE PRESETS, SHEET SRS & AI ARCHITECT
+   * SECTION 25: LIVING KNOWLEDGE STUDIO (GOODNOTES / APPLE NOTES TABLET ENGINE)
+   * - Unified 3 Reading Surface Presets (Obsidian, Warm Charcoal, Warm Sepia Paper)
+   * - Instant Brush-Drag Painting across Words + Single-Tap Word Masking & Highlighting
+   * - Page-Anchored Direct Stylus Handwriting Layer (#comp-folio-ink-canvas)
+   * - Interactive Copy-Paste / Upload Movable & Inline Images + Sticky Callout Cards
+   * - Auto-Tracked Last Opened Date + Neglected Sheets Filter (Zero SRS Bloat)
    * ========================================================================== */
+  let compSheetInkMode = false;
+  let compSheetInkTool = "pen"; // 'pen' | 'eraser'
+  let compSheetInkColor = "#38bdf8";
+  let compSheetInkSize = 2.5;
+  let activeSheetInkStrokes = [];
+  let isDrawingSheetInk = false;
+  let currentSheetInkStroke = null;
+  let activeSheetMediaBlocks = [];
+
   function toggleCompSheetSwitcherDrawer(forceState = null) {
     const drawer = document.getElementById("comp-sheet-switcher-drawer");
     const dockBtn = document.getElementById("dock-btn-sheets");
@@ -8831,61 +8853,79 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function toggleCompHighlightPopover(forceState = null) {
+    const strip = document.getElementById("dock-hl-color-strip");
+    if (strip) {
+      const nextState = forceState !== null ? forceState : !compendiumHighlightMode;
+      toggleCompendiumHighlightMode(nextState);
+      return;
+    }
     const pop = document.getElementById("comp-dock-highlight-popover");
     if (!pop) return;
     const nextState = forceState !== null ? forceState : !pop.classList.contains("open");
     pop.classList.toggle("open", nextState);
-    if (nextState) {
-      document.getElementById("comp-dock-more-popover")?.classList.remove("open");
-      if (!compendiumHighlightMode) {
-        toggleCompendiumHighlightMode(true);
-      }
+    if (nextState && !compendiumHighlightMode) {
+      toggleCompendiumHighlightMode(true);
     }
   }
 
   function toggleCompStudioMoreMenu(forceState = null) {
-    const pop = document.getElementById("comp-dock-more-popover");
+    const pop = document.getElementById("comp-more-popover") || document.getElementById("comp-dock-more-popover");
     if (!pop) return;
-    const nextState = forceState !== null ? forceState : !pop.classList.contains("open");
+    const isCurrentlyOpen = pop.classList.contains("open") || pop.style.display === "block";
+    const nextState = forceState !== null ? forceState : !isCurrentlyOpen;
     pop.classList.toggle("open", nextState);
-    if (nextState) {
-      document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
-    }
+    pop.style.display = nextState ? "block" : "none";
+  }
+
+  function toggleCompMorePopover(forceState = null) {
+    toggleCompStudioMoreMenu(forceState);
   }
 
   async function setCompendiumPaperPreset(mode = "FOLLOW_GLOBAL", saveOverride = true) {
-    compendiumPaperPreset = mode || "FOLLOW_GLOBAL";
-    const folio = document.getElementById("comp-studio-folio");
+    const raw = String(mode || "FOLLOW_GLOBAL").trim().toUpperCase();
+    compendiumPaperPreset = raw;
+
+    const fsView = document.getElementById("compendium-fullscreen-view");
+    const folio = document.getElementById("comp-folio-page") || document.getElementById("comp-studio-folio");
     const globalTheme = document.documentElement?.getAttribute("data-theme") || "midnight";
 
-    let effectiveSurface = compendiumPaperPreset;
-    if (compendiumPaperPreset === "FOLLOW_GLOBAL") {
+    let effectiveSurface = raw;
+    if (raw === "FOLLOW_GLOBAL" || raw === "GLOBAL") {
       effectiveSurface = globalTheme === "charcoal" ? "CHARCOAL" : "OBSIDIAN";
     }
 
+    const surfaceLower = effectiveSurface.toLowerCase(); // 'obsidian' | 'charcoal' | 'sepia'
+    if (fsView) {
+      fsView.classList.remove("folio-preset-obsidian", "folio-preset-charcoal", "folio-preset-sepia");
+      fsView.classList.add(`folio-preset-${surfaceLower}`);
+    }
     if (folio) {
       folio.setAttribute("data-paper-preset", effectiveSurface);
     }
 
-    const chipMap = {
-      FOLLOW_GLOBAL: "preset-chip-GLOBAL",
-      OBSIDIAN: "preset-chip-OBSIDIAN",
-      CHARCOAL: "preset-chip-CHARCOAL",
-      SEPIA: "preset-chip-SEPIA"
+    const btnMap = {
+      obsidian: document.getElementById("preset-btn-obsidian") || document.getElementById("preset-chip-OBSIDIAN"),
+      charcoal: document.getElementById("preset-btn-charcoal") || document.getElementById("preset-chip-CHARCOAL"),
+      sepia: document.getElementById("preset-btn-sepia") || document.getElementById("preset-chip-SEPIA")
     };
-    Object.keys(chipMap).forEach(k => {
-      const btn = document.getElementById(chipMap[k]);
-      if (btn) btn.classList.toggle("active", k === compendiumPaperPreset);
+    Object.keys(btnMap).forEach(k => {
+      if (btnMap[k]) {
+        btnMap[k].classList.toggle("active", k === surfaceLower);
+      }
     });
 
     if (saveOverride && currentCompSheets[activeCompSheetIndex]) {
       const sheet = currentCompSheets[activeCompSheetIndex];
       await putRecord("store_notes", {
         id: `paper_preset_${sheet.id}`,
-        preset: compendiumPaperPreset,
+        preset: effectiveSurface,
         timestamp: Date.now()
       });
     }
+  }
+
+  async function setCompendiumReadingSurface(surface = "obsidian") {
+    await setCompendiumPaperPreset(String(surface || "obsidian").toUpperCase(), true);
   }
 
   function toggleCompendiumRecallMode(forceState = null) {
@@ -8893,6 +8933,7 @@ Explanation: ${parentQ.explanation}`;
     if (compendiumRecallMode) {
       if (compendiumMaskEditMode) toggleCompendiumMaskEditMode(false);
       if (compendiumHighlightMode) toggleCompendiumHighlightMode(false);
+      if (compSheetInkMode) toggleCompSheetInkMode(false);
     }
 
     const canvas = document.getElementById("comp-studio-canvas");
@@ -8900,7 +8941,6 @@ Explanation: ${parentQ.explanation}`;
     const dockBtn = document.getElementById("dock-btn-recall");
     const dockLbl = document.getElementById("dock-recall-label");
     const autoBlurBtn = document.getElementById("btn-comp-auto-blur-all");
-    const srsBar = document.getElementById("comp-srs-grading-bar");
 
     if (canvas) {
       canvas.classList.toggle("recall-mode-active", compendiumRecallMode);
@@ -8921,9 +8961,6 @@ Explanation: ${parentQ.explanation}`;
     if (autoBlurBtn) {
       autoBlurBtn.style.display = compendiumRecallMode ? "inline-flex" : "none";
     }
-    if (srsBar) {
-      srsBar.style.display = compendiumRecallMode ? "flex" : "none";
-    }
   }
 
   function toggleCompendiumAutoBlurAll() {
@@ -8935,7 +8972,7 @@ Explanation: ${parentQ.explanation}`;
     }
     if (btn) {
       btn.classList.toggle("btn-cyan", compendiumAutoBlurAll);
-      btn.innerText = compendiumAutoBlurAll ? "\u2713 Auto-Blur ON" : "+Auto-Blur All Formulas/Bold";
+      btn.innerText = compendiumAutoBlurAll ? "\u2713 Auto-Blur ON" : "+Auto-Blur Formulas/Tables";
     }
   }
 
@@ -8944,6 +8981,7 @@ Explanation: ${parentQ.explanation}`;
     if (compendiumMaskEditMode) {
       if (compendiumRecallMode) toggleCompendiumRecallMode(false);
       if (compendiumHighlightMode) toggleCompendiumHighlightMode(false);
+      if (compSheetInkMode) toggleCompSheetInkMode(false);
     }
     const canvas = document.getElementById("comp-studio-canvas");
     const btn = document.getElementById("btn-comp-edit-masks");
@@ -8958,6 +8996,7 @@ Explanation: ${parentQ.explanation}`;
     }
     if (dockBtn) {
       dockBtn.classList.toggle("active-amber", compendiumMaskEditMode);
+      dockBtn.classList.toggle("active", compendiumMaskEditMode);
     }
     if (dockLbl) {
       dockLbl.innerText = compendiumMaskEditMode ? "Mask ON" : "Mask";
@@ -8969,14 +9008,21 @@ Explanation: ${parentQ.explanation}`;
     if (compendiumHighlightMode) {
       if (compendiumRecallMode) toggleCompendiumRecallMode(false);
       if (compendiumMaskEditMode) toggleCompendiumMaskEditMode(false);
+      if (compSheetInkMode) toggleCompSheetInkMode(false);
+      if (!compendiumActiveHighlightColor) compendiumActiveHighlightColor = "yellow";
     } else {
       document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
     }
+
     const canvas = document.getElementById("comp-studio-canvas");
     const dockBtn = document.getElementById("dock-btn-highlight");
     const dockLbl = document.getElementById("dock-hl-label");
+    const colorStrip = document.getElementById("dock-hl-color-strip");
+
     if (canvas) {
       canvas.classList.toggle("highlight-edit-mode-active", compendiumHighlightMode);
+      canvas.classList.toggle("highlight-mode-active", compendiumHighlightMode);
+      canvas.setAttribute("data-active-hl", compendiumActiveHighlightColor || "yellow");
     }
     if (dockBtn) {
       dockBtn.classList.toggle("active", compendiumHighlightMode);
@@ -8984,32 +9030,510 @@ Explanation: ${parentQ.explanation}`;
     if (dockLbl) {
       dockLbl.innerText = compendiumHighlightMode ? "Highlight ON" : "Highlight";
     }
+    if (colorStrip) {
+      colorStrip.style.display = compendiumHighlightMode ? "inline-flex" : "none";
+    }
   }
 
   function setCompendiumHighlightColor(color) {
-    const valid = ["amber", "emerald", "cyan", "rose"];
-    compendiumActiveHighlightColor = valid.includes(color) ? color : "amber";
-
-    const colorHexMap = {
-      amber: "#f59e0b",
-      emerald: "#10b981",
-      cyan: "#06b6d4",
-      rose: "#f43f5e"
+    const normMap = {
+      yellow: "yellow",
+      amber: "yellow",
+      green: "green",
+      emerald: "green",
+      cyan: "cyan",
+      blue: "cyan",
+      pink: "pink",
+      rose: "pink",
+      red: "pink",
+      purple: "purple"
     };
-    const dot = document.getElementById("dock-hl-color-dot");
-    if (dot) dot.style.background = colorHexMap[compendiumActiveHighlightColor];
+    const raw = String(color || "yellow").toLowerCase();
+    compendiumActiveHighlightColor = normMap[raw] || "yellow";
 
-    document.querySelectorAll("#comp-dock-highlight-popover .hl-swatch-btn").forEach(btn => {
-      btn.classList.toggle("active", btn.getAttribute("data-hl-color") === compendiumActiveHighlightColor);
+    const dotMap = {
+      yellow: "hl-dot-yellow",
+      green: "hl-dot-green",
+      pink: "hl-dot-pink",
+      purple: "hl-dot-purple"
+    };
+    Object.keys(dotMap).forEach(k => {
+      const dotEl = document.getElementById(dotMap[k]);
+      if (dotEl) dotEl.classList.toggle("active", k === compendiumActiveHighlightColor);
     });
 
-    toggleCompendiumHighlightMode(true);
+    const canvas = document.getElementById("comp-studio-canvas");
+    if (canvas) {
+      canvas.setAttribute("data-active-hl", compendiumActiveHighlightColor);
+    }
+
+    if (!compendiumHighlightMode) {
+      toggleCompendiumHighlightMode(true);
+    }
+  }
+
+  /**
+   * GOODNOTES / APPLE NOTES PAGE-ANCHORED STYLUS INK ENGINE
+   * Vector handwriting strokes are stored in normalized page coordinates (0..1)
+   * inside `store_notes` (`sheet_ink_${sheetId}`) and scroll naturally with the sheet!
+   */
+  function syncSheetInkCanvasGeometry() {
+    const pageEl = document.getElementById("comp-folio-page");
+    const inkCanvas = document.getElementById("comp-folio-ink-canvas");
+    if (!pageEl || !inkCanvas) return;
+
+    const w = Math.max(pageEl.scrollWidth, pageEl.clientWidth, 320);
+    const h = Math.max(pageEl.scrollHeight, pageEl.clientHeight, 480);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+
+    if (inkCanvas.width !== Math.round(w * dpr) || inkCanvas.height !== Math.round(h * dpr)) {
+      inkCanvas.width = Math.round(w * dpr);
+      inkCanvas.height = Math.round(h * dpr);
+      inkCanvas.style.width = `${w}px`;
+      inkCanvas.style.height = `${h}px`;
+    }
+    redrawSheetInkCanvas();
+  }
+
+  function redrawSheetInkCanvas() {
+    const inkCanvas = document.getElementById("comp-folio-ink-canvas");
+    if (!inkCanvas) return;
+    const ctx = inkCanvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const w = inkCanvas.width / dpr;
+    const h = inkCanvas.height / dpr;
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
+    ctx.scale(dpr, dpr);
+
+    const drawSingleStroke = (stroke) => {
+      if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      if (stroke.tool === "eraser") {
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.strokeStyle = "rgba(0,0,0,1)";
+        ctx.lineWidth = (stroke.size || 14) * 2.2;
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.strokeStyle = stroke.color || "#38bdf8";
+        ctx.lineWidth = stroke.size || 2.5;
+      }
+
+      const pts = stroke.points.map(pt => ({
+        x: (pt.nx !== undefined ? pt.nx * w : pt.x),
+        y: (pt.ny !== undefined ? pt.ny * h : pt.y)
+      }));
+
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      if (pts.length === 1) {
+        ctx.lineTo(pts[0].x + 0.1, pts[0].y + 0.1);
+      } else {
+        for (let i = 1; i < pts.length - 1; i++) {
+          const midX = (pts[i].x + pts[i + 1].x) / 2;
+          const midY = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+        }
+        const last = pts[pts.length - 1];
+        ctx.lineTo(last.x, last.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    if (Array.isArray(activeSheetInkStrokes)) {
+      activeSheetInkStrokes.forEach(drawSingleStroke);
+    }
+    if (currentSheetInkStroke) {
+      drawSingleStroke(currentSheetInkStroke);
+    }
+    ctx.restore();
+  }
+
+  async function saveActiveSheetInkStrokes() {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet) return;
+    await putRecord("store_notes", {
+      id: `sheet_ink_${sheet.id}`,
+      sheetId: sheet.id,
+      strokes: activeSheetInkStrokes,
+      timestamp: Date.now()
+    });
+    updateCompMaskAndHighlightBadge();
+  }
+
+  function toggleCompSheetInkMode(forceState = null) {
+    compSheetInkMode = forceState !== null ? forceState : !compSheetInkMode;
+    if (compSheetInkMode) {
+      if (compendiumRecallMode) toggleCompendiumRecallMode(false);
+      if (compendiumMaskEditMode) toggleCompendiumMaskEditMode(false);
+      if (compendiumHighlightMode) toggleCompendiumHighlightMode(false);
+    }
+
+    const pageEl = document.getElementById("comp-folio-page");
+    const toolbarEl = document.getElementById("comp-folio-ink-toolbar");
+    const dockBtn = document.getElementById("dock-btn-ink");
+    const dockLbl = document.getElementById("dock-ink-label");
+    const zenBtn = document.getElementById("btn-zen-sheet-ink");
+
+    if (pageEl) pageEl.classList.toggle("sheet-ink-mode-active", compSheetInkMode);
+    if (toolbarEl) toolbarEl.style.display = compSheetInkMode ? "flex" : "none";
+    if (dockBtn) dockBtn.classList.toggle("active", compSheetInkMode);
+    if (dockLbl) dockLbl.innerText = compSheetInkMode ? "Ink ON" : "Ink";
+    if (zenBtn) zenBtn.classList.toggle("active", compSheetInkMode);
+
+    syncSheetInkCanvasGeometry();
+  }
+
+  function setCompSheetInkTool(tool = "pen") {
+    compSheetInkTool = tool === "eraser" ? "eraser" : "pen";
+    document.getElementById("ink-tool-pen")?.classList.toggle("active", compSheetInkTool === "pen");
+    document.getElementById("ink-tool-eraser")?.classList.toggle("active", compSheetInkTool === "eraser");
+  }
+
+  function setCompSheetInkColor(color = "#38bdf8", btnEl = null) {
+    compSheetInkColor = color;
+    compSheetInkTool = "pen";
+    setCompSheetInkTool("pen");
+    document.querySelectorAll("#comp-folio-ink-toolbar .ink-swatch").forEach(el => {
+      el.classList.toggle("active", el === btnEl || el.getAttribute("data-ink-color") === color);
+    });
+  }
+
+  function setCompSheetInkSize(size = 2.5, btnEl = null) {
+    compSheetInkSize = Number(size) || 2.5;
+    document.querySelectorAll("#comp-folio-ink-toolbar .ink-size-btn").forEach(el => {
+      el.classList.toggle("active", el === btnEl);
+    });
+  }
+
+  async function undoCompSheetInk() {
+    if (!activeSheetInkStrokes || activeSheetInkStrokes.length === 0) return;
+    activeSheetInkStrokes.pop();
+    redrawSheetInkCanvas();
+    await saveActiveSheetInkStrokes();
+  }
+
+  async function clearCompSheetInk() {
+    if (!activeSheetInkStrokes || activeSheetInkStrokes.length === 0) return;
+    if (!confirm("Clear all handwriting ink on this sheet?")) return;
+    activeSheetInkStrokes = [];
+    redrawSheetInkCanvas();
+    await saveActiveSheetInkStrokes();
+  }
+
+  function bindSheetInkCanvasEvents() {
+    const inkCanvas = document.getElementById("comp-folio-ink-canvas");
+    if (!inkCanvas || inkCanvas.dataset.inkBound === "true") return;
+    inkCanvas.dataset.inkBound = "true";
+
+    const getNormalizedPoint = (e) => {
+      const rect = inkCanvas.getBoundingClientRect();
+      const w = Math.max(rect.width, 1);
+      const h = Math.max(rect.height, 1);
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      return {
+        nx: Math.max(0, Math.min(1, x / w)),
+        ny: Math.max(0, Math.min(1, y / h))
+      };
+    };
+
+    inkCanvas.addEventListener("pointerdown", (e) => {
+      if (!compSheetInkMode) return;
+      if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+      isDrawingSheetInk = true;
+      currentSheetInkStroke = {
+        tool: compSheetInkTool,
+        color: compSheetInkColor,
+        size: compSheetInkSize,
+        points: [getNormalizedPoint(e)]
+      };
+      redrawSheetInkCanvas();
+    });
+
+    inkCanvas.addEventListener("pointermove", (e) => {
+      if (!compSheetInkMode || !isDrawingSheetInk || !currentSheetInkStroke) return;
+      e.preventDefault();
+      e.stopPropagation();
+      currentSheetInkStroke.points.push(getNormalizedPoint(e));
+      redrawSheetInkCanvas();
+    });
+
+    const finishStroke = async (e) => {
+      if (!isDrawingSheetInk || !currentSheetInkStroke) return;
+      isDrawingSheetInk = false;
+      try { inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (currentSheetInkStroke.points.length > 0) {
+        activeSheetInkStrokes.push(currentSheetInkStroke);
+        currentSheetInkStroke = null;
+        redrawSheetInkCanvas();
+        await saveActiveSheetInkStrokes();
+      } else {
+        currentSheetInkStroke = null;
+      }
+    };
+
+    inkCanvas.addEventListener("pointerup", finishStroke);
+    inkCanvas.addEventListener("pointercancel", finishStroke);
+  }
+
+  /**
+   * INTERACTIVE SHEET IMAGES & MOVABLE STICKY CALLOUT CARDS
+   * Supports both Free-Floating Movable/Resizable Cards and Inline Document Blocks.
+   */
+  function triggerCompSheetImageUpload() {
+    const fileInput = document.getElementById("comp-sheet-image-upload-input");
+    if (fileInput) {
+      fileInput.value = "";
+      fileInput.click();
+    }
+  }
+
+  async function handleCompSheetImageUpload(input) {
+    if (!input || !input.files || !input.files[0]) return;
+    const base64 = await compressImageFile(input.files[0]);
+    if (base64) {
+      await insertMediaBlockIntoActiveSheet({
+        type: "image",
+        mode: "floating",
+        src: base64,
+        caption: "",
+        x: 36,
+        y: 90,
+        width: 260
+      });
+    }
+  }
+
+  async function addCompSheetStickyNote() {
+    const canvas = document.getElementById("comp-studio-canvas");
+    const scrollOffset = canvas ? canvas.scrollTop : 0;
+    await insertMediaBlockIntoActiveSheet({
+      type: "sticky",
+      mode: "floating",
+      text: "Key exam shortcut / note...",
+      x: 42,
+      y: Math.max(70, scrollOffset + 90),
+      width: 240
+    });
+  }
+
+  async function insertMediaBlockIntoActiveSheet(blockSpec) {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet) return;
+    const newBlock = {
+      id: "media_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      type: blockSpec.type || "image",
+      mode: blockSpec.mode || "floating",
+      src: blockSpec.src || "",
+      caption: blockSpec.caption || "",
+      text: blockSpec.text || "",
+      x: typeof blockSpec.x === "number" ? blockSpec.x : 40,
+      y: typeof blockSpec.y === "number" ? blockSpec.y : 100,
+      width: typeof blockSpec.width === "number" ? blockSpec.width : 250
+    };
+    activeSheetMediaBlocks.push(newBlock);
+    await saveActiveSheetMediaBlocks();
+    renderActiveSheetMediaBlocks();
+    setTimeout(syncSheetInkCanvasGeometry, 60);
+  }
+
+  async function saveActiveSheetMediaBlocks() {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet) return;
+    await putRecord("store_notes", {
+      id: `sheet_media_${sheet.id}`,
+      sheetId: sheet.id,
+      blocks: activeSheetMediaBlocks,
+      timestamp: Date.now()
+    });
+  }
+
+  async function toggleCompSheetMediaBlockMode(blockId) {
+    const blk = activeSheetMediaBlocks.find(b => b.id === blockId);
+    if (!blk) return;
+    blk.mode = blk.mode === "floating" ? "inline" : "floating";
+    await saveActiveSheetMediaBlocks();
+    renderActiveSheetMediaBlocks();
+    setTimeout(syncSheetInkCanvasGeometry, 60);
+  }
+
+  async function deleteCompSheetMediaBlock(blockId) {
+    const idx = activeSheetMediaBlocks.findIndex(b => b.id === blockId);
+    if (idx === -1) return;
+    activeSheetMediaBlocks.splice(idx, 1);
+    await saveActiveSheetMediaBlocks();
+    renderActiveSheetMediaBlocks();
+    setTimeout(syncSheetInkCanvasGeometry, 60);
+  }
+
+  async function updateCompSheetMediaCaption(blockId, val) {
+    const blk = activeSheetMediaBlocks.find(b => b.id === blockId);
+    if (!blk) return;
+    blk.caption = val;
+    await saveActiveSheetMediaBlocks();
+  }
+
+  async function updateCompSheetStickyText(blockId, val) {
+    const blk = activeSheetMediaBlocks.find(b => b.id === blockId);
+    if (!blk) return;
+    blk.text = val;
+    await saveActiveSheetMediaBlocks();
+  }
+
+  function renderActiveSheetMediaBlocks() {
+    const floatingLayer = document.getElementById("comp-folio-floating-media-layer");
+    const inlineSlot = document.getElementById("comp-studio-inline-media-slot");
+    if (floatingLayer) floatingLayer.innerHTML = "";
+    if (inlineSlot) inlineSlot.innerHTML = "";
+
+    if (!Array.isArray(activeSheetMediaBlocks) || activeSheetMediaBlocks.length === 0) return;
+
+    activeSheetMediaBlocks.forEach(blk => {
+      const card = document.createElement("div");
+      const isFloating = blk.mode !== "inline";
+      card.className = `sheet-media-card ${isFloating ? "floating-card" : "inline-card"} ${blk.type === "sticky" ? "sticky-card" : ""}`;
+      card.setAttribute("data-media-id", blk.id);
+
+      if (isFloating) {
+        card.style.left = `${Math.max(4, blk.x || 24)}px`;
+        card.style.top = `${Math.max(8, blk.y || 80)}px`;
+        card.style.width = `${Math.max(150, blk.width || 240)}px`;
+      } else {
+        card.style.width = `${Math.min(620, Math.max(200, blk.width || 340))}px`;
+      }
+
+      const modeSwitchLabel = isFloating ? "\uD83D\uDCCC Dock Inline" : "\uD83E\uDE9F Float Free";
+      const headerLabel = blk.type === "sticky" ? "\uD83D\uDCDD Sticky Note" : "\uD83D\uDDBC\uFE0F Sheet Visual";
+
+      const dragBar = document.createElement("div");
+      dragBar.className = "sheet-media-drag-bar";
+      dragBar.innerHTML = `
+        <span>\u283F ${headerLabel}</span>
+        <div class="sheet-media-card-actions">
+          <button type="button" class="sheet-media-btn" title="Switch between Free-Floating and Inline mode">${modeSwitchLabel}</button>
+          <button type="button" class="sheet-media-btn" style="color:#fb7185;" title="Delete block">\u2715</button>
+        </div>
+      `;
+
+      const actionBtns = dragBar.querySelectorAll("button");
+      if (actionBtns[0]) {
+        actionBtns[0].addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          toggleCompSheetMediaBlockMode(blk.id);
+        });
+      }
+      if (actionBtns[1]) {
+        actionBtns[1].addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          deleteCompSheetMediaBlock(blk.id);
+        });
+      }
+
+      card.appendChild(dragBar);
+
+      if (blk.type === "sticky") {
+        const ta = document.createElement("textarea");
+        ta.className = "sheet-media-sticky-body";
+        ta.value = blk.text || "";
+        ta.placeholder = "Write your sticky callout note...";
+        ta.addEventListener("input", (ev) => updateCompSheetStickyText(blk.id, ev.target.value));
+        card.appendChild(ta);
+      } else {
+        const imgWrap = document.createElement("div");
+        imgWrap.className = "sheet-media-img-wrap";
+        imgWrap.innerHTML = `<img src="${blk.src}" alt="Sheet Visual">`;
+        card.appendChild(imgWrap);
+
+        const capInput = document.createElement("input");
+        capInput.type = "text";
+        capInput.className = "sheet-media-caption";
+        capInput.placeholder = "Add diagram caption / formula note...";
+        capInput.value = blk.caption || "";
+        capInput.addEventListener("input", (ev) => updateCompSheetMediaCaption(blk.id, ev.target.value));
+        card.appendChild(capInput);
+      }
+
+      const resizeHandle = document.createElement("div");
+      resizeHandle.className = "sheet-media-resize-handle";
+      resizeHandle.title = "Drag to resize";
+      card.appendChild(resizeHandle);
+
+      // Dragging for Floating Cards
+      if (isFloating) {
+        dragBar.addEventListener("pointerdown", (e) => {
+          if (e.target.closest("button")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const pageEl = document.getElementById("comp-folio-page");
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const origX = blk.x || 24;
+          const origY = blk.y || 80;
+
+          const onMove = (me) => {
+            const maxX = pageEl ? Math.max(40, pageEl.clientWidth - (blk.width || 220) - 8) : 520;
+            const maxY = pageEl ? Math.max(80, pageEl.scrollHeight - 80) : 2000;
+            blk.x = Math.max(4, Math.min(maxX, Math.round(origX + (me.clientX - startX))));
+            blk.y = Math.max(8, Math.min(maxY, Math.round(origY + (me.clientY - startY))));
+            card.style.left = `${blk.x}px`;
+            card.style.top = `${blk.y}px`;
+          };
+          const onUp = async () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            await saveActiveSheetMediaBlocks();
+          };
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+        });
+      }
+
+      // Resizing for both Floating & Inline Cards
+      resizeHandle.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const origW = blk.width || 240;
+        const pageEl = document.getElementById("comp-folio-page");
+        const maxW = pageEl ? Math.max(220, pageEl.clientWidth - 28) : 640;
+
+        const onMove = (me) => {
+          blk.width = Math.max(140, Math.min(maxW, Math.round(origW + (me.clientX - startX))));
+          card.style.width = `${blk.width}px`;
+        };
+        const onUp = async () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          await saveActiveSheetMediaBlocks();
+          syncSheetInkCanvasGeometry();
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+      });
+
+      if (isFloating && floatingLayer) {
+        floatingLayer.appendChild(card);
+      } else if (inlineSlot) {
+        inlineSlot.appendChild(card);
+      }
+    });
   }
 
   /**
    * OCCURRENCE-INDEXED SURGICAL RECALL MASKING:
-   * Stores { phrase, occurrence } so tapping or selecting the k-th instance of a word
-   * (e.g. "home" or "1/2") ONLY masks that exact k-th occurrence!
+   * Stores { phrase, occurrence } so tapping or brush-dragging across the k-th instance
+   * of a word/phrase ONLY masks that exact k-th occurrence!
    */
   async function toggleCustomMaskPhraseOnActiveSheet(phraseText, occurrence = null, targetSheetId = null) {
     const sheetId = targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
@@ -9028,8 +9552,9 @@ Explanation: ${parentQ.explanation}`;
     }
 
     const existingIdx = masksList.findIndex(item => {
-      const itemPhrase = String(typeof item === "string" ? item : (item && item.phrase ? item.phrase : "")).replace(/\s+/g, " ").trim().toLowerCase();
-      const itemOcc = (typeof item === "object" && item !== null && typeof item.occurrence === "number") ? item.occurrence : null;
+      const parsed = parseMaskOrHighlightKey(item);
+      const itemPhrase = String(parsed.phrase || "").replace(/\s+/g, " ").trim().toLowerCase();
+      const itemOcc = typeof parsed.occurrence === "number" ? parsed.occurrence : null;
       if (itemPhrase !== normTarget) return false;
       if (targetOcc !== null && itemOcc !== null) return itemOcc === targetOcc;
       return true;
@@ -9055,7 +9580,7 @@ Explanation: ${parentQ.explanation}`;
     });
 
     if (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id === sheetId) {
-      await renderActiveCompSheet();
+      refreshActiveSheetDomAnnotationsOnly();
     }
     if (activeSplitSheetId === sheetId && document.getElementById("arena-split-sheet-drawer")?.classList.contains("open")) {
       await openSplitSheetDrawer(sheetId, activeSplitSheetSubject, activeSplitSheetChapter);
@@ -9066,11 +9591,20 @@ Explanation: ${parentQ.explanation}`;
    * OCCURRENCE-INDEXED 4-COLOR SEMANTIC HIGHLIGHTER:
    * Stores { phrase, color, occurrence } in store_notes (highlights_${sheetId}).
    */
-  async function toggleCustomHighlightOnActiveSheet(phraseText, color = "amber", occurrence = null, targetSheetId = null) {
+  async function toggleCustomHighlightOnActiveSheet(phraseText, color = "yellow", occurrence = null, targetSheetId = null) {
     const sheetId = targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
     if (!sheetId) return;
     const cleanP = String(phraseText || "").replace(/\s+/g, " ").trim();
     if (cleanP.length < 1) return;
+
+    const normMap = {
+      yellow: "yellow", amber: "yellow",
+      green: "green", emerald: "green",
+      cyan: "cyan", blue: "cyan",
+      pink: "pink", rose: "pink", red: "pink",
+      purple: "purple"
+    };
+    const normColor = normMap[String(color || "yellow").toLowerCase()] || "yellow";
 
     const normTarget = cleanP.toLowerCase();
     const hasOcc = occurrence !== null && occurrence !== undefined && !Number.isNaN(Number(occurrence));
@@ -9090,15 +9624,15 @@ Explanation: ${parentQ.explanation}`;
     });
 
     if (existingIdx !== -1) {
-      if (hlList[existingIdx].color === color) {
+      if (hlList[existingIdx].color === normColor) {
         hlList.splice(existingIdx, 1);
       } else {
-        hlList[existingIdx].color = color;
+        hlList[existingIdx].color = normColor;
       }
     } else {
       hlList.push({
         phrase: cleanP,
-        color: color || "amber",
+        color: normColor,
         occurrence: targetOcc
       });
     }
@@ -9114,11 +9648,36 @@ Explanation: ${parentQ.explanation}`;
     });
 
     if (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id === sheetId) {
-      await renderActiveCompSheet();
+      refreshActiveSheetDomAnnotationsOnly();
     }
     if (activeSplitSheetId === sheetId && document.getElementById("arena-split-sheet-drawer")?.classList.contains("open")) {
       await openSplitSheetDrawer(sheetId, activeSplitSheetSubject, activeSplitSheetChapter);
     }
+  }
+
+  function updateCompMaskAndHighlightBadge() {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet) return;
+    const inlineBraceCount = (sheet.content.match(/\{\{[\s\S]+?\}\}/g) || []).length;
+    const totalMasks = activeSheetCustomMasks.length + inlineBraceCount;
+    const inkCount = Array.isArray(activeSheetInkStrokes) ? activeSheetInkStrokes.length : 0;
+    safeSetText(
+      "comp-mask-count-badge",
+      `${totalMasks} Mask${totalMasks === 1 ? "" : "s"} \u2022 ${activeSheetHighlights.length} Highlight${activeSheetHighlights.length === 1 ? "" : "s"}${inkCount > 0 ? ` \u2022 ${inkCount} Ink` : ""}`
+    );
+  }
+
+  /**
+   * Re-renders only `#comp-studio-doc-body` + margin annotations without resetting scroll position!
+   */
+  function refreshActiveSheetDomAnnotationsOnly() {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    const bodyEl = document.getElementById("comp-studio-doc-body");
+    if (!sheet || !bodyEl) return;
+    bodyEl.innerHTML = formatRichText(sheet.content, []);
+    applyDomMasksAndHighlights(bodyEl, activeSheetCustomMasks, activeSheetHighlights);
+    updateCompMaskAndHighlightBadge();
+    renderCompMarginAnnotationsList();
   }
 
   async function removeCustomMaskByIndex(idx) {
@@ -9130,7 +9689,7 @@ Explanation: ${parentQ.explanation}`;
       masks: activeSheetCustomMasks,
       timestamp: Date.now()
     });
-    await renderActiveCompSheet();
+    refreshActiveSheetDomAnnotationsOnly();
   }
 
   async function removeCustomHighlightByIndex(idx) {
@@ -9142,73 +9701,28 @@ Explanation: ${parentQ.explanation}`;
       highlights: activeSheetHighlights,
       timestamp: Date.now()
     });
-    await renderActiveCompSheet();
+    refreshActiveSheetDomAnnotationsOnly();
   }
 
-  async function rateCurrentSheetRecall(grade) {
-    const sheet = currentCompSheets[activeCompSheetIndex];
-    if (!sheet) return;
-    const now = Date.now();
-    const prev = await getRecord("store_notes", `srs_${sheet.id}`);
-    let intervalDays = 1;
-    if (grade === "GOOD") intervalDays = 3;
-    if (grade === "EASY") intervalDays = 7;
+  // Legacy stub kept so external calls never throw
+  async function rateCurrentSheetRecall() {}
 
-    const srsRecord = {
-      id: `srs_${sheet.id}`,
-      sheetId: sheet.id,
-      grade,
-      intervalDays,
-      lastReviewedEpoch: now,
-      dueEpoch: now + intervalDays * 86400000,
-      reviewCount: (prev && prev.reviewCount ? prev.reviewCount : 0) + 1
-    };
-    await putRecord("store_notes", srsRecord);
-    updateSheetSrsBadges(srsRecord);
-  }
-
-  function updateSheetSrsBadges(srsRecord) {
-    const dueBadge = document.getElementById("comp-srs-due-badge");
-    const zenBadge = document.getElementById("comp-zen-srs-badge");
-    const now = Date.now();
-
-    if (!srsRecord || !srsRecord.dueEpoch) {
-      if (dueBadge) {
-        dueBadge.innerText = "Unreviewed";
-        dueBadge.style.color = "var(--text-muted)";
-      }
-      if (zenBadge) {
-        zenBadge.innerText = "SRS: New";
-        zenBadge.style.background = "rgba(148,163,184,0.14)";
-        zenBadge.style.color = "var(--text-muted)";
-      }
-      return;
+  function formatLastOpenedBadgeText(prevOpenedEpoch) {
+    if (!prevOpenedEpoch) {
+      return { text: "\u2728 First Open", color: "var(--accent-cyan)", bg: "rgba(56,189,248,0.14)" };
     }
-
-    const diffMs = srsRecord.dueEpoch - now;
-    const diffDays = Math.ceil(diffMs / 86400000);
-    if (diffMs <= 0) {
-      if (dueBadge) {
-        dueBadge.innerText = "\uD83D\uDD34 Due Today";
-        dueBadge.style.color = "#fb7185";
-      }
-      if (zenBadge) {
-        zenBadge.innerText = "\uD83D\uDD34 Due Now";
-        zenBadge.style.background = "rgba(244,63,94,0.18)";
-        zenBadge.style.color = "#fb7185";
-      }
-    } else {
-      const label = `Due in ${diffDays}d (${srsRecord.grade || "OK"})`;
-      if (dueBadge) {
-        dueBadge.innerText = `\u2713 ${label}`;
-        dueBadge.style.color = "#34d399";
-      }
-      if (zenBadge) {
-        zenBadge.innerText = `SRS: ${diffDays}d`;
-        zenBadge.style.background = "rgba(16,185,129,0.16)";
-        zenBadge.style.color = "#34d399";
-      }
+    const diffMs = Date.now() - prevOpenedEpoch;
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays <= 0) {
+      return { text: "\u2713 Opened Today", color: "#34d399", bg: "rgba(16,185,129,0.15)" };
     }
+    if (diffDays === 1) {
+      return { text: "Opened Yesterday", color: "#94a3b8", bg: "rgba(148,163,184,0.14)" };
+    }
+    if (diffDays >= 7) {
+      return { text: `\uD83D\uDD52 Neglected (${diffDays}d ago)`, color: "#fbbf24", bg: "rgba(245,158,11,0.18)" };
+    }
+    return { text: `Opened ${diffDays}d ago`, color: "#94a3b8", bg: "rgba(148,163,184,0.14)" };
   }
 
   function applyCompendiumZoomStyle() {
@@ -9225,6 +9739,7 @@ Explanation: ${parentQ.explanation}`;
         docEl.style.zoom = String(compendiumZoomScale);
       }
     }
+    setTimeout(syncSheetInkCanvasGeometry, 40);
   }
 
   function adjustCompendiumZoom(delta) {
@@ -9238,10 +9753,9 @@ Explanation: ${parentQ.explanation}`;
   }
 
   /**
-   * Extracts both the word under (clientX, clientY) AND its exact 0-based occurrence index
-   * within containerEl so single-tap masking/highlighting only affects that exact instance.
+   * Helper to get word-snapped caret boundary at (clientX, clientY) inside containerEl.
    */
-  function extractWordAndOccurrenceAtPoint(containerEl, clientX, clientY) {
+  function getWordBoundaryAtPoint(containerEl, clientX, clientY) {
     let caretRange = null;
     if (document.caretRangeFromPoint) {
       caretRange = document.caretRangeFromPoint(clientX, clientY);
@@ -9255,26 +9769,74 @@ Explanation: ${parentQ.explanation}`;
     }
     if (!caretRange || !caretRange.startContainer || caretRange.startContainer.nodeType !== 3) return null;
     const textNode = caretRange.startContainer;
+    if (!containerEl.contains(textNode)) return null;
     const text = textNode.textContent || "";
     const offset = caretRange.startOffset;
     let start = offset;
     let end = offset;
-    while (start > 0 && /[\w\d.%₹+\-°/()]/.test(text[start - 1])) start--;
-    while (end < text.length && /[\w\d.%₹+\-°/()]/.test(text[end])) end++;
-    const word = text.slice(start, end).trim();
-    if (!word) return null;
+    const wordCharRegex = /[\w\d.%₹+\-°/()]/;
+    while (start > 0 && wordCharRegex.test(text[start - 1])) start--;
+    while (end < text.length && wordCharRegex.test(text[end])) end++;
+    return { textNode, start, end, rawOffset: offset, word: text.slice(start, end).trim() };
+  }
 
+  function extractWordAndOccurrenceAtPoint(containerEl, clientX, clientY) {
+    const wb = getWordBoundaryAtPoint(containerEl, clientX, clientY);
+    if (!wb || !wb.word) return null;
     const wordRange = document.createRange();
-    wordRange.setStart(textNode, start);
-    wordRange.setEnd(textNode, end);
-    const occurrence = computePhraseOccurrenceAtRange(containerEl, wordRange, word);
-    return { word, occurrence };
+    wordRange.setStart(wb.textNode, wb.start);
+    wordRange.setEnd(wb.textNode, wb.end);
+    const occurrence = computePhraseOccurrenceAtRange(containerEl, wordRange, wb.word);
+    return { word: wb.word, occurrence };
   }
 
   function initCompendiumRecallTapHandler() {
     const canvas = document.getElementById("comp-studio-canvas");
     if (!canvas || canvas.dataset.recallBound === "true") return;
     canvas.dataset.recallBound = "true";
+
+    // Close Top-Right More Popover when clicking outside
+    document.addEventListener("click", (ev) => {
+      const pop = document.getElementById("comp-more-popover");
+      const btn = document.getElementById("btn-comp-more-menu");
+      if (pop && (pop.classList.contains("open") || pop.style.display === "block")) {
+        if (!pop.contains(ev.target) && (!btn || !btn.contains(ev.target))) {
+          toggleCompStudioMoreMenu(false);
+        }
+      }
+    });
+
+    // Global Clipboard Image Paste into Active Knowledge Sheet
+    document.addEventListener("paste", async (ev) => {
+      const fsView = document.getElementById("compendium-fullscreen-view");
+      if (!fsView || fsView.style.display === "none") return;
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
+      const items = ev.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type && items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) {
+            ev.preventDefault();
+            const base64 = await compressImageFile(file);
+            if (base64) {
+              const scrollY = canvas.scrollTop || 0;
+              await insertMediaBlockIntoActiveSheet({
+                type: "image",
+                mode: "floating",
+                src: base64,
+                caption: "Pasted visual",
+                x: 38,
+                y: Math.max(70, scrollY + 90),
+                width: 260
+              });
+            }
+          }
+          break;
+        }
+      }
+    });
 
     // Auto-Collapsing Zen Header on Scroll
     let lastScrollTop = 0;
@@ -9287,7 +9849,7 @@ Explanation: ${parentQ.explanation}`;
           zenHeader.classList.add("comp-zen-header-hidden");
           document.getElementById("comp-sheet-switcher-drawer")?.classList.remove("open");
           document.getElementById("dock-btn-sheets")?.classList.remove("active");
-          document.getElementById("comp-dock-more-popover")?.classList.remove("open");
+          toggleCompStudioMoreMenu(false);
         } else if (delta < -8 || st <= 24) {
           zenHeader.classList.remove("comp-zen-header-hidden");
         }
@@ -9295,42 +9857,117 @@ Explanation: ${parentQ.explanation}`;
       lastScrollTop = st;
     }, { passive: true });
 
-    // Universal Drag/Range Selection Masker & Highlighter when Dock Mode is ON
-    const handleEditRangeEnd = async () => {
-      if (!compendiumMaskEditMode && !compendiumHighlightMode) return;
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-      const selectedTxt = sel.toString().replace(/\s+/g, " ").trim();
-      if (selectedTxt.length >= 2 && selectedTxt.length <= 240) {
-        const range = sel.getRangeAt(0);
-        const anchorNode = sel.anchorNode;
-        const el = anchorNode && anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
-        const docBody = document.getElementById("comp-studio-doc-body") || document.getElementById("comp-studio-doc-content");
-        if (el && docBody && docBody.contains(el)) {
-          const occ = computePhraseOccurrenceAtRange(docBody, range, selectedTxt);
+    /**
+     * INSTANT BRUSH-DRAG PAINTING ENGINE FOR HIGHLIGHT & MASK MODES:
+     * Sliding 1 finger, stylus, or mouse across words in #comp-studio-doc-body
+     * builds a live word-snapped Range without native scroll interference,
+     * painting the line in real time and committing on release!
+     */
+    let brushSession = null;
+    let suppressNextClickAfterBrush = false;
+
+    const startBrushAtPoint = (clientX, clientY) => {
+      if (!compendiumMaskEditMode && !compendiumHighlightMode) return null;
+      const docBody = document.getElementById("comp-studio-doc-body");
+      if (!docBody) return null;
+      const wb = getWordBoundaryAtPoint(docBody, clientX, clientY);
+      if (!wb) return null;
+      return {
+        startX: clientX,
+        startY: clientY,
+        startWb: wb,
+        lastRange: null,
+        isDragging: false
+      };
+    };
+
+    const updateBrushToPoint = (clientX, clientY, rawEvent) => {
+      if (!brushSession) return;
+      const dist = Math.hypot(clientX - brushSession.startX, clientY - brushSession.startY);
+      if (!brushSession.isDragging && dist < 8) return;
+
+      brushSession.isDragging = true;
+      canvas.classList.add("brush-painting-active");
+      if (rawEvent && rawEvent.cancelable) rawEvent.preventDefault();
+
+      const docBody = document.getElementById("comp-studio-doc-body");
+      if (!docBody) return;
+      const curWb = getWordBoundaryAtPoint(docBody, clientX, clientY);
+      if (!curWb) return;
+
+      try {
+        const r = document.createRange();
+        const cmp = brushSession.startWb.textNode.compareDocumentPosition(curWb.textNode);
+        let isBackward = false;
+        if (brushSession.startWb.textNode === curWb.textNode) {
+          isBackward = curWb.rawOffset < brushSession.startWb.rawOffset;
+        } else if (cmp & Node.DOCUMENT_POSITION_PRECEDING) {
+          isBackward = true;
+        }
+
+        if (!isBackward) {
+          r.setStart(brushSession.startWb.textNode, brushSession.startWb.start);
+          r.setEnd(curWb.textNode, curWb.end);
+        } else {
+          r.setStart(curWb.textNode, curWb.start);
+          r.setEnd(brushSession.startWb.textNode, brushSession.startWb.end);
+        }
+
+        brushSession.lastRange = r;
+        const sel = window.getSelection();
+        if (sel) {
           sel.removeAllRanges();
-          document.getElementById("selection-action-popover")?.classList.remove("active");
-          if (compendiumMaskEditMode) {
-            await toggleCustomMaskPhraseOnActiveSheet(selectedTxt, occ);
-          } else if (compendiumHighlightMode) {
-            await toggleCustomHighlightOnActiveSheet(selectedTxt, compendiumActiveHighlightColor, occ);
-          }
+          sel.addRange(r);
+        }
+      } catch (_) {}
+    };
+
+    const commitBrushSession = async () => {
+      if (!brushSession) return;
+      const session = brushSession;
+      brushSession = null;
+      canvas.classList.remove("brush-painting-active");
+
+      if (!session.isDragging || !session.lastRange) return;
+      suppressNextClickAfterBrush = true;
+      setTimeout(() => { suppressNextClickAfterBrush = false; }, 220);
+
+      const docBody = document.getElementById("comp-studio-doc-body");
+      const rawText = session.lastRange.toString().replace(/\s+/g, " ").trim();
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+      document.getElementById("selection-action-popover")?.classList.remove("active");
+
+      if (docBody && rawText.length >= 1 && rawText.length <= 320) {
+        const occ = computePhraseOccurrenceAtRange(docBody, session.lastRange, rawText);
+        if (compendiumMaskEditMode) {
+          await toggleCustomMaskPhraseOnActiveSheet(rawText, occ);
+        } else if (compendiumHighlightMode) {
+          await toggleCustomHighlightOnActiveSheet(rawText, compendiumActiveHighlightColor, occ);
         }
       }
     };
 
-    canvas.addEventListener("mouseup", () => setTimeout(handleEditRangeEnd, 25));
-    canvas.addEventListener("touchend", () => setTimeout(handleEditRangeEnd, 60), { passive: true });
-
-    // 2-Finger Pinch-to-Zoom on Living Knowledge Studio Canvas (0.75x to 2.2x)
+    // Touch Brush-Drag + 2-Finger Pinch-to-Zoom
     let pinchStartDist = 0;
     let pinchBaseScale = 1.0;
+
     canvas.addEventListener("touchstart", (e) => {
       if (e.touches.length === 2) {
+        brushSession = null;
+        canvas.classList.remove("brush-painting-active");
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         pinchStartDist = Math.hypot(dx, dy);
         pinchBaseScale = compendiumZoomScale;
+        return;
+      }
+      if (e.touches.length === 1 && (compendiumMaskEditMode || compendiumHighlightMode)) {
+        const t = e.touches[0];
+        const docBody = document.getElementById("comp-studio-doc-body");
+        if (docBody && docBody.contains(e.target)) {
+          brushSession = startBrushAtPoint(t.clientX, t.clientY);
+        }
       }
     }, { passive: true });
 
@@ -9342,14 +9979,48 @@ Explanation: ${parentQ.explanation}`;
         const ratio = dist / pinchStartDist;
         compendiumZoomScale = Math.max(0.75, Math.min(2.2, Math.round(pinchBaseScale * ratio * 100) / 100));
         applyCompendiumZoomStyle();
+        return;
+      }
+      if (e.touches.length === 1 && brushSession && (compendiumMaskEditMode || compendiumHighlightMode)) {
+        const t = e.touches[0];
+        updateBrushToPoint(t.clientX, t.clientY, e);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", async (e) => {
+      if (e.touches.length < 2) pinchStartDist = 0;
+      if (brushSession) {
+        await commitBrushSession();
       }
     }, { passive: true });
 
-    canvas.addEventListener("touchend", (e) => {
-      if (e.touches.length < 2) pinchStartDist = 0;
-    }, { passive: true });
+    // Mouse / Stylus Brush-Drag on Desktop & Tablet
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (!compendiumMaskEditMode && !compendiumHighlightMode) return;
+      const docBody = document.getElementById("comp-studio-doc-body");
+      if (docBody && docBody.contains(e.target)) {
+        brushSession = startBrushAtPoint(e.clientX, e.clientY);
+      }
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      if (!brushSession) return;
+      if (e.buttons !== 1) {
+        commitBrushSession();
+        return;
+      }
+      updateBrushToPoint(e.clientX, e.clientY, e);
+    });
+
+    canvas.addEventListener("mouseup", async () => {
+      if (brushSession) {
+        await commitBrushSession();
+      }
+    });
 
     canvas.addEventListener("click", async (e) => {
+      if (suppressNextClickAfterBrush) return;
       const docBody = document.getElementById("comp-studio-doc-body") || document.getElementById("comp-studio-doc-content");
       if (!docBody || !docBody.contains(e.target)) return;
 
@@ -9359,8 +10030,14 @@ Explanation: ${parentQ.explanation}`;
         if (existingMask && docBody.contains(existingMask)) {
           e.preventDefault();
           e.stopPropagation();
-          const attrPhrase = existingMask.getAttribute("data-mask-phrase") || (existingMask.innerText || "").trim();
-          const attrOcc = existingMask.getAttribute("data-mask-occ");
+          let attrPhrase = existingMask.getAttribute("data-mask-phrase");
+          let attrOcc = existingMask.getAttribute("data-mask-occ");
+          if (!attrPhrase && existingMask.getAttribute("data-mask-key")) {
+            const parsed = parseMaskOrHighlightKey(decodeURIComponent(existingMask.getAttribute("data-mask-key")));
+            attrPhrase = parsed.phrase;
+            attrOcc = String(parsed.occurrence);
+          }
+          attrPhrase = attrPhrase || (existingMask.innerText || "").trim();
           if (attrOcc === "INLINE_BRACE") {
             const sheet = currentCompSheets[activeCompSheetIndex];
             if (sheet && attrPhrase) {
@@ -9403,12 +10080,18 @@ Explanation: ${parentQ.explanation}`;
 
       // 2. In 🖍️ Highlight Mode: tapping an existing highlight or word applies/toggles ONLY that occurrence!
       if (compendiumHighlightMode) {
-        const existingHl = e.target.closest(".user-highlight");
+        const existingHl = e.target.closest(".user-highlight, .user-hl");
         if (existingHl && docBody.contains(existingHl)) {
           e.preventDefault();
           e.stopPropagation();
-          const attrPhrase = existingHl.getAttribute("data-hl-phrase") || (existingHl.innerText || "").trim();
-          const attrOcc = existingHl.getAttribute("data-hl-occ");
+          let attrPhrase = existingHl.getAttribute("data-hl-phrase");
+          let attrOcc = existingHl.getAttribute("data-hl-occ");
+          if (!attrPhrase && existingHl.getAttribute("data-hl-key")) {
+            const parsed = parseMaskOrHighlightKey(decodeURIComponent(existingHl.getAttribute("data-hl-key")));
+            attrPhrase = parsed.phrase;
+            attrOcc = String(parsed.occurrence);
+          }
+          attrPhrase = attrPhrase || (existingHl.innerText || "").trim();
           const occNum = attrOcc !== null && attrOcc !== "" ? Number(attrOcc) : 0;
           if (attrPhrase.length >= 1) {
             await toggleCustomHighlightOnActiveSheet(attrPhrase, compendiumActiveHighlightColor, occNum);
@@ -9417,7 +10100,7 @@ Explanation: ${parentQ.explanation}`;
         }
 
         const extracted = extractWordAndOccurrenceAtPoint(docBody, e.clientX, e.clientY);
-        if (extracted && extracted.word.length >= 2) {
+        if (extracted && extracted.word.length >= 1) {
           e.preventDefault();
           e.stopPropagation();
           await toggleCustomHighlightOnActiveSheet(extracted.word, compendiumActiveHighlightColor, extracted.occurrence);
@@ -9447,28 +10130,35 @@ Explanation: ${parentQ.explanation}`;
     if (!listEl) return;
 
     const subFilter = document.getElementById("sheets-index-filter-sub")?.value || "ALL";
-    const srsFilter = document.getElementById("sheets-index-filter-srs")?.value || "ALL";
+    const neglectedFilter = document.getElementById("sheets-index-filter-neglected")?.value || "ALL";
     const term = (document.getElementById("sheets-index-search")?.value || "").trim().toLowerCase();
     const allConcepts = await ConceptService.getAll();
     const allNotes = await getAllRecords("store_notes");
-    const srsMap = {};
+    const openedMap = {};
     const now = Date.now();
+
     allNotes.forEach(n => {
-      if (n && typeof n.id === "string" && n.id.startsWith("srs_")) {
-        srsMap[n.id.replace("srs_", "")] = n;
+      if (n && typeof n.id === "string" && n.id.startsWith("last_opened_")) {
+        openedMap[n.id.replace("last_opened_", "")] = n;
       }
     });
 
     const filtered = allConcepts.filter(c => {
       if (subFilter !== "ALL" && c.subject !== subFilter) return false;
-      const srs = srsMap[c.id];
-      if (srsFilter === "DUE") {
-        if (!srs || !srs.dueEpoch || srs.dueEpoch > now) return false;
-      } else if (srsFilter === "UNREVIEWED") {
-        if (srs && srs.reviewCount > 0) return false;
-      } else if (srsFilter === "MASTERED") {
-        if (!srs || !srs.dueEpoch || srs.dueEpoch <= now) return false;
+      const openedRec = openedMap[c.id];
+      const lastEpoch = openedRec && openedRec.lastOpenedAt ? openedRec.lastOpenedAt : 0;
+      const daysSince = lastEpoch > 0 ? (now - lastEpoch) / 86400000 : Infinity;
+
+      if (neglectedFilter === "NEGLECTED_7D") {
+        if (daysSince < 7) return false;
+      } else if (neglectedFilter === "NEGLECTED_14D") {
+        if (daysSince < 14) return false;
+      } else if (neglectedFilter === "NEVER_OPENED") {
+        if (lastEpoch > 0) return false;
+      } else if (neglectedFilter === "RECENTLY_OPENED") {
+        if (daysSince > 7) return false;
       }
+
       if (term) {
         const inTitle = (c.title || "").toLowerCase().includes(term);
         const inSub = (c.subtitle || "").toLowerCase().includes(term);
@@ -9478,6 +10168,21 @@ Explanation: ${parentQ.explanation}`;
       }
       return true;
     });
+
+    // Sort neglected / oldest opened first when a Neglected filter is active
+    if (neglectedFilter === "NEGLECTED_7D" || neglectedFilter === "NEGLECTED_14D") {
+      filtered.sort((a, b) => {
+        const tA = openedMap[a.id]?.lastOpenedAt || 0;
+        const tB = openedMap[b.id]?.lastOpenedAt || 0;
+        return tA - tB;
+      });
+    } else if (neglectedFilter === "RECENTLY_OPENED") {
+      filtered.sort((a, b) => {
+        const tA = openedMap[a.id]?.lastOpenedAt || 0;
+        const tB = openedMap[b.id]?.lastOpenedAt || 0;
+        return tB - tA;
+      });
+    }
 
     safeSetText("all-sheets-index-sub", `Showing ${filtered.length} of ${allConcepts.length} Living Knowledge Sheets`);
     listEl.innerHTML = "";
@@ -9494,21 +10199,23 @@ Explanation: ${parentQ.explanation}`;
       grouped[ch].push(s);
     });
 
-    Object.keys(grouped).sort().forEach(groupKey => {
+    Object.keys(grouped).forEach(groupKey => {
       const head = document.createElement("div");
       head.style.cssText = "font-size:11px; font-weight:800; color:var(--accent-cyan); margin:10px 0 6px 0; text-transform:uppercase; font-family:var(--font-mono);";
       head.innerText = `// ${groupKey} (${grouped[groupKey].length} Sheets)`;
       listEl.appendChild(head);
 
       grouped[groupKey].forEach(sheet => {
-        const srs = srsMap[sheet.id];
-        let srsPill = `<span class="badge" style="background:rgba(148,163,184,0.12); color:var(--text-muted); font-size:9.5px;">New</span>`;
-        if (srs && srs.dueEpoch) {
-          if (srs.dueEpoch <= now) {
-            srsPill = `<span class="badge" style="background:rgba(244,63,94,0.18); color:#fb7185; font-size:9.5px;">\uD83D\uDD34 Due</span>`;
+        const rec = openedMap[sheet.id];
+        let statusPill = `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; font-size:9.5px;">\uD83D\uDD52 Never Opened</span>`;
+        if (rec && rec.lastOpenedAt) {
+          const days = Math.floor((now - rec.lastOpenedAt) / 86400000);
+          if (days <= 0) {
+            statusPill = `<span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; font-size:9.5px;">\u2713 Today</span>`;
+          } else if (days >= 7) {
+            statusPill = `<span class="badge" style="background:rgba(244,63,94,0.18); color:#fb7185; font-size:9.5px;">\uD83D\uDD52 ${days}d ago</span>`;
           } else {
-            const d = Math.ceil((srs.dueEpoch - now) / 86400000);
-            srsPill = `<span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; font-size:9.5px;">\u2713 ${d}d</span>`;
+            statusPill = `<span class="badge" style="background:rgba(148,163,184,0.14); color:#cbd5e1; font-size:9.5px;">${days}d ago</span>`;
           }
         }
         const row = document.createElement("div");
@@ -9518,7 +10225,7 @@ Explanation: ${parentQ.explanation}`;
           <div style="overflow:hidden; flex:1;">
             <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
               <b style="font-size:13px; color:#fff;">\uD83D\uDCD6 ${sheet.title}</b>
-              ${srsPill}
+              ${statusPill}
             </div>
             <div style="font-size:11px; color:var(--text-muted);">${sheet.subtitle || sheet.id}</div>
           </div>
@@ -9614,6 +10321,7 @@ Explanation: ${parentQ.explanation}`;
     });
     safeSetDisplay("compendium-fullscreen-view", "flex");
     initCompendiumRecallTapHandler();
+    bindSheetInkCanvasEvents();
 
     const subSelect = document.getElementById("comp-studio-subject-select");
     if (subSelect) subSelect.value = activeCompSubject;
@@ -9729,9 +10437,22 @@ Explanation: ${parentQ.explanation}`;
     const savedPreset = presetRec && presetRec.preset ? presetRec.preset : "FOLLOW_GLOBAL";
     await setCompendiumPaperPreset(savedPreset, false);
 
-    // Load Sheet SRS state
-    const srsRec = await getRecord("store_notes", `srs_${sheet.id}`);
-    updateSheetSrsBadges(srsRec);
+    // Auto-Track Last Opened Date & Display Neglected/Recent Badge in Zen Header
+    const prevOpenRec = await getRecord("store_notes", `last_opened_${sheet.id}`);
+    const prevEpoch = prevOpenRec && prevOpenRec.lastOpenedAt ? prevOpenRec.lastOpenedAt : null;
+    const badgeSpec = formatLastOpenedBadgeText(prevEpoch);
+    const lastOpenedBadge = document.getElementById("comp-zen-last-opened-badge");
+    if (lastOpenedBadge) {
+      lastOpenedBadge.innerText = badgeSpec.text;
+      lastOpenedBadge.style.color = badgeSpec.color;
+      lastOpenedBadge.style.background = badgeSpec.bg;
+    }
+    await putRecord("store_notes", {
+      id: `last_opened_${sheet.id}`,
+      sheetId: sheet.id,
+      lastOpenedAt: Date.now(),
+      openCount: (prevOpenRec && prevOpenRec.openCount ? prevOpenRec.openCount : 0) + 1
+    });
 
     const linkedQs = await ConceptService.getLinkedQuestions(sheet.id, sheet.chapter);
     safeSetText("comp-linked-q-count", `${linkedQs.length} Associated Question${linkedQs.length === 1 ? "" : "s"}`);
@@ -9744,9 +10465,14 @@ Explanation: ${parentQ.explanation}`;
     const savedHlRec = await getRecord("store_notes", `highlights_${sheet.id}`);
     activeSheetHighlights = savedHlRec && Array.isArray(savedHlRec.highlights) ? savedHlRec.highlights : [];
 
-    const inlineBraceCount = (sheet.content.match(/\{\{[\s\S]+?\}\}/g) || []).length;
-    const totalMasks = activeSheetCustomMasks.length + inlineBraceCount;
-    safeSetText("comp-mask-count-badge", `${totalMasks} Mask${totalMasks === 1 ? "" : "s"} \u2022 ${activeSheetHighlights.length} Highlight${activeSheetHighlights.length === 1 ? "" : "s"}`);
+    // Load persisted page-anchored stylus ink strokes & interactive media blocks
+    const savedInkRec = await getRecord("store_notes", `sheet_ink_${sheet.id}`);
+    activeSheetInkStrokes = savedInkRec && Array.isArray(savedInkRec.strokes) ? savedInkRec.strokes : [];
+
+    const savedMediaRec = await getRecord("store_notes", `sheet_media_${sheet.id}`);
+    activeSheetMediaBlocks = savedMediaRec && Array.isArray(savedMediaRec.blocks) ? savedMediaRec.blocks : [];
+
+    updateCompMaskAndHighlightBadge();
 
     // Live Mistake-to-Sheet Callout Banner
     const perfMap = await PerformanceService.getQuestionPerformanceMap();
@@ -9800,7 +10526,12 @@ Explanation: ${parentQ.explanation}`;
         <div class="folio-header-meta">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
             <span class="badge" style="background:#1f6feb;">${sheet.chapter}</span>
-            <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">FOLIO ID: ${sheet.id}</span>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <button class="btn btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.triggerCompSheetImageUpload()" title="Insert or paste an image onto this sheet">\uD83D\uDDBC\uFE0F +Image</button>
+              <button class="btn btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.addCompSheetStickyNote()" title="Add a movable sticky callout card">\uD83D\uDCCC +Sticky</button>
+              <button class="btn btn-secondary" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.toggleCompSheetInkMode()" title="Write directly on this sheet with stylus or finger">\u270D\uFE0F Direct Ink</button>
+              <span style="font-size:10.5px; color:var(--text-muted); font-family:var(--font-mono);">ID: ${sheet.id}</span>
+            </div>
           </div>
           <h1 class="folio-doc-title">${sheet.title}</h1>
           ${sheet.subtitle ? `<div class="folio-doc-subtitle">${sheet.subtitle}</div>` : ""}
@@ -9808,6 +10539,7 @@ Explanation: ${parentQ.explanation}`;
         ${tocHtml}
         ${imgHtml}
         <div id="comp-studio-doc-body" class="folio-prose-body">${formatRichText(sheet.content, [])}</div>
+        <div id="comp-studio-inline-media-slot" style="margin-top:16px;"></div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:34px; padding-top:16px; border-top:1px solid var(--border-color);">
           <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(-1)">[ \u2190 ] Previous Sheet</button>
@@ -9819,7 +10551,9 @@ Explanation: ${parentQ.explanation}`;
       if (bodyEl) {
         applyDomMasksAndHighlights(bodyEl, activeSheetCustomMasks, activeSheetHighlights);
       }
+      renderActiveSheetMediaBlocks();
       applyCompendiumZoomStyle();
+      setTimeout(syncSheetInkCanvasGeometry, 60);
     }
 
     renderCompMarginAnnotationsList();
@@ -9834,14 +10568,15 @@ Explanation: ${parentQ.explanation}`;
     if (!listEl) return;
 
     if (activeSheetCustomMasks.length === 0 && activeSheetHighlights.length === 0) {
-      listEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">Tap words in 🖌️ Mask or 🖍️ Highlight mode (or select any phrase) to build your surgical sheet index.</span>`;
+      listEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">Slide your finger/stylus across words in 🖌️ Mask or 🖍️ Highlight mode (or tap any word) to build your surgical sheet index.</span>`;
       return;
     }
 
     const chips = [];
     activeSheetCustomMasks.forEach((m, idx) => {
-      const phrase = typeof m === "string" ? m : (m && m.phrase ? m.phrase : "");
-      const occ = (typeof m === "object" && m !== null && typeof m.occurrence === "number") ? `#${m.occurrence + 1}` : "All";
+      const parsed = parseMaskOrHighlightKey(m);
+      const phrase = parsed.phrase;
+      const occ = typeof parsed.occurrence === "number" ? `#${parsed.occurrence + 1}` : "#1";
       if (!phrase) return;
       chips.push(`
         <span class="margin-ann-chip mask-chip" title="Tap to remove custom mask" onclick="CGL_OS.removeCustomMaskByIndex(${idx})">
@@ -9853,7 +10588,7 @@ Explanation: ${parentQ.explanation}`;
     activeSheetHighlights.forEach((h, idx) => {
       if (!h || !h.phrase) return;
       const occ = typeof h.occurrence === "number" ? `#${h.occurrence + 1}` : "#1";
-      const c = h.color || "amber";
+      const c = h.color || "yellow";
       chips.push(`
         <span class="margin-ann-chip hl-chip-${c}" title="Tap to remove highlight" onclick="CGL_OS.removeCustomHighlightByIndex(${idx})">
           \uD83D\uDD8D\uFE0F ${h.phrase.length > 24 ? h.phrase.slice(0, 22) + "\u2026" : h.phrase} <small style="opacity:0.7;">(${occ}) \u2715</small>
@@ -9975,14 +10710,16 @@ Explanation: ${parentQ.explanation}`;
     });
     safeSetDisplay("compendium-fullscreen-view", "flex");
     initCompendiumRecallTapHandler();
+    bindSheetInkCanvasEvents();
     handleCompStudioSubjectChange(activeCompSubject || "QA");
   }
 
   function closeCompendiumStudio() {
     safeSetDisplay("compendium-fullscreen-view", "none");
     toggleScratchpadCanvas(false);
+    if (compSheetInkMode) toggleCompSheetInkMode(false);
+    toggleCompStudioMoreMenu(false);
     document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
-    document.getElementById("comp-dock-more-popover")?.classList.remove("open");
   }
 
   function openConceptEditorModal(isNew = true) {
@@ -12177,9 +12914,14 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     if (labelEl) labelEl.innerText = normalized === "charcoal" ? "Charcoal" : "Midnight";
 
     if (compendiumPaperPreset === "FOLLOW_GLOBAL") {
+      const effectivePreset = normalized === "charcoal" ? "CHARCOAL" : "OBSIDIAN";
+      const surfaceClass = normalized === "charcoal" ? "charcoal" : "obsidian";
+      compendiumReadingSurface = surfaceClass;
       const folio = document.getElementById("comp-studio-folio");
       if (folio) {
-        folio.setAttribute("data-paper-preset", normalized === "charcoal" ? "CHARCOAL" : "OBSIDIAN");
+        folio.setAttribute("data-paper-preset", effectivePreset);
+        folio.classList.remove("folio-preset-obsidian", "folio-preset-charcoal", "folio-preset-sepia");
+        folio.classList.add(`folio-preset-${surfaceClass}`);
       }
     }
   }
@@ -12401,12 +13143,25 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     toggleCompSheetSwitcherDrawer,
     toggleCompHighlightPopover,
     toggleCompStudioMoreMenu,
+    toggleCompMorePopover,
     setCompendiumPaperPreset,
+    setCompendiumReadingSurface,
     toggleCompendiumRecallMode,
     toggleCompendiumAutoBlurAll,
     toggleCompendiumMaskEditMode,
     toggleCompendiumHighlightMode,
     setCompendiumHighlightColor,
+    toggleCompSheetInkMode,
+    setCompSheetInkTool,
+    setCompSheetInkColor,
+    setCompSheetInkSize,
+    undoCompSheetInk,
+    clearCompSheetInk,
+    triggerCompSheetImageUpload,
+    handleCompSheetImageUpload,
+    addCompSheetStickyNote,
+    toggleCompSheetMediaBlockMode,
+    deleteCompSheetMediaBlock,
     removeCustomMaskByIndex,
     removeCustomHighlightByIndex,
     rateCurrentSheetRecall,
