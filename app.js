@@ -10632,7 +10632,49 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     }
   }
 
+  const THEME_STORAGE_KEY = "cgl_os_theme_mode";
+
+  function setThemeMode(mode) {
+    const normalized = mode === "charcoal" ? "charcoal" : "midnight";
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, normalized);
+    } catch (_) {}
+
+    if (document.documentElement) {
+      document.documentElement.setAttribute("data-theme", normalized);
+    }
+    if (document.body) {
+      document.body.setAttribute("data-theme", normalized);
+    }
+
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute("content", normalized === "charcoal" ? "#181a20" : "#04060b");
+    }
+
+    const iconEl = document.getElementById("theme-toggle-icon");
+    const labelEl = document.getElementById("theme-toggle-label");
+    if (iconEl) iconEl.innerText = normalized === "charcoal" ? "🪨" : "🌙";
+    if (labelEl) labelEl.innerText = normalized === "charcoal" ? "Charcoal" : "Midnight";
+  }
+
+  function toggleThemeMode() {
+    let current = "midnight";
+    try {
+      current = localStorage.getItem(THEME_STORAGE_KEY) || "midnight";
+    } catch (_) {}
+    const next = current === "charcoal" ? "midnight" : "charcoal";
+    setThemeMode(next);
+  }
+
   async function hydratePersistedUiConfig() {
+    try {
+      const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || "midnight";
+      setThemeMode(savedTheme);
+    } catch (_) {
+      setThemeMode("midnight");
+    }
+
     const scaleRec = await getRecord("store_config", "reader_font_scale");
     if (scaleRec && typeof scaleRec.value === "number") {
       readerFontScale = scaleRec.value;
@@ -10655,6 +10697,11 @@ ${JSON.stringify(TAXONOMY, null, 2)}
   async function initializeApplication() {
     const shield = document.getElementById("pause-shield");
     if (shield) shield.style.setProperty("display", "none", "important");
+
+    try {
+      const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || "midnight";
+      setThemeMode(savedTheme);
+    } catch (_) {}
 
     try {
       await getDB();
@@ -10697,6 +10744,8 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     pushNavLayer,
     popNavLayer,
     adjustReaderFontScale,
+    setThemeMode,
+    toggleThemeMode,
 
     handleApiProviderPresetChange,
     addApiKeyToVault,
@@ -10797,6 +10846,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     generateInstantMutantClone,
 
     toggleScratchpadCanvas,
+    toggleScratchpadFingerDraw,
     toggleScratchpadScrollMode,
     setScratchpadMode,
     setScratchpadColor,

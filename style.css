@@ -46,6 +46,114 @@
   --reader-font-scale: 1;
 }
 
+/* === CHARCOAL THEME (LOW-GLARE WARM MATTE SLATE FOR EYE-STRAIN REDUCTION) === */
+html[data-theme="charcoal"],
+body[data-theme="charcoal"] {
+  --bg-dark: #181a20;
+  --bg-canvas: #1f2229;
+  --bg-card: rgba(35, 39, 47, 0.95);
+  --bg-card-hover: rgba(43, 48, 58, 0.98);
+  --bg-elevated: #282c35;
+  --bg-elevated-hover: #323743;
+  --bg-document: #1c1f26;
+
+  --border-color: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-glow: rgba(56, 189, 248, 0.38);
+
+  --text-main: #e6eaf0;
+  --text-reading: #dde2ea;
+  --text-muted: #a3adbc;
+  --text-dim: #818b9b;
+}
+
+html[data-theme="charcoal"] body,
+body[data-theme="charcoal"] {
+  background-color: var(--bg-dark);
+  background-image:
+    radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.06) 0px, transparent 55%),
+    radial-gradient(at 100% 0%, rgba(167, 139, 250, 0.05) 0px, transparent 50%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+}
+
+html[data-theme="charcoal"] .hero-banner,
+html[data-theme="charcoal"] .card,
+html[data-theme="charcoal"] .dash-telemetry-tile,
+html[data-theme="charcoal"] .showcase-q-card,
+html[data-theme="charcoal"] .practice-q-card,
+html[data-theme="charcoal"] .modal-box,
+html[data-theme="charcoal"] .eri-header-card,
+html[data-theme="charcoal"] #practice-pagination-controls {
+  background: linear-gradient(145deg, #252932 0%, #1d2027 100%) !important;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+html[data-theme="charcoal"] .showcase-chapter-header {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.14), rgba(35, 39, 47, 0.96)) !important;
+}
+
+html[data-theme="charcoal"] .showcase-opt-pill,
+html[data-theme="charcoal"] .q-option,
+html[data-theme="charcoal"] .form-control,
+html[data-theme="charcoal"] .matrix-chip-grid,
+html[data-theme="charcoal"] #practice-subtopic-pills-row,
+html[data-theme="charcoal"] .lab-mode-toggle-group {
+  background: #1a1d24 !important;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="charcoal"] .showcase-solution-drawer,
+html[data-theme="charcoal"] .q-passage-container,
+html[data-theme="charcoal"] .comp-document-canvas {
+  background: #1b1e25 !important;
+}
+
+html[data-theme="charcoal"] #exam-arena,
+html[data-theme="charcoal"] #dojo-arena-view,
+html[data-theme="charcoal"] #compendium-fullscreen-view,
+html[data-theme="charcoal"] .arena-body,
+html[data-theme="charcoal"] .comp-studio-body {
+  background: #181a20 !important;
+}
+
+html[data-theme="charcoal"] .arena-header,
+html[data-theme="charcoal"] .arena-footer,
+html[data-theme="charcoal"] .bottom-nav,
+html[data-theme="charcoal"] .scratchpad-toolbar {
+  background: rgba(28, 31, 38, 0.96) !important;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Dashboard Header Theme Toggle Button */
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.theme-toggle-btn:hover {
+  border-color: var(--accent-cyan);
+  background: var(--bg-elevated-hover);
+  color: #fff;
+}
+
+html[data-theme="charcoal"] .theme-toggle-btn {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fcd34d;
+}
+
 /* === ZONE 2: GLOBAL RESET & VIEWPORT ROOT === */
 * {
   box-sizing: border-box;
@@ -70,6 +178,7 @@ body {
   overflow-x: hidden;
   letter-spacing: -0.012em;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Scoped UI Element Non-Selection */
@@ -84,7 +193,8 @@ body {
 .matrix-chip,
 .badge,
 .star-flag-btn,
-.dojo-stopwatch-pill {
+.dojo-stopwatch-pill,
+.theme-toggle-btn {
   user-select: none;
   -webkit-user-select: none;
 }
