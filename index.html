@@ -450,9 +450,12 @@
           Keys are stored strictly on-device in <code style="color:var(--accent-cyan);">store_config</code>. Automatic priority failover (HIGH ➔ MEDIUM ➔ LOW) with manual override and task-specific key allocation. If all keys are on cooldown or offline, the app degrades gracefully to clipboard mode.
         </p>
 
-        <!-- Add New API Key Form -->
-        <div style="background:#070a12; border:1px solid var(--border-color); border-radius:10px; padding:12px; margin-bottom:12px;">
-          <div style="font-size:10.5px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase; margin-bottom:8px;">+ Add Key to Waterfall Vault</div>
+        <!-- Add / Edit API Key Form -->
+        <div id="api-key-form-card" style="background:#070a12; border:1px solid var(--border-color); border-radius:10px; padding:12px; margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div id="api-form-header-title" style="font-size:10.5px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase;">+ Add Key to Waterfall Vault</div>
+            <button id="btn-cancel-api-key-edit" class="btn btn-secondary" style="display:none; padding:2px 8px; font-size:10px;" onclick="CGL_OS.cancelApiKeyEdit()">✕ Cancel Edit</button>
+          </div>
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(135px, 1fr)); gap:8px; margin-bottom:8px;">
             <div>
               <label style="font-size:9.5px; color:var(--text-muted);">Label / Nickname</label>
@@ -484,13 +487,14 @@
             <label style="font-size:9.5px; color:var(--text-muted);">Custom Base URL (OpenAI /v1/chat/completions endpoint)</label>
             <input type="text" id="api-key-custom-url" class="form-control" style="padding:7px; font-size:12px;" placeholder="https://api.mistral.ai/v1/chat/completions">
           </div>
-          <div style="display:grid; grid-template-columns:1fr auto; gap:8px;">
-            <input type="password" id="api-key-secret" class="form-control" style="padding:7px 10px; font-size:12px; font-family:var(--font-mono);" placeholder="Paste API Key (AIzaSy... / gsk_... / sk-or-...)...">
-            <button class="btn btn-purple" style="padding:7px 14px; font-size:12px;" onclick="CGL_OS.addApiKeyToVault()">+ Save Key</button>
+          <div style="display:flex; gap:6px; align-items:stretch;">
+            <input type="password" id="api-key-secret" class="form-control" style="flex:1; padding:7px 10px; font-size:12px; font-family:var(--font-mono);" placeholder="Paste API Key (AIzaSy... / gsk_... / sk-or-...)...">
+            <button type="button" id="btn-toggle-api-secret-vis" class="btn btn-secondary" style="padding:7px 10px; font-size:11.5px; flex-shrink:0;" onclick="CGL_OS.toggleApiKeyInputVisibility()" title="Show / Hide API Key">👁️ Show</button>
+            <button type="button" id="btn-save-api-key" class="btn btn-purple" style="padding:7px 14px; font-size:12px; flex-shrink:0;" onclick="CGL_OS.addApiKeyToVault()">+ Save Key</button>
           </div>
         </div>
 
-        <!-- Configured Keys List (Priority Reorder, Test, Delete) -->
+        <!-- Configured Keys List (Priority Reorder, View, Edit, Test, Delete) -->
         <div id="api-vault-keys-list" style="margin-bottom:12px;"></div>
 
         <!-- Task-Specific Key Allocation Matrix -->

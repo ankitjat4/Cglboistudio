@@ -1914,6 +1914,111 @@ const CGL_OS = (() => {
     }
   };
 
+  let editingApiKeyId = null;
+  let revealedApiKeyIds = new Set();
+
+  function maskSecretKey(secret) {
+    const s = String(secret || "").trim();
+    if (!s) return "••••••••";
+    if (s.length <= 10) return s.slice(0, 3) + "••••" + s.slice(-2);
+    return s.slice(0, 6) + "••••••••••••" + s.slice(-4);
+  }
+
+  function toggleApiKeyInputVisibility() {
+    const input = document.getElementById("api-key-secret");
+    const btn = document.getElementById("btn-toggle-api-secret-vis");
+    if (!input) return;
+    const isNowText = input.type === "password";
+    input.type = isNowText ? "text" : "password";
+    if (btn) {
+      btn.innerText = isNowText ? "🙈 Hide" : "👁️ Show";
+      btn.classList.toggle("btn-cyan", isNowText);
+      btn.classList.toggle("btn-secondary", !isNowText);
+    }
+  }
+
+  function toggleSavedApiKeyReveal(id) {
+    if (revealedApiKeyIds.has(id)) {
+      revealedApiKeyIds.delete(id);
+    } else {
+      revealedApiKeyIds.add(id);
+    }
+    renderApiVaultUI();
+  }
+
+  async function copySavedApiKeySecret(id) {
+    const k = AiGatewayService.keys.find(item => item.id === id);
+    if (!k || !k.secret) return;
+    try {
+      await navigator.clipboard.writeText(k.secret);
+    } catch (_) {}
+  }
+
+  function editApiKeyInVault(id) {
+    const k = AiGatewayService.keys.find(item => item.id === id);
+    if (!k) return;
+
+    editingApiKeyId = k.id;
+    safeSetValue("api-key-label", k.label || "");
+    safeSetValue("api-key-provider", k.provider || "GEMINI");
+    const customWrap = document.getElementById("api-custom-url-wrap");
+    if (customWrap) customWrap.style.display = k.provider === "CUSTOM" ? "block" : "none";
+    safeSetValue("api-key-model", k.model || "gemini-2.5-flash");
+    safeSetValue("api-key-priority", k.priority || "MEDIUM");
+    safeSetValue("api-key-custom-url", k.customUrl || "");
+    safeSetValue("api-key-secret", k.secret || "");
+
+    const titleEl = document.getElementById("api-form-header-title");
+    if (titleEl) {
+      titleEl.innerText = `✎ Editing Key: ${k.label}`;
+      titleEl.style.color = "var(--status-amber)";
+    }
+    const saveBtn = document.getElementById("btn-save-api-key");
+    if (saveBtn) {
+      saveBtn.innerText = "💾 Update Key";
+      saveBtn.className = "btn btn-emerald";
+    }
+    const cancelBtn = document.getElementById("btn-cancel-api-key-edit");
+    if (cancelBtn) cancelBtn.style.display = "inline-flex";
+
+    const formCard = document.getElementById("api-key-form-card");
+    if (formCard) {
+      formCard.style.borderColor = "var(--status-amber)";
+      formCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
+
+  function cancelApiKeyEdit() {
+    editingApiKeyId = null;
+    safeSetValue("api-key-label", "");
+    safeSetValue("api-key-secret", "");
+    safeSetValue("api-key-custom-url", "");
+
+    const secretInput = document.getElementById("api-key-secret");
+    const visBtn = document.getElementById("btn-toggle-api-secret-vis");
+    if (secretInput) secretInput.type = "password";
+    if (visBtn) {
+      visBtn.innerText = "👁️ Show";
+      visBtn.className = "btn btn-secondary";
+    }
+
+    const titleEl = document.getElementById("api-form-header-title");
+    if (titleEl) {
+      titleEl.innerText = "+ Add Key to Waterfall Vault";
+      titleEl.style.color = "var(--accent-cyan)";
+    }
+    const saveBtn = document.getElementById("btn-save-api-key");
+    if (saveBtn) {
+      saveBtn.innerText = "+ Save Key";
+      saveBtn.className = "btn btn-purple";
+    }
+    const cancelBtn = document.getElementById("btn-cancel-api-key-edit");
+    if (cancelBtn) cancelBtn.style.display = "none";
+
+    const formCard = document.getElementById("api-key-form-card");
+    if (formCard) formCard.style.borderColor = "var(--border-color)";
+  }
+
   function handleApiProviderPresetChange(provider) {
     const modelInput = document.getElementById("api-key-model");
     const customWrap = document.getElementById("api-custom-url-wrap");
@@ -1938,6 +2043,23 @@ const CGL_OS = (() => {
       return;
     }
 
+    if (editingApiKeyId) {
+      const existing = AiGatewayService.keys.find(k => k.id === editingApiKeyId);
+      if (existing) {
+        existing.label = label;
+        existing.provider = provider;
+        existing.model = model;
+        existing.priority = priority;
+        existing.customUrl = customUrl;
+        existing.secret = secret;
+        existing.cooldownUntil = 0;
+        existing.lastStatus = "READY";
+      }
+      cancelApiKeyEdit();
+      await AiGatewayService.saveVault();
+      return;
+    }
+
     AiGatewayService.keys.push({
       id: "key_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
       label,
@@ -1951,12 +2073,15 @@ const CGL_OS = (() => {
       lastStatus: "READY"
     });
 
-    safeSetValue("api-key-label", "");
-    safeSetValue("api-key-secret", "");
+    cancelApiKeyEdit();
     await AiGatewayService.saveVault();
   }
 
   async function deleteApiKeyFromVault(id) {
+    if (editingApiKeyId === id) {
+      cancelApiKeyEdit();
+    }
+    revealedApiKeyIds.delete(id);
     AiGatewayService.keys = AiGatewayService.keys.filter(k => k.id !== id);
     await AiGatewayService.saveVault();
   }
@@ -2031,20 +2156,35 @@ const CGL_OS = (() => {
             ? `<span class="badge" style="background:rgba(245,158,11,0.2); color:var(--status-amber);">\u23F3 Cooldown (${remSec}s)</span>`
             : `<span class="badge" style="background:rgba(16,185,129,0.2); color:var(--status-green);">\uD83D\uDFE2 Ready</span>`;
 
+          const isRevealed = revealedApiKeyIds.has(k.id);
+          const displaySecret = isRevealed ? (k.secret || "") : maskSecretKey(k.secret);
+
           const row = document.createElement("div");
           row.className = "api-key-row";
+          row.style.flexDirection = "column";
+          row.style.alignItems = "stretch";
+          row.style.gap = "6px";
           row.innerHTML = `
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <span class="api-tier-badge tier-${k.priority}">${k.priority}</span>
-              <b style="font-size:12.5px; color:#fff;">${k.label}</b>
-              <span style="font-size:11px; font-family:var(--font-mono); color:var(--accent-cyan);">${k.provider} \u2022 ${k.model}</span>
-              ${statusHtml}
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span class="api-tier-badge tier-${k.priority}">${k.priority}</span>
+                <b style="font-size:12.5px; color:#fff;">${k.label}</b>
+                <span style="font-size:11px; font-family:var(--font-mono); color:var(--accent-cyan);">${k.provider} \u2022 ${k.model}</span>
+                ${statusHtml}
+              </div>
+              <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.toggleSavedApiKeyReveal('${k.id}')" title="View or Hide API Key">${isRevealed ? "\uD83D\uDE48 Hide" : "\uD83D\uDC41\uFE0F View"}</button>
+                <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.copySavedApiKeySecret('${k.id}')" title="Copy API Key">\uD83D\uDCCB Copy</button>
+                <button class="btn btn-purple" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.editApiKeyInVault('${k.id}')" title="Edit Key Label, Model, Priority, or Secret">\u270E Edit</button>
+                <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.moveApiKeyOrder(${idx}, -1)" title="Move Up">\u25B2</button>
+                <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.moveApiKeyOrder(${idx}, 1)" title="Move Down">\u25BC</button>
+                <button class="btn btn-cyan" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.testSingleApiKey('${k.id}')">\u26A1 Test</button>
+                <button class="btn btn-danger" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.deleteApiKeyFromVault('${k.id}')" title="Delete Key">\u2715</button>
+              </div>
             </div>
-            <div style="display:flex; gap:5px; align-items:center;">
-              <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.moveApiKeyOrder(${idx}, -1)" title="Move Up">\u25B2</button>
-              <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.moveApiKeyOrder(${idx}, 1)" title="Move Down">\u25BC</button>
-              <button class="btn btn-cyan" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.testSingleApiKey('${k.id}')">\u26A1 Test</button>
-              <button class="btn btn-danger" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.deleteApiKeyFromVault('${k.id}')">\u2715</button>
+            <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(0,0,0,0.28); padding:4px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.05); font-family:var(--font-mono); font-size:11px; color:${isRevealed ? "var(--accent-cyan)" : "var(--text-muted)"}; word-break:break-all;">
+              <span>Key: ${displaySecret}</span>
+              ${k.customUrl ? `<span style="font-size:10px; color:var(--text-dim);">URL: ${k.customUrl}</span>` : ""}
             </div>
           `;
           listEl.appendChild(row);
@@ -5184,12 +5324,39 @@ Explanation: ${parentQ.explanation}`;
     }
   }
 
+  function syncScratchpadModeUI() {
+    const overlay = document.getElementById("scratchpad-overlay");
+    const btn = document.getElementById("btn-scratch-finger-mode");
+    const isScrollMode = !scratchpadFingerDraw;
+
+    scratchpadScrollPassthrough = isScrollMode;
+
+    if (overlay) {
+      overlay.classList.toggle("finger-draw-enabled", !isScrollMode);
+      overlay.classList.toggle("scroll-passthrough", isScrollMode);
+      if (isScrollMode) {
+        overlay.classList.remove("pen-active-stroke");
+      }
+    }
+
+    if (btn) {
+      if (isScrollMode) {
+        btn.className = "btn btn-emerald";
+        btn.innerText = "\uD83D\uDC46 Scroll ON (Tap to Draw)";
+      } else {
+        btn.className = "btn btn-amber";
+        btn.innerText = "\u270D\uFE0F Draw ON (Tap to Scroll)";
+      }
+    }
+  }
+
   function initScratchpadCanvasListeners() {
     const canvas = document.getElementById("scratchpad-canvas");
+    const overlay = document.getElementById("scratchpad-overlay");
     if (!canvas || canvas.dataset.bound === "true") return;
     canvas.dataset.bound = "true";
 
-    // Bind scroll listeners on all 3 primary reading/solving containers so ink stays locked to text
+    // Bind scroll listeners on all primary reading/solving containers + window so ink stays locked to text
     ["arena-body", "dojo-arena-body", "comp-studio-canvas"].forEach(cid => {
       const sc = document.getElementById(cid);
       if (sc) {
@@ -5199,9 +5366,23 @@ Explanation: ${parentQ.explanation}`;
       }
     });
 
+    window.addEventListener("scroll", () => {
+      if (scratchpadActive) redrawScratchpad();
+    }, { passive: true });
+
     window.addEventListener("resize", () => {
       if (scratchpadActive) resizeScratchpadCanvas();
     });
+
+    // Forward mouse wheel scrolling even when Draw Mode is active so wheel scrolling always works
+    canvas.addEventListener("wheel", (e) => {
+      if (!scratchpadActive) return;
+      const sc = getActiveScrollContainerForInk();
+      if (sc) {
+        sc.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: "auto" });
+        redrawScratchpad();
+      }
+    }, { passive: true });
 
     const getWorldPos = (e) => {
       const rect = canvas.getBoundingClientRect();
@@ -5214,21 +5395,7 @@ Explanation: ${parentQ.explanation}`;
       };
     };
 
-    canvas.addEventListener("pointerdown", (e) => {
-      if (!scratchpadActive || scratchpadScrollPassthrough) return;
-      if (!e.isPrimary) return;
-
-      const isStylusOrMouse = (e.pointerType === "pen" || e.pointerType === "mouse");
-      // Zero-Mode-Switch Rule: If touch finger & Finger-Draw is OFF, let browser scroll naturally!
-      if (!isStylusOrMouse && !scratchpadFingerDraw) {
-        return;
-      }
-
-      e.preventDefault();
-      try {
-        canvas.setPointerCapture(e.pointerId);
-      } catch (_) {}
-
+    const startStrokeFromEvent = (e) => {
       const isHardwareEraser = (e.pointerType === "pen" && (e.buttons === 32 || e.button === 5));
       const effectiveMode = isHardwareEraser ? "ERASER" : scratchpadMode;
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
@@ -5243,14 +5410,10 @@ Explanation: ${parentQ.explanation}`;
         pressure: pressure
       }];
       redrawScratchpad();
-    });
+    };
 
-    canvas.addEventListener("pointermove", (e) => {
-      if (!scratchpadDrawing || !scratchpadActive || scratchpadScrollPassthrough) return;
-      const isStylusOrMouse = (e.pointerType === "pen" || e.pointerType === "mouse");
-      if (!isStylusOrMouse && !scratchpadFingerDraw) return;
-
-      e.preventDefault();
+    const moveStrokeFromEvent = (e) => {
+      if (!scratchpadDrawing || !scratchpadActive) return;
       const activeMode = currentStroke[0] ? currentStroke[0].mode : scratchpadMode;
       const activeCol = currentStroke[0] ? currentStroke[0].color : scratchpadColor;
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
@@ -5264,11 +5427,12 @@ Explanation: ${parentQ.explanation}`;
         pressure: pressure
       });
       redrawScratchpad();
-    });
+    };
 
     const finishStroke = () => {
       if (!scratchpadDrawing) return;
       scratchpadDrawing = false;
+      if (overlay) overlay.classList.remove("pen-active-stroke");
       if (currentStroke.length > 0) {
         scratchpadStrokes.push([...currentStroke]);
         inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
@@ -5277,8 +5441,52 @@ Explanation: ${parentQ.explanation}`;
       redrawScratchpad();
     };
 
+    // 1. Direct Canvas Pointer Listeners (Active when Draw Mode is ON)
+    canvas.addEventListener("pointerdown", (e) => {
+      if (!scratchpadActive) return;
+      if (!e.isPrimary) return;
+      if (scratchpadScrollPassthrough && e.pointerType !== "pen") return;
+
+      e.preventDefault();
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch (_) {}
+      startStrokeFromEvent(e);
+    });
+
+    canvas.addEventListener("pointermove", (e) => {
+      if (!scratchpadDrawing || !scratchpadActive) return;
+      e.preventDefault();
+      moveStrokeFromEvent(e);
+    });
+
     canvas.addEventListener("pointerup", finishStroke);
     canvas.addEventListener("pointercancel", finishStroke);
+
+    // 2. Global Stylo 2 / Active Stylus Auto-Ink Capture (Even when Scroll Mode is ON!)
+    window.addEventListener("pointerdown", (e) => {
+      if (!scratchpadActive || e.pointerType !== "pen") return;
+      if (!scratchpadScrollPassthrough) return; // Already handled by canvas when Draw Mode is ON
+      if (e.target && e.target.closest(".scratchpad-toolbar, button, input, select, textarea, a, .arena-header, .arena-footer")) {
+        return;
+      }
+      if (overlay) overlay.classList.add("pen-active-stroke");
+      e.preventDefault();
+      startStrokeFromEvent(e);
+    }, { capture: true });
+
+    window.addEventListener("pointermove", (e) => {
+      if (!scratchpadDrawing || !scratchpadActive || e.pointerType !== "pen") return;
+      if (!scratchpadScrollPassthrough) return;
+      e.preventDefault();
+      moveStrokeFromEvent(e);
+    }, { capture: true });
+
+    window.addEventListener("pointerup", (e) => {
+      if (scratchpadDrawing && e.pointerType === "pen") {
+        finishStroke();
+      }
+    }, { capture: true });
   }
 
   function resizeScratchpadCanvas() {
@@ -5327,40 +5535,29 @@ Explanation: ${parentQ.explanation}`;
     if (!overlay) return;
     scratchpadActive = forceState !== null ? forceState : !scratchpadActive;
     overlay.classList.toggle("active", scratchpadActive);
-    overlay.classList.toggle("finger-draw-enabled", scratchpadFingerDraw);
 
-    if (!scratchpadActive) {
+    if (scratchpadActive) {
+      // Default to Draw ON when opening the Sketchpad so drawing works immediately,
+      // and 1 tap on "Scroll ON" lets all scrolls, swipes, and clicks pass straight through!
+      scratchpadFingerDraw = true;
+      syncScratchpadModeUI();
+      initScratchpadCanvasListeners();
+      setTimeout(resizeScratchpadCanvas, 20);
+    } else {
+      scratchpadDrawing = false;
       scratchpadScrollPassthrough = false;
-      overlay.classList.remove("scroll-passthrough");
+      overlay.classList.remove("finger-draw-enabled", "scroll-passthrough", "pen-active-stroke");
     }
 
     const btn = document.getElementById("btn-arena-scratchpad");
     if (btn) btn.classList.toggle("active", scratchpadActive);
     const dojoBtn = document.getElementById("btn-dojo-scratchpad");
     if (dojoBtn) dojoBtn.classList.toggle("active", scratchpadActive);
-
-    if (scratchpadActive) {
-      initScratchpadCanvasListeners();
-      setTimeout(resizeScratchpadCanvas, 20);
-    }
   }
 
-  function toggleScratchpadFingerDraw() {
-    scratchpadFingerDraw = !scratchpadFingerDraw;
-    const overlay = document.getElementById("scratchpad-overlay");
-    const btn = document.getElementById("btn-scratch-finger-mode");
-    if (overlay) {
-      overlay.classList.toggle("finger-draw-enabled", scratchpadFingerDraw);
-    }
-    if (btn) {
-      if (scratchpadFingerDraw) {
-        btn.className = "btn btn-amber";
-        btn.innerText = "\uD83D\uDC46 Finger: Draw";
-      } else {
-        btn.className = "btn btn-secondary";
-        btn.innerText = "\uD83D\uDC46 Finger: Scroll";
-      }
-    }
+  function toggleScratchpadFingerDraw(forceDrawState = null) {
+    scratchpadFingerDraw = typeof forceDrawState === "boolean" ? forceDrawState : !scratchpadFingerDraw;
+    syncScratchpadModeUI();
   }
 
   function toggleScratchpadScrollMode() {
@@ -5372,6 +5569,9 @@ Explanation: ${parentQ.explanation}`;
     if (scratchpadMode === "ERASER") {
       setScratchpadMode("PEN");
     }
+    if (!scratchpadFingerDraw) {
+      toggleScratchpadFingerDraw(true);
+    }
     document.querySelectorAll(".ink-color-dot").forEach(dot => {
       dot.classList.toggle("active", dot === btnEl || dot.dataset.color === scratchpadColor);
     });
@@ -5379,6 +5579,9 @@ Explanation: ${parentQ.explanation}`;
 
   function setScratchpadMode(mode) {
     scratchpadMode = mode === "ERASER" ? "ERASER" : "PEN";
+    if (!scratchpadFingerDraw) {
+      toggleScratchpadFingerDraw(true);
+    }
     const penBtn = document.getElementById("btn-scratch-pen");
     const erBtn = document.getElementById("btn-scratch-eraser");
     if (penBtn) {
@@ -10800,6 +11003,11 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     triggerWebApkInstall,
 
     handleApiProviderPresetChange,
+    toggleApiKeyInputVisibility,
+    toggleSavedApiKeyReveal,
+    copySavedApiKeySecret,
+    editApiKeyInVault,
+    cancelApiKeyEdit,
     addApiKeyToVault,
     deleteApiKeyFromVault,
     moveApiKeyOrder,
