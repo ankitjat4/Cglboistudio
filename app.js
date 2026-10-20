@@ -247,7 +247,7 @@ const CGL_OS = (() => {
   // Granular Multi-Chapter Matrix State in Mock Lab
   let mockLabSelectedMatrixChapters = new Set();
 
-  // Full-Screen Living Compendium Studio & User-Defined Recall Masks State
+  // Full-Screen Living Compendium Studio, Occurrence-Indexed Masks, 4-Color Highlights & Surface Presets
   let activeCompSubject = "QA";
   let activeCompChapter = "QA_PERCENTAGE";
   let activeCompSheetIndex = 0;
@@ -255,8 +255,12 @@ const CGL_OS = (() => {
   let currentConceptImageBase64 = "";
   let compendiumRecallMode = false;
   let compendiumMaskEditMode = false;
+  let compendiumHighlightMode = false;
+  let compendiumHighlightColor = "yellow";
   let compendiumAutoBlurAll = false;
   let activeSheetCustomMasks = [];
+  let activeSheetCustomHighlights = [];
+  let compendiumReadingSurface = "obsidian";
   let compendiumZoomScale = 1.0;
 
   // Split-Screen Sheet + Question Drawer State
@@ -282,6 +286,7 @@ const CGL_OS = (() => {
 
   // Floating Text Selection Popover State
   let pendingSelectedText = "";
+  let pendingSelectedOccurrence = null;
   let pendingSelectionContext = null;
 
   // AI Tutor Modal State
@@ -683,17 +688,17 @@ const CGL_OS = (() => {
       return `<div class="callout-box"><b>\uD83D\uDCA1 Tactical Tip:</b><br>${cleanBody}</div>`;
     });
 
-    // 5. Headings with Anchors for Sheet TOC Generation
-    out = out.replace(/^#### (.*$)/gim, '<h4 style="font-size:14px; font-weight:800; color:var(--accent-purple-light); margin:10px 0 4px 0;">$1</h4>');
+    // 5. Headings with Anchors for Sheet TOC Generation (De-Boxed Editorial Rhythm)
+    out = out.replace(/^#### (.*$)/gim, '<h4 style="font-size:14px; font-weight:800; color:var(--accent-purple-light); margin:18px 0 6px 0;">$1</h4>');
     out = out.replace(/^### (.*$)/gim, (match, title) => {
       const anchor = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      return `<h3 id="sec-${anchor}" class="comp-heading-h3" style="font-size:15.5px; font-weight:800; color:var(--accent-cyan); margin:14px 0 5px 0;">${title}</h3>`;
+      return `<h3 id="sec-${anchor}" class="comp-heading-h3">${title}</h3>`;
     });
     out = out.replace(/^## (.*$)/gim, (match, title) => {
       const anchor = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      return `<h2 id="sec-${anchor}" class="comp-heading-h2" style="font-size:17.5px; font-weight:800; color:#fff; margin:16px 0 6px 0;">${title}</h2>`;
+      return `<h2 id="sec-${anchor}" class="comp-heading-h2">${title}</h2>`;
     });
-    out = out.replace(/^# (.*$)/gim, '<h1 class="comp-heading-h1" style="font-size:19.5px; font-weight:800; color:#fff; margin:18px 0 8px 0;">$1</h1>');
+    out = out.replace(/^# (.*$)/gim, '<h1 class="comp-heading-h1">$1</h1>');
 
     // 6. Bold, Italics & Inline Code
     out = out.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
@@ -768,21 +773,207 @@ const CGL_OS = (() => {
       } else {
         rendered = item.display ? `$$${innerFormula}$$` : `$${innerFormula}$`;
       }
-      return isWrappedMask ? `<span class="user-recall-mask">${rendered}</span>` : rendered;
+      return isWrappedMask ? `<span class="user-recall-mask" data-inline-mask="true">${rendered}</span>` : rendered;
     });
 
-    // 13. Apply persisted per-sheet custom mask phrases (from 🖌️ Edit Masks or Selection Popover)
+    // 13. Occurrence-Aware Fallback for Direct String Callers (e.g. Print View)
     if (Array.isArray(customMaskPhrases) && customMaskPhrases.length > 0) {
-      customMaskPhrases.forEach(phrase => {
-        const cleanP = String(phrase || "").trim();
-        if (cleanP.length >= 2) {
+      customMaskPhrases.forEach(rawEntry => {
+        const rawStr = String(rawEntry || "").trim();
+        if (!rawStr || rawStr.startsWith("MATH::")) return;
+        let cleanP = rawStr;
+        let targetOcc = 0;
+        const occMatch = rawStr.match(/^([\s\S]+)::(\d+)$/);
+        if (occMatch) {
+          cleanP = occMatch[1].trim();
+          targetOcc = parseInt(occMatch[2], 10);
+        }
+        if (cleanP.length >= 1) {
+          let matchCounter = 0;
           const rx = new RegExp(`(?![^<]*>)(${escapeRegExp(cleanP)})`, "g");
-          out = out.replace(rx, '<span class="user-recall-mask" data-mask-phrase="true">$1</span>');
+          out = out.replace(rx, (m, g1) => {
+            const cur = matchCounter++;
+            if (cur === targetOcc) {
+              const keyAttr = encodeURIComponent(`${cleanP}::${cur}`);
+              return `<span class="user-recall-mask" data-mask-key="${keyAttr}">${g1}</span>`;
+            }
+            return m;
+          });
         }
       });
     }
 
     return out;
+  }
+
+  /**
+   * OCCURRENCE-INDEXED DOM MASKING & 4-COLOR HIGHLIGHTING ENGINE (PART I FIX)
+   * Eliminates global regex word-masking collisions by computing and wrapping the
+   * exact k-th occurrence (phrase::k or MATH::k) inside the rendered sheet DOM.
+   */
+  function getSearchableTextNodes(rootEl) {
+    const nodes = [];
+    let fullText = "";
+    if (!rootEl) return { nodes, fullText };
+
+    const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const p = node.parentElement;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        if (p.closest(".katex-mathml, script, style")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    let current;
+    while ((current = walker.nextNode())) {
+      const txt = current.nodeValue || "";
+      if (txt.length > 0) {
+        const start = fullText.length;
+        fullText += txt;
+        nodes.push({
+          node: current,
+          start,
+          end: fullText.length,
+          text: txt
+        });
+      }
+    }
+    return { nodes, fullText };
+  }
+
+  function parseMaskOrHighlightKey(rawKey) {
+    const str = String(rawKey || "").trim();
+    const m = str.match(/^([\s\S]+)::(\d+)$/);
+    if (m) {
+      return { phrase: m[1], occurrence: parseInt(m[2], 10), key: `${m[1]}::${parseInt(m[2], 10)}` };
+    }
+    return { phrase: str, occurrence: 0, key: `${str}::0` };
+  }
+
+  function computePhraseOccurrenceAtRange(rootEl, range, phraseText) {
+    const cleanP = String(phraseText || "").trim();
+    if (!rootEl || !cleanP) return 0;
+
+    const { nodes, fullText } = getSearchableTextNodes(rootEl);
+    if (!fullText) return 0;
+
+    let targetCharPos = 0;
+    if (range && range.startContainer) {
+      const sc = range.startContainer;
+      if (sc.nodeType === 3) {
+        const found = nodes.find(n => n.node === sc);
+        if (found) {
+          targetCharPos = found.start + (range.startOffset || 0);
+        }
+      } else if (sc instanceof Element) {
+        const found = nodes.find(n => sc.contains(n.node));
+        if (found) targetCharPos = found.start;
+      }
+    }
+
+    let pos = 0;
+    let occIdx = 0;
+    let bestOcc = 0;
+    let minDistance = Infinity;
+
+    while (pos <= fullText.length) {
+      const idx = fullText.indexOf(cleanP, pos);
+      if (idx === -1) break;
+      const dist = Math.abs(idx - targetCharPos);
+      if (dist < minDistance) {
+        minDistance = dist;
+        bestOcc = occIdx;
+      }
+      occIdx++;
+      pos = idx + 1;
+    }
+
+    return bestOcc;
+  }
+
+  function wrapOccurrenceInDom(rootEl, cleanP, targetOcc, tagName, className, dataAttrName, rawKey) {
+    if (!rootEl || !cleanP) return false;
+
+    if (cleanP === "MATH") {
+      const mathEls = rootEl.querySelectorAll(".katex-display, .katex");
+      const targetMath = mathEls[targetOcc];
+      if (!targetMath) return false;
+      if (targetMath.parentElement && targetMath.parentElement.hasAttribute(dataAttrName)) return false;
+      const wrap = document.createElement(tagName);
+      wrap.className = className;
+      wrap.setAttribute(dataAttrName, encodeURIComponent(rawKey));
+      targetMath.parentNode.insertBefore(wrap, targetMath);
+      wrap.appendChild(targetMath);
+      return true;
+    }
+
+    const { nodes, fullText } = getSearchableTextNodes(rootEl);
+    if (!fullText) return false;
+
+    let pos = 0;
+    let occ = 0;
+    let matchStart = -1;
+    while (pos <= fullText.length) {
+      const idx = fullText.indexOf(cleanP, pos);
+      if (idx === -1) break;
+      if (occ === targetOcc) {
+        matchStart = idx;
+        break;
+      }
+      occ++;
+      pos = idx + 1;
+    }
+
+    if (matchStart === -1) return false;
+    const matchEnd = matchStart + cleanP.length;
+
+    const overlapping = nodes.filter(n => n.end > matchStart && n.start < matchEnd);
+    if (overlapping.length === 0) return false;
+
+    const encodedKey = encodeURIComponent(rawKey);
+    for (let i = overlapping.length - 1; i >= 0; i--) {
+      const item = overlapping[i];
+      const localStart = Math.max(0, matchStart - item.start);
+      const localEnd = Math.min(item.text.length, matchEnd - item.start);
+      if (localEnd <= localStart) continue;
+
+      try {
+        const r = document.createRange();
+        r.setStart(item.node, localStart);
+        r.setEnd(item.node, localEnd);
+        const wrapper = document.createElement(tagName);
+        wrapper.className = className;
+        wrapper.setAttribute(dataAttrName, encodedKey);
+        r.surroundContents(wrapper);
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  function applyDomMasksAndHighlights(rootEl, customMasks = [], customHighlights = []) {
+    if (!rootEl) return;
+
+    // 1. Apply 4-color highlights first
+    if (Array.isArray(customHighlights)) {
+      customHighlights.forEach(hl => {
+        if (!hl || !hl.phrase) return;
+        const cleanP = String(hl.phrase).trim();
+        const occ = typeof hl.occurrence === "number" ? hl.occurrence : 0;
+        const color = ["yellow", "green", "red", "purple"].includes(hl.color) ? hl.color : "yellow";
+        const rawKey = `${cleanP}::${occ}`;
+        wrapOccurrenceInDom(rootEl, cleanP, occ, "mark", `user-hl user-hl-${color}`, "data-hl-key", rawKey);
+      });
+    }
+
+    // 2. Apply occurrence-indexed recall masks
+    if (Array.isArray(customMasks)) {
+      customMasks.forEach(entry => {
+        const parsed = parseMaskOrHighlightKey(entry);
+        if (!parsed.phrase) return;
+        wrapOccurrenceInDom(rootEl, parsed.phrase, parsed.occurrence, "span", "user-recall-mask", "data-mask-key", parsed.key);
+      });
+    }
   }
 
   function adjustReaderFontScale(delta) {
@@ -2851,16 +3042,95 @@ Return ONLY valid JSON.`;
   }
 
   /* ==========================================================================
-   * SECTION 17: SHARED SERVICE — PERFORMANCE SERVICE
+   * SECTION 17: SHARED SERVICE — PERFORMANCE SERVICE & UNTIMED DOJO BRIDGE
+   * - Official Timed Mock metrics (ERI, Mock Accuracy, Mock Scorecards) strictly
+   *   exclude mockType === "DOJO_CLINIC".
+   * - Question-level Mastery, Unseen Graduation, Mistake Debt Redemption, and
+   *   Chapter Neglect include "DOJO_CLINIC" so untimed Dojo & Showcase solves
+   *   count toward mastery in real time!
    * ========================================================================== */
   const PerformanceService = {
-    async getHistoricalAttempts() {
+    async getHistoricalAttempts(includeUntimedDojo = false) {
       const attempts = await getAllRecords("store_attempts");
-      return attempts.filter(a => a.completed && a.mockType !== "STUDY_VIEW");
+      return attempts.filter(a => {
+        if (!a.completed || a.mockType === "STUDY_VIEW") return false;
+        if (!includeUntimedDojo && a.mockType === "DOJO_CLINIC") return false;
+        return true;
+      });
+    },
+
+    async recordUntimedPracticeSolve(q, selectedOptIdx, timeSpentSec = 15) {
+      if (!q || !q.id) return;
+      const now = Date.now();
+      const dayKey = new Date(now).toISOString().slice(0, 10);
+      const ledgerId = `dojo_ledger_${dayKey}`;
+
+      let ledger = await getRecord("store_attempts", ledgerId);
+      if (!ledger) {
+        ledger = {
+          sessionId: ledgerId,
+          parentSessionId: null,
+          attemptNumber: 1,
+          timestamp: now,
+          timeIST: formatISTDate(now),
+          diurnalSlot: getDiurnalSlot(now),
+          title: `Untimed Dojo & Showcase Practice (${dayKey})`,
+          mockType: "DOJO_CLINIC",
+          completed: true,
+          questions: [],
+          userResponses: {},
+          correctCount: 0,
+          incorrectCount: 0,
+          finalScore: 0
+        };
+      }
+
+      if (selectedOptIdx === null || selectedOptIdx === undefined) {
+        delete ledger.userResponses[q.id];
+        ledger.questions = (ledger.questions || []).filter(item => item.id !== q.id);
+      } else {
+        const exists = (ledger.questions || []).some(item => item.id === q.id);
+        if (!exists) {
+          ledger.questions.push({
+            id: q.id,
+            subject: q.subject || "QA",
+            chapter: q.chapter || "QA_PERCENTAGE",
+            subtopic: q.subtopic || "",
+            method: q.method || "",
+            correctIndex: q.correctIndex,
+            remediatesQuestionId: q.remediatesQuestionId || null
+          });
+        } else {
+          const idx = ledger.questions.findIndex(item => item.id === q.id);
+          if (idx !== -1) ledger.questions[idx].correctIndex = q.correctIndex;
+        }
+
+        ledger.userResponses[q.id] = {
+          selectedOption: selectedOptIdx,
+          status: "answered",
+          timeSpentSec: Math.max(2, Math.min(300, timeSpentSec || 15)),
+          timestamp: now
+        };
+      }
+
+      let cor = 0, inc = 0;
+      (ledger.questions || []).forEach(item => {
+        const r = ledger.userResponses[item.id];
+        if (r && r.selectedOption !== null && r.selectedOption !== undefined) {
+          if (r.selectedOption === item.correctIndex) cor++;
+          else inc++;
+        }
+      });
+      ledger.correctCount = cor;
+      ledger.incorrectCount = inc;
+      ledger.timestamp = now;
+      ledger.timeIST = formatISTDate(now);
+
+      await putRecord("store_attempts", ledger);
     },
 
     async calculateGlobalMetrics() {
-      const completed = await this.getHistoricalAttempts();
+      const completed = await this.getHistoricalAttempts(false);
       const storedEngagement = await getRecord("store_config", "telemetry_active_study_time_sec");
       const universalStudyTimeSec = (storedEngagement && typeof storedEngagement.value === "number" ? storedEngagement.value : 0) + unsyncedStudySeconds;
 
@@ -2941,7 +3211,7 @@ Return ONLY valid JSON.`;
     },
 
     async getChapterStats(subKey, chapter) {
-      const completed = await this.getHistoricalAttempts();
+      const completed = await this.getHistoricalAttempts(true);
       let attempted = 0, correct = 0, totalTimeSec = 0, wrongCount = 0, lastSeenEpoch = 0;
 
       completed.forEach(att => {
@@ -2952,7 +3222,7 @@ Return ONLY valid JSON.`;
               if (resp && resp.selectedOption !== null && resp.selectedOption !== undefined) {
                 attempted++;
                 totalTimeSec += (resp.timeSpentSec || 0);
-                lastSeenEpoch = Math.max(lastSeenEpoch, att.timestamp || 0);
+                lastSeenEpoch = Math.max(lastSeenEpoch, resp.timestamp || att.timestamp || 0);
                 if (resp.selectedOption === q.correctIndex) {
                   correct++;
                 } else {
@@ -3003,7 +3273,7 @@ Return ONLY valid JSON.`;
     },
 
     async getQuestionPerformanceMap() {
-      const completed = await this.getHistoricalAttempts();
+      const completed = await this.getHistoricalAttempts(true);
       const map = {};
 
       completed.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)).forEach(att => {
@@ -3031,12 +3301,12 @@ Return ONLY valid JSON.`;
                 const stats = map[tId];
                 stats.attempts++;
                 stats.totalTime += (resp.timeSpentSec || 0);
-                stats.lastAttemptEpoch = Math.max(stats.lastAttemptEpoch, att.timestamp || 0);
+                stats.lastAttemptEpoch = Math.max(stats.lastAttemptEpoch, resp.timestamp || att.timestamp || 0);
 
                 if (resp.selectedOption === q.correctIndex) {
                   stats.correct++;
                   const par = getSubjectThresholds(q.subject).parSec;
-                  if ((resp.timeSpentSec || 0) <= par * 1.35) {
+                  if (att.mockType === "DOJO_CLINIC" || (resp.timeSpentSec || 0) <= par * 1.35) {
                     stats.lastWasIncorrect = false;
                   }
                 } else {
@@ -3055,7 +3325,7 @@ Return ONLY valid JSON.`;
     },
 
     async calculateNeglect() {
-      const completed = await this.getHistoricalAttempts();
+      const completed = await this.getHistoricalAttempts(true);
       if (completed.length === 0) return null;
 
       const taxonomy = await TaxonomyService.getTaxonomy();
@@ -4204,11 +4474,17 @@ Return ONLY valid JSON.`;
     safeSetText("split-sheet-title", `${sheet.title} (${sheet.chapter})`);
     const savedMasksRec = await getRecord("store_notes", `masks_${sheet.id}`);
     const masks = savedMasksRec && Array.isArray(savedMasksRec.masks) ? savedMasksRec.masks : [];
+    const savedHlRec = await getRecord("store_notes", `highlights_${sheet.id}`);
+    const highlights = savedHlRec && Array.isArray(savedHlRec.highlights) ? savedHlRec.highlights : [];
 
     safeSetHtml("split-sheet-body", `
       <div style="font-size:11.5px; color:var(--accent-cyan); font-family:var(--font-mono); margin-bottom:8px;">${sheet.subtitle || ""}</div>
-      <div>${formatRichText(sheet.content, masks)}</div>
+      <div id="split-sheet-render-body">${formatRichText(sheet.content, [])}</div>
     `);
+    const renderBody = document.getElementById("split-sheet-render-body");
+    if (renderBody) {
+      applyDomMasksAndHighlights(renderBody, masks, highlights);
+    }
 
     const drawer = document.getElementById("arena-split-sheet-drawer");
     if (drawer) drawer.classList.add("open");
@@ -7083,15 +7359,18 @@ Explanation: ${parentQ.explanation}`;
     if (btn) btn.innerText = isNowOpen ? "\uD83D\uDE48 Hide Solution" : "\uD83D\uDCA1 Solution & Cue";
   }
 
-  function selectShowcaseCardOption(qId, optIdx) {
+  async function selectShowcaseCardOption(qId, optIdx) {
+    const q = await QuestionService.get(qId);
     if (practiceShowcaseSelectedOptionByQ[qId] === optIdx) {
       delete practiceShowcaseSelectedOptionByQ[qId];
       practiceShowcaseRevealedIds.delete(qId);
+      if (q) await PerformanceService.recordUntimedPracticeSolve(q, null, 0);
     } else {
       practiceShowcaseSelectedOptionByQ[qId] = optIdx;
       practiceShowcaseRevealedIds.add(qId);
+      if (q) await PerformanceService.recordUntimedPracticeSolve(q, optIdx, 18);
     }
-    renderPracticeQuestionsTable();
+    await renderPracticeQuestionsTable();
   }
 
   function setPracticeQuickFilter(filterType, btnEl) {
@@ -7926,27 +8205,36 @@ Explanation: ${parentQ.explanation}`;
         <div style="flex:1;">${formatRichText(optText)}</div>
       `;
 
-      card.addEventListener("click", () => {
+      card.addEventListener("click", async () => {
         // 1-Tap Unselect when clicking the already-selected option in Dojo Clinic
         if (resp.selectedOption === idx) {
           resp.selectedOption = null;
           resp.status = "unanswered";
           resp.revealed = false;
           safeSetDisplay("dojo-arena-feedback", "none");
+          await PerformanceService.recordUntimedPracticeSolve(q, null, 0);
           renderDojoArenaQuestion(false);
           return;
         }
+
+        const perfBefore = await PerformanceService.getQuestionPerformanceMap();
+        const wasMistakeDebt = !!(perfBefore[q.id] && perfBefore[q.id].lastWasIncorrect);
 
         resp.selectedOption = idx;
         resp.status = "answered";
         resp.revealed = true;
         clearInterval(dojoStopwatchInterval);
+        const solveTimeSec = Math.max(2, dojoStopwatchSec || 12);
+
         if (dojoSetupSplitSec !== null) {
           const calcSec = Math.max(0, dojoStopwatchSec - dojoSetupSplitSec);
           safeSetText("dojo-stopwatch-splits", `[Setup: ${dojoSetupSplitSec}s | Calc: ${calcSec}s | Total: ${dojoStopwatchSec}s]`);
         } else {
           safeSetText("dojo-stopwatch-splits", `[Solved in ${dojoStopwatchSec}s]`);
         }
+
+        // Persist Untimed Dojo solve to DOJO_CLINIC telemetry ledger
+        await PerformanceService.recordUntimedPracticeSolve(q, idx, solveTimeSec);
 
         if (navigator.vibrate) navigator.vibrate(idx === q.correctIndex ? 25 : [40, 40]);
 
@@ -7957,11 +8245,13 @@ Explanation: ${parentQ.explanation}`;
           if (idx === q.correctIndex) {
             fb.style.background = "rgba(16, 185, 129, 0.22)";
             fb.style.color = "var(--status-green)";
-            fb.innerText = "\u2713 Correct Answer!";
+            fb.innerText = wasMistakeDebt
+              ? "\u2713 Correct Answer! \uD83C\uDF89 Mistake Debt Redeemed & Graduated!"
+              : "\u2713 Correct Answer! (Logged to Practice Mastery)";
           } else {
             fb.style.background = "rgba(244, 63, 94, 0.22)";
             fb.style.color = "var(--status-red)";
-            fb.innerText = `\u2717 Incorrect. Correct is Option ${q.correctIndex + 1}.`;
+            fb.innerText = `\u2717 Incorrect. Correct is Option ${q.correctIndex + 1}. (Flagged in Mistake Debt Queue)`;
           }
         }
       });
@@ -8427,7 +8717,8 @@ Explanation: ${parentQ.explanation}`;
   }
 
   async function renderArchiveList(filterType) {
-    const completed = await PerformanceService.getHistoricalAttempts();
+    const includePractice = filterType === "ALL" || filterType === "DOJO_CLINIC";
+    const completed = await PerformanceService.getHistoricalAttempts(includePractice);
     const container = document.getElementById("archive-list-container");
     if (!container) return;
     container.innerHTML = "";
@@ -8455,6 +8746,7 @@ Explanation: ${parentQ.explanation}`;
     Object.keys(threads).forEach(rootId => {
       const threadAttempts = threads[rootId].sort((a, b) => (a.attemptNumber || 1) - (b.attemptNumber || 1));
       const latest = threadAttempts[threadAttempts.length - 1];
+      const isUntimed = latest.mockType === "DOJO_CLINIC" || latest.mockType === "SHOWCASE_PRACTICE";
 
       const div = document.createElement("div");
       div.className = "attempt-thread-group";
@@ -8465,13 +8757,16 @@ Explanation: ${parentQ.explanation}`;
         <div>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             <b style="font-size:13.5px; color:#fff;">${latest.title}</b>
+            ${isUntimed ? `<span class="badge" style="background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4); font-size:9.5px;">\uD83E\uDDD8 UNTIMED PRACTICE</span>` : ""}
             ${threadAttempts.length > 1 ? `<span class="badge" style="background:#8957e5; font-size:10px;">${threadAttempts.length} Attempts</span>` : ""}
             <span class="badge-slot slot-${(latest.diurnalSlot || "morning").toLowerCase()}">${latest.diurnalSlot || "DAY"}</span>
           </div>
           <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Latest: ${latest.timeIST || formatISTDate(latest.timestamp)}</div>
         </div>
         <div style="text-align:right;">
-          <span style="font-size:15px; font-weight:800; color:var(--accent-cyan);">${(latest.finalScore || 0).toFixed(2)} pts</span>
+          ${isUntimed
+            ? `<span style="font-size:13px; font-weight:800; color:#34d399;">${latest.correctCount || 0}/${latest.attemptedCount || (latest.questions ? latest.questions.length : 0)} Solved</span>`
+            : `<span style="font-size:15px; font-weight:800; color:var(--accent-cyan);">${(latest.finalScore || 0).toFixed(2)} pts</span>`}
         </div>
       `;
 
@@ -8479,14 +8774,15 @@ Explanation: ${parentQ.explanation}`;
       subList.style.display = threadAttempts.length > 1 ? "none" : "block";
 
       threadAttempts.forEach(iter => {
+        const iterUntimed = iter.mockType === "DOJO_CLINIC" || iter.mockType === "SHOWCASE_PRACTICE";
         const row = document.createElement("div");
         row.className = "attempt-sub-row";
         row.innerHTML = `
           <div>
-            <b>Attempt ${iter.attemptNumber || 1}</b> \u2022 <span style="color:var(--text-muted);">${iter.timeIST ? iter.timeIST.split(",")[1] : ""}</span>
+            <b>${iterUntimed ? "Practice Log" : `Attempt ${iter.attemptNumber || 1}`}</b> \u2022 <span style="color:var(--text-muted);">${iter.timeIST ? iter.timeIST.split(",")[1] : ""}</span>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-weight:700; color:var(--accent-cyan);">${(iter.finalScore || 0).toFixed(2)} pts</span>
+            <span style="font-weight:700; color:${iterUntimed ? "#34d399" : "var(--accent-cyan)"};">${iterUntimed ? `${iter.correctCount || 0} Correct` : `${(iter.finalScore || 0).toFixed(2)} pts`}</span>
             <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px; color:var(--accent-cyan);" onclick="CGL_OS.exportMockByIdJson('${iter.sessionId}')">\uD83D\uDCE5 Export</button>
             <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" onclick="CGL_OS.openMockReview('${iter.sessionId}')">Inspect</button>
             <button class="btn btn-danger" style="padding:2px 8px; font-size:11px;" onclick="CGL_OS.deleteAttemptSession('${iter.sessionId}')">\uD83D\uDDD1</button>
@@ -8519,18 +8815,92 @@ Explanation: ${parentQ.explanation}`;
   }
 
   /* ==========================================================================
-   * SECTION 25: LIVING KNOWLEDGE STUDIO, USER-DEFINED 🙈 RECALL MASKS,
-   * ALL-SHEETS MASTER INDEX & 🪄 AI SHEET ARCHITECT
+   * SECTION 25: LIVING KNOWLEDGE STUDIO, OCCURRENCE-INDEXED 🙈 RECALL MASKS,
+   * 4-COLOR SEMANTIC HIGHLIGHTER, 3 READING SURFACE PRESETS, SHEET SRS & AI ARCHITECT
    * ========================================================================== */
+  function toggleCompSheetSwitcherDrawer(forceState = null) {
+    const drawer = document.getElementById("comp-sheet-switcher-drawer");
+    const dockBtn = document.getElementById("dock-btn-sheets");
+    if (!drawer) return;
+    const nextState = forceState !== null ? forceState : !drawer.classList.contains("open");
+    drawer.classList.toggle("open", nextState);
+    if (dockBtn) dockBtn.classList.toggle("active", nextState);
+    if (nextState) {
+      document.getElementById("comp-zen-header")?.classList.remove("comp-zen-header-hidden");
+    }
+  }
+
+  function toggleCompHighlightPopover(forceState = null) {
+    const pop = document.getElementById("comp-dock-highlight-popover");
+    if (!pop) return;
+    const nextState = forceState !== null ? forceState : !pop.classList.contains("open");
+    pop.classList.toggle("open", nextState);
+    if (nextState) {
+      document.getElementById("comp-dock-more-popover")?.classList.remove("open");
+      if (!compendiumHighlightMode) {
+        toggleCompendiumHighlightMode(true);
+      }
+    }
+  }
+
+  function toggleCompStudioMoreMenu(forceState = null) {
+    const pop = document.getElementById("comp-dock-more-popover");
+    if (!pop) return;
+    const nextState = forceState !== null ? forceState : !pop.classList.contains("open");
+    pop.classList.toggle("open", nextState);
+    if (nextState) {
+      document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
+    }
+  }
+
+  async function setCompendiumPaperPreset(mode = "FOLLOW_GLOBAL", saveOverride = true) {
+    compendiumPaperPreset = mode || "FOLLOW_GLOBAL";
+    const folio = document.getElementById("comp-studio-folio");
+    const globalTheme = document.documentElement?.getAttribute("data-theme") || "midnight";
+
+    let effectiveSurface = compendiumPaperPreset;
+    if (compendiumPaperPreset === "FOLLOW_GLOBAL") {
+      effectiveSurface = globalTheme === "charcoal" ? "CHARCOAL" : "OBSIDIAN";
+    }
+
+    if (folio) {
+      folio.setAttribute("data-paper-preset", effectiveSurface);
+    }
+
+    const chipMap = {
+      FOLLOW_GLOBAL: "preset-chip-GLOBAL",
+      OBSIDIAN: "preset-chip-OBSIDIAN",
+      CHARCOAL: "preset-chip-CHARCOAL",
+      SEPIA: "preset-chip-SEPIA"
+    };
+    Object.keys(chipMap).forEach(k => {
+      const btn = document.getElementById(chipMap[k]);
+      if (btn) btn.classList.toggle("active", k === compendiumPaperPreset);
+    });
+
+    if (saveOverride && currentCompSheets[activeCompSheetIndex]) {
+      const sheet = currentCompSheets[activeCompSheetIndex];
+      await putRecord("store_notes", {
+        id: `paper_preset_${sheet.id}`,
+        preset: compendiumPaperPreset,
+        timestamp: Date.now()
+      });
+    }
+  }
+
   function toggleCompendiumRecallMode(forceState = null) {
     compendiumRecallMode = forceState !== null ? forceState : !compendiumRecallMode;
-    if (compendiumRecallMode && compendiumMaskEditMode) {
-      toggleCompendiumMaskEditMode(false);
+    if (compendiumRecallMode) {
+      if (compendiumMaskEditMode) toggleCompendiumMaskEditMode(false);
+      if (compendiumHighlightMode) toggleCompendiumHighlightMode(false);
     }
 
     const canvas = document.getElementById("comp-studio-canvas");
     const btn = document.getElementById("btn-comp-recall-mode");
+    const dockBtn = document.getElementById("dock-btn-recall");
+    const dockLbl = document.getElementById("dock-recall-label");
     const autoBlurBtn = document.getElementById("btn-comp-auto-blur-all");
+    const srsBar = document.getElementById("comp-srs-grading-bar");
 
     if (canvas) {
       canvas.classList.toggle("recall-mode-active", compendiumRecallMode);
@@ -8542,8 +8912,17 @@ Explanation: ${parentQ.explanation}`;
       btn.classList.toggle("active", compendiumRecallMode);
       btn.innerText = compendiumRecallMode ? "\uD83D\uDC41\uFE0F Recall ON" : "\uD83D\uDE48 Recall Mode";
     }
+    if (dockBtn) {
+      dockBtn.classList.toggle("active", compendiumRecallMode);
+    }
+    if (dockLbl) {
+      dockLbl.innerText = compendiumRecallMode ? "Recall ON" : "Recall";
+    }
     if (autoBlurBtn) {
       autoBlurBtn.style.display = compendiumRecallMode ? "inline-flex" : "none";
+    }
+    if (srsBar) {
+      srsBar.style.display = compendiumRecallMode ? "flex" : "none";
     }
   }
 
@@ -8556,17 +8935,20 @@ Explanation: ${parentQ.explanation}`;
     }
     if (btn) {
       btn.classList.toggle("btn-cyan", compendiumAutoBlurAll);
-      btn.innerText = compendiumAutoBlurAll ? "\u2713 Auto-Blur ON" : "+Auto-Blur All";
+      btn.innerText = compendiumAutoBlurAll ? "\u2713 Auto-Blur ON" : "+Auto-Blur All Formulas/Bold";
     }
   }
 
   function toggleCompendiumMaskEditMode(forceState = null) {
     compendiumMaskEditMode = forceState !== null ? forceState : !compendiumMaskEditMode;
-    if (compendiumMaskEditMode && compendiumRecallMode) {
-      toggleCompendiumRecallMode(false);
+    if (compendiumMaskEditMode) {
+      if (compendiumRecallMode) toggleCompendiumRecallMode(false);
+      if (compendiumHighlightMode) toggleCompendiumHighlightMode(false);
     }
     const canvas = document.getElementById("comp-studio-canvas");
     const btn = document.getElementById("btn-comp-edit-masks");
+    const dockBtn = document.getElementById("dock-btn-mask");
+    const dockLbl = document.getElementById("dock-mask-label");
     if (canvas) {
       canvas.classList.toggle("mask-edit-mode-active", compendiumMaskEditMode);
     }
@@ -8574,27 +8956,259 @@ Explanation: ${parentQ.explanation}`;
       btn.classList.toggle("btn-amber", compendiumMaskEditMode);
       btn.innerText = compendiumMaskEditMode ? "\u2713 Done Masking" : "\uD83D\uDD8C\uFE0F Edit Masks";
     }
+    if (dockBtn) {
+      dockBtn.classList.toggle("active-amber", compendiumMaskEditMode);
+    }
+    if (dockLbl) {
+      dockLbl.innerText = compendiumMaskEditMode ? "Mask ON" : "Mask";
+    }
   }
 
-  async function toggleCustomMaskPhraseOnActiveSheet(phraseText) {
-    const sheet = currentCompSheets[activeCompSheetIndex];
-    if (!sheet) return;
-    const cleanP = String(phraseText || "").trim();
-    if (cleanP.length < 2) return;
-
-    const existingIdx = activeSheetCustomMasks.indexOf(cleanP);
-    if (existingIdx !== -1) {
-      activeSheetCustomMasks.splice(existingIdx, 1);
+  function toggleCompendiumHighlightMode(forceState = null) {
+    compendiumHighlightMode = forceState !== null ? forceState : !compendiumHighlightMode;
+    if (compendiumHighlightMode) {
+      if (compendiumRecallMode) toggleCompendiumRecallMode(false);
+      if (compendiumMaskEditMode) toggleCompendiumMaskEditMode(false);
     } else {
-      activeSheetCustomMasks.push(cleanP);
+      document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
+    }
+    const canvas = document.getElementById("comp-studio-canvas");
+    const dockBtn = document.getElementById("dock-btn-highlight");
+    const dockLbl = document.getElementById("dock-hl-label");
+    if (canvas) {
+      canvas.classList.toggle("highlight-edit-mode-active", compendiumHighlightMode);
+    }
+    if (dockBtn) {
+      dockBtn.classList.toggle("active", compendiumHighlightMode);
+    }
+    if (dockLbl) {
+      dockLbl.innerText = compendiumHighlightMode ? "Highlight ON" : "Highlight";
+    }
+  }
+
+  function setCompendiumHighlightColor(color) {
+    const valid = ["amber", "emerald", "cyan", "rose"];
+    compendiumActiveHighlightColor = valid.includes(color) ? color : "amber";
+
+    const colorHexMap = {
+      amber: "#f59e0b",
+      emerald: "#10b981",
+      cyan: "#06b6d4",
+      rose: "#f43f5e"
+    };
+    const dot = document.getElementById("dock-hl-color-dot");
+    if (dot) dot.style.background = colorHexMap[compendiumActiveHighlightColor];
+
+    document.querySelectorAll("#comp-dock-highlight-popover .hl-swatch-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-hl-color") === compendiumActiveHighlightColor);
+    });
+
+    toggleCompendiumHighlightMode(true);
+  }
+
+  /**
+   * OCCURRENCE-INDEXED SURGICAL RECALL MASKING:
+   * Stores { phrase, occurrence } so tapping or selecting the k-th instance of a word
+   * (e.g. "home" or "1/2") ONLY masks that exact k-th occurrence!
+   */
+  async function toggleCustomMaskPhraseOnActiveSheet(phraseText, occurrence = null, targetSheetId = null) {
+    const sheetId = targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
+    if (!sheetId) return;
+    const cleanP = String(phraseText || "").replace(/\s+/g, " ").trim();
+    if (cleanP.length < 1) return;
+
+    const normTarget = cleanP.toLowerCase();
+    const hasOcc = occurrence !== null && occurrence !== undefined && !Number.isNaN(Number(occurrence));
+    const targetOcc = hasOcc ? Number(occurrence) : null;
+
+    let masksList = activeSheetCustomMasks;
+    if (targetSheetId && (!currentCompSheets[activeCompSheetIndex] || currentCompSheets[activeCompSheetIndex].id !== targetSheetId)) {
+      const rec = await getRecord("store_notes", `masks_${sheetId}`);
+      masksList = rec && Array.isArray(rec.masks) ? rec.masks : [];
     }
 
+    const existingIdx = masksList.findIndex(item => {
+      const itemPhrase = String(typeof item === "string" ? item : (item && item.phrase ? item.phrase : "")).replace(/\s+/g, " ").trim().toLowerCase();
+      const itemOcc = (typeof item === "object" && item !== null && typeof item.occurrence === "number") ? item.occurrence : null;
+      if (itemPhrase !== normTarget) return false;
+      if (targetOcc !== null && itemOcc !== null) return itemOcc === targetOcc;
+      return true;
+    });
+
+    if (existingIdx !== -1) {
+      masksList.splice(existingIdx, 1);
+    } else {
+      masksList.push({
+        phrase: cleanP,
+        occurrence: targetOcc !== null ? targetOcc : 0
+      });
+    }
+
+    if (!targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id === sheetId)) {
+      activeSheetCustomMasks = masksList;
+    }
+
+    await putRecord("store_notes", {
+      id: `masks_${sheetId}`,
+      masks: masksList,
+      timestamp: Date.now()
+    });
+
+    if (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id === sheetId) {
+      await renderActiveCompSheet();
+    }
+    if (activeSplitSheetId === sheetId && document.getElementById("arena-split-sheet-drawer")?.classList.contains("open")) {
+      await openSplitSheetDrawer(sheetId, activeSplitSheetSubject, activeSplitSheetChapter);
+    }
+  }
+
+  /**
+   * OCCURRENCE-INDEXED 4-COLOR SEMANTIC HIGHLIGHTER:
+   * Stores { phrase, color, occurrence } in store_notes (highlights_${sheetId}).
+   */
+  async function toggleCustomHighlightOnActiveSheet(phraseText, color = "amber", occurrence = null, targetSheetId = null) {
+    const sheetId = targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id);
+    if (!sheetId) return;
+    const cleanP = String(phraseText || "").replace(/\s+/g, " ").trim();
+    if (cleanP.length < 1) return;
+
+    const normTarget = cleanP.toLowerCase();
+    const hasOcc = occurrence !== null && occurrence !== undefined && !Number.isNaN(Number(occurrence));
+    const targetOcc = hasOcc ? Number(occurrence) : 0;
+
+    let hlList = activeSheetHighlights;
+    if (targetSheetId && (!currentCompSheets[activeCompSheetIndex] || currentCompSheets[activeCompSheetIndex].id !== targetSheetId)) {
+      const rec = await getRecord("store_notes", `highlights_${sheetId}`);
+      hlList = rec && Array.isArray(rec.highlights) ? rec.highlights : [];
+    }
+
+    const existingIdx = hlList.findIndex(item => {
+      if (!item || !item.phrase) return false;
+      const itemPhrase = String(item.phrase).replace(/\s+/g, " ").trim().toLowerCase();
+      const itemOcc = typeof item.occurrence === "number" ? item.occurrence : 0;
+      return itemPhrase === normTarget && itemOcc === targetOcc;
+    });
+
+    if (existingIdx !== -1) {
+      if (hlList[existingIdx].color === color) {
+        hlList.splice(existingIdx, 1);
+      } else {
+        hlList[existingIdx].color = color;
+      }
+    } else {
+      hlList.push({
+        phrase: cleanP,
+        color: color || "amber",
+        occurrence: targetOcc
+      });
+    }
+
+    if (!targetSheetId || (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id === sheetId)) {
+      activeSheetHighlights = hlList;
+    }
+
+    await putRecord("store_notes", {
+      id: `highlights_${sheetId}`,
+      highlights: hlList,
+      timestamp: Date.now()
+    });
+
+    if (currentCompSheets[activeCompSheetIndex] && currentCompSheets[activeCompSheetIndex].id === sheetId) {
+      await renderActiveCompSheet();
+    }
+    if (activeSplitSheetId === sheetId && document.getElementById("arena-split-sheet-drawer")?.classList.contains("open")) {
+      await openSplitSheetDrawer(sheetId, activeSplitSheetSubject, activeSplitSheetChapter);
+    }
+  }
+
+  async function removeCustomMaskByIndex(idx) {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet || idx < 0 || idx >= activeSheetCustomMasks.length) return;
+    activeSheetCustomMasks.splice(idx, 1);
     await putRecord("store_notes", {
       id: `masks_${sheet.id}`,
       masks: activeSheetCustomMasks,
       timestamp: Date.now()
     });
     await renderActiveCompSheet();
+  }
+
+  async function removeCustomHighlightByIndex(idx) {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet || idx < 0 || idx >= activeSheetHighlights.length) return;
+    activeSheetHighlights.splice(idx, 1);
+    await putRecord("store_notes", {
+      id: `highlights_${sheet.id}`,
+      highlights: activeSheetHighlights,
+      timestamp: Date.now()
+    });
+    await renderActiveCompSheet();
+  }
+
+  async function rateCurrentSheetRecall(grade) {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet) return;
+    const now = Date.now();
+    const prev = await getRecord("store_notes", `srs_${sheet.id}`);
+    let intervalDays = 1;
+    if (grade === "GOOD") intervalDays = 3;
+    if (grade === "EASY") intervalDays = 7;
+
+    const srsRecord = {
+      id: `srs_${sheet.id}`,
+      sheetId: sheet.id,
+      grade,
+      intervalDays,
+      lastReviewedEpoch: now,
+      dueEpoch: now + intervalDays * 86400000,
+      reviewCount: (prev && prev.reviewCount ? prev.reviewCount : 0) + 1
+    };
+    await putRecord("store_notes", srsRecord);
+    updateSheetSrsBadges(srsRecord);
+  }
+
+  function updateSheetSrsBadges(srsRecord) {
+    const dueBadge = document.getElementById("comp-srs-due-badge");
+    const zenBadge = document.getElementById("comp-zen-srs-badge");
+    const now = Date.now();
+
+    if (!srsRecord || !srsRecord.dueEpoch) {
+      if (dueBadge) {
+        dueBadge.innerText = "Unreviewed";
+        dueBadge.style.color = "var(--text-muted)";
+      }
+      if (zenBadge) {
+        zenBadge.innerText = "SRS: New";
+        zenBadge.style.background = "rgba(148,163,184,0.14)";
+        zenBadge.style.color = "var(--text-muted)";
+      }
+      return;
+    }
+
+    const diffMs = srsRecord.dueEpoch - now;
+    const diffDays = Math.ceil(diffMs / 86400000);
+    if (diffMs <= 0) {
+      if (dueBadge) {
+        dueBadge.innerText = "\uD83D\uDD34 Due Today";
+        dueBadge.style.color = "#fb7185";
+      }
+      if (zenBadge) {
+        zenBadge.innerText = "\uD83D\uDD34 Due Now";
+        zenBadge.style.background = "rgba(244,63,94,0.18)";
+        zenBadge.style.color = "#fb7185";
+      }
+    } else {
+      const label = `Due in ${diffDays}d (${srsRecord.grade || "OK"})`;
+      if (dueBadge) {
+        dueBadge.innerText = `\u2713 ${label}`;
+        dueBadge.style.color = "#34d399";
+      }
+      if (zenBadge) {
+        zenBadge.innerText = `SRS: ${diffDays}d`;
+        zenBadge.style.background = "rgba(16,185,129,0.16)";
+        zenBadge.style.color = "#34d399";
+      }
+    }
   }
 
   function applyCompendiumZoomStyle() {
@@ -8623,26 +9237,38 @@ Explanation: ${parentQ.explanation}`;
     applyCompendiumZoomStyle();
   }
 
-  function extractWordAtPoint(clientX, clientY) {
-    let range = null;
+  /**
+   * Extracts both the word under (clientX, clientY) AND its exact 0-based occurrence index
+   * within containerEl so single-tap masking/highlighting only affects that exact instance.
+   */
+  function extractWordAndOccurrenceAtPoint(containerEl, clientX, clientY) {
+    let caretRange = null;
     if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(clientX, clientY);
+      caretRange = document.caretRangeFromPoint(clientX, clientY);
     } else if (document.caretPositionFromPoint) {
       const pos = document.caretPositionFromPoint(clientX, clientY);
       if (pos) {
-        range = document.createRange();
-        range.setStart(pos.offsetNode, pos.offset);
-        range.collapse(true);
+        caretRange = document.createRange();
+        caretRange.setStart(pos.offsetNode, pos.offset);
+        caretRange.collapse(true);
       }
     }
-    if (!range || !range.startContainer || range.startContainer.nodeType !== 3) return "";
-    const text = range.startContainer.textContent || "";
-    const offset = range.startOffset;
+    if (!caretRange || !caretRange.startContainer || caretRange.startContainer.nodeType !== 3) return null;
+    const textNode = caretRange.startContainer;
+    const text = textNode.textContent || "";
+    const offset = caretRange.startOffset;
     let start = offset;
     let end = offset;
-    while (start > 0 && /[\w\d.%₹+-]/.test(text[start - 1])) start--;
-    while (end < text.length && /[\w\d.%₹+-]/.test(text[end])) end++;
-    return text.slice(start, end).trim();
+    while (start > 0 && /[\w\d.%₹+\-°/()]/.test(text[start - 1])) start--;
+    while (end < text.length && /[\w\d.%₹+\-°/()]/.test(text[end])) end++;
+    const word = text.slice(start, end).trim();
+    if (!word) return null;
+
+    const wordRange = document.createRange();
+    wordRange.setStart(textNode, start);
+    wordRange.setEnd(textNode, end);
+    const occurrence = computePhraseOccurrenceAtRange(containerEl, wordRange, word);
+    return { word, occurrence };
   }
 
   function initCompendiumRecallTapHandler() {
@@ -8650,25 +9276,51 @@ Explanation: ${parentQ.explanation}`;
     if (!canvas || canvas.dataset.recallBound === "true") return;
     canvas.dataset.recallBound = "true";
 
-    // Universal Drag/Range Selection Masker when 🖌️ Edit Masks Mode is ON
-    const handleEditMaskRangeEnd = async () => {
-      if (!compendiumMaskEditMode) return;
+    // Auto-Collapsing Zen Header on Scroll
+    let lastScrollTop = 0;
+    canvas.addEventListener("scroll", () => {
+      const st = canvas.scrollTop || 0;
+      const delta = st - lastScrollTop;
+      const zenHeader = document.getElementById("comp-zen-header");
+      if (zenHeader) {
+        if (st > 48 && delta > 7) {
+          zenHeader.classList.add("comp-zen-header-hidden");
+          document.getElementById("comp-sheet-switcher-drawer")?.classList.remove("open");
+          document.getElementById("dock-btn-sheets")?.classList.remove("active");
+          document.getElementById("comp-dock-more-popover")?.classList.remove("open");
+        } else if (delta < -8 || st <= 24) {
+          zenHeader.classList.remove("comp-zen-header-hidden");
+        }
+      }
+      lastScrollTop = st;
+    }, { passive: true });
+
+    // Universal Drag/Range Selection Masker & Highlighter when Dock Mode is ON
+    const handleEditRangeEnd = async () => {
+      if (!compendiumMaskEditMode && !compendiumHighlightMode) return;
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return;
-      const selectedTxt = sel.toString().trim();
-      if (selectedTxt.length >= 2 && selectedTxt.length <= 220) {
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+      const selectedTxt = sel.toString().replace(/\s+/g, " ").trim();
+      if (selectedTxt.length >= 2 && selectedTxt.length <= 240) {
+        const range = sel.getRangeAt(0);
         const anchorNode = sel.anchorNode;
         const el = anchorNode && anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
-        if (el && el.closest("#comp-studio-doc-content")) {
+        const docBody = document.getElementById("comp-studio-doc-body") || document.getElementById("comp-studio-doc-content");
+        if (el && docBody && docBody.contains(el)) {
+          const occ = computePhraseOccurrenceAtRange(docBody, range, selectedTxt);
           sel.removeAllRanges();
           document.getElementById("selection-action-popover")?.classList.remove("active");
-          await toggleCustomMaskPhraseOnActiveSheet(selectedTxt);
+          if (compendiumMaskEditMode) {
+            await toggleCustomMaskPhraseOnActiveSheet(selectedTxt, occ);
+          } else if (compendiumHighlightMode) {
+            await toggleCustomHighlightOnActiveSheet(selectedTxt, compendiumActiveHighlightColor, occ);
+          }
         }
       }
     };
 
-    canvas.addEventListener("mouseup", () => setTimeout(handleEditMaskRangeEnd, 25));
-    canvas.addEventListener("touchend", () => setTimeout(handleEditMaskRangeEnd, 60), { passive: true });
+    canvas.addEventListener("mouseup", () => setTimeout(handleEditRangeEnd, 25));
+    canvas.addEventListener("touchend", () => setTimeout(handleEditRangeEnd, 60), { passive: true });
 
     // 2-Finger Pinch-to-Zoom on Living Knowledge Studio Canvas (0.75x to 2.2x)
     let pinchStartDist = 0;
@@ -8698,44 +9350,85 @@ Explanation: ${parentQ.explanation}`;
     }, { passive: true });
 
     canvas.addEventListener("click", async (e) => {
-      // 1. In 🖌️ Edit Masks Mode: tapping any existing mask, formula, cell, heading, or single word toggles it!
+      const docBody = document.getElementById("comp-studio-doc-body") || document.getElementById("comp-studio-doc-content");
+      if (!docBody || !docBody.contains(e.target)) return;
+
+      // 1. In 🖌️ Edit Masks Mode: tapping any existing mask or exact word toggles ONLY that occurrence!
       if (compendiumMaskEditMode) {
         const existingMask = e.target.closest(".user-recall-mask");
-        if (existingMask && canvas.contains(existingMask)) {
+        if (existingMask && docBody.contains(existingMask)) {
           e.preventDefault();
           e.stopPropagation();
-          const textVal = (existingMask.innerText || "").trim();
+          const attrPhrase = existingMask.getAttribute("data-mask-phrase") || (existingMask.innerText || "").trim();
+          const attrOcc = existingMask.getAttribute("data-mask-occ");
+          if (attrOcc === "INLINE_BRACE") {
+            const sheet = currentCompSheets[activeCompSheetIndex];
+            if (sheet && attrPhrase) {
+              const escaped = attrPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              sheet.content = sheet.content.replace(new RegExp(`\\{\\{\\s*${escaped}\\s*\\}\\}`), attrPhrase);
+              await ConceptService.update(sheet.id, sheet);
+              await renderActiveCompSheet();
+            }
+            return;
+          }
+          const occNum = attrOcc !== null && attrOcc !== "" ? Number(attrOcc) : null;
+          if (attrPhrase.length >= 1) {
+            await toggleCustomMaskPhraseOnActiveSheet(attrPhrase, occNum);
+          }
+          return;
+        }
+
+        const structTarget = e.target.closest(".katex-display, .katex");
+        if (structTarget && docBody.contains(structTarget)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const textVal = (structTarget.innerText || "").replace(/\s+/g, " ").trim();
           if (textVal.length >= 1) {
-            await toggleCustomMaskPhraseOnActiveSheet(textVal);
+            const r = document.createRange();
+            r.selectNodeContents(structTarget);
+            const occ = computePhraseOccurrenceAtRange(docBody, r, textVal);
+            await toggleCustomMaskPhraseOnActiveSheet(textVal, occ);
           }
           return;
         }
 
-        const structTarget = e.target.closest(".katex-display, .katex, strong, em, td, th, h1, h2, h3, h4");
-        if (structTarget && canvas.contains(structTarget)) {
+        const extracted = extractWordAndOccurrenceAtPoint(docBody, e.clientX, e.clientY);
+        if (extracted && extracted.word.length >= 1) {
           e.preventDefault();
           e.stopPropagation();
-          const textVal = (structTarget.innerText || "").trim();
-          if (textVal.length >= 2) {
-            await toggleCustomMaskPhraseOnActiveSheet(textVal);
-          }
-          return;
-        }
-
-        // Otherwise extract the exact word under the tap!
-        const word = extractWordAtPoint(e.clientX, e.clientY);
-        if (word && word.length >= 2) {
-          e.preventDefault();
-          e.stopPropagation();
-          await toggleCustomMaskPhraseOnActiveSheet(word);
+          await toggleCustomMaskPhraseOnActiveSheet(extracted.word, extracted.occurrence);
         }
         return;
       }
 
-      // 2. In 🙈 Recall Mode: tapping any blurred element reveals/unblurs it on the spot!
+      // 2. In 🖍️ Highlight Mode: tapping an existing highlight or word applies/toggles ONLY that occurrence!
+      if (compendiumHighlightMode) {
+        const existingHl = e.target.closest(".user-highlight");
+        if (existingHl && docBody.contains(existingHl)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const attrPhrase = existingHl.getAttribute("data-hl-phrase") || (existingHl.innerText || "").trim();
+          const attrOcc = existingHl.getAttribute("data-hl-occ");
+          const occNum = attrOcc !== null && attrOcc !== "" ? Number(attrOcc) : 0;
+          if (attrPhrase.length >= 1) {
+            await toggleCustomHighlightOnActiveSheet(attrPhrase, compendiumActiveHighlightColor, occNum);
+          }
+          return;
+        }
+
+        const extracted = extractWordAndOccurrenceAtPoint(docBody, e.clientX, e.clientY);
+        if (extracted && extracted.word.length >= 2) {
+          e.preventDefault();
+          e.stopPropagation();
+          await toggleCustomHighlightOnActiveSheet(extracted.word, compendiumActiveHighlightColor, extracted.occurrence);
+        }
+        return;
+      }
+
+      // 3. In 🙈 Recall Mode: tapping any blurred element reveals/unblurs it on the spot!
       if (compendiumRecallMode) {
         const target = e.target.closest(".user-recall-mask, strong, .katex-display, td");
-        if (target && canvas.contains(target)) {
+        if (target && docBody.contains(target)) {
           target.classList.toggle("recall-revealed");
         }
       }
@@ -8754,11 +9447,28 @@ Explanation: ${parentQ.explanation}`;
     if (!listEl) return;
 
     const subFilter = document.getElementById("sheets-index-filter-sub")?.value || "ALL";
+    const srsFilter = document.getElementById("sheets-index-filter-srs")?.value || "ALL";
     const term = (document.getElementById("sheets-index-search")?.value || "").trim().toLowerCase();
     const allConcepts = await ConceptService.getAll();
+    const allNotes = await getAllRecords("store_notes");
+    const srsMap = {};
+    const now = Date.now();
+    allNotes.forEach(n => {
+      if (n && typeof n.id === "string" && n.id.startsWith("srs_")) {
+        srsMap[n.id.replace("srs_", "")] = n;
+      }
+    });
 
     const filtered = allConcepts.filter(c => {
       if (subFilter !== "ALL" && c.subject !== subFilter) return false;
+      const srs = srsMap[c.id];
+      if (srsFilter === "DUE") {
+        if (!srs || !srs.dueEpoch || srs.dueEpoch > now) return false;
+      } else if (srsFilter === "UNREVIEWED") {
+        if (srs && srs.reviewCount > 0) return false;
+      } else if (srsFilter === "MASTERED") {
+        if (!srs || !srs.dueEpoch || srs.dueEpoch <= now) return false;
+      }
       if (term) {
         const inTitle = (c.title || "").toLowerCase().includes(term);
         const inSub = (c.subtitle || "").toLowerCase().includes(term);
@@ -8791,12 +9501,25 @@ Explanation: ${parentQ.explanation}`;
       listEl.appendChild(head);
 
       grouped[groupKey].forEach(sheet => {
+        const srs = srsMap[sheet.id];
+        let srsPill = `<span class="badge" style="background:rgba(148,163,184,0.12); color:var(--text-muted); font-size:9.5px;">New</span>`;
+        if (srs && srs.dueEpoch) {
+          if (srs.dueEpoch <= now) {
+            srsPill = `<span class="badge" style="background:rgba(244,63,94,0.18); color:#fb7185; font-size:9.5px;">\uD83D\uDD34 Due</span>`;
+          } else {
+            const d = Math.ceil((srs.dueEpoch - now) / 86400000);
+            srsPill = `<span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; font-size:9.5px;">\u2713 ${d}d</span>`;
+          }
+        }
         const row = document.createElement("div");
         row.className = "tree-node-row";
         row.style.marginBottom = "6px";
         row.innerHTML = `
-          <div style="overflow:hidden;">
-            <b style="font-size:13px; color:#fff;">\uD83D\uDCD6 ${sheet.title}</b>
+          <div style="overflow:hidden; flex:1;">
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <b style="font-size:13px; color:#fff;">\uD83D\uDCD6 ${sheet.title}</b>
+              ${srsPill}
+            </div>
             <div style="font-size:11px; color:var(--text-muted);">${sheet.subtitle || sheet.id}</div>
           </div>
           <button class="btn btn-cyan" style="padding:3px 10px; font-size:11px; flex-shrink:0;">Open \u2794</button>
@@ -8860,7 +9583,6 @@ Explanation: ${parentQ.explanation}`;
       if (badge) badge.innerText = `\u2713 Staged by: ${res.sourceLabel}`;
       document.getElementById("modal-ai-sheet-architect")?.classList.remove("active");
 
-      // Open in Staging Editor (#modal-concept-editor) so user inspects and approves before saving!
       openConceptEditorModal(!sheet);
       safeSetValue("concept-edit-body", res.rawText.trim());
       alert(`🪄 Sheet staged by ${res.sourceLabel}! Review the Markdown in the editor and tap 'Save Living Sheet' to commit.`);
@@ -8965,7 +9687,8 @@ Explanation: ${parentQ.explanation}`;
         `;
       }
       safeSetText("comp-linked-q-count", "0 Questions Linked");
-      safeSetText("comp-mask-count-badge", "0 Custom Masks");
+      safeSetText("dock-drill-q-badge", "0 Qs");
+      safeSetText("comp-mask-count-badge", "0 Masks \u2022 0 Highlights");
       return;
     }
 
@@ -8999,25 +9722,64 @@ Explanation: ${parentQ.explanation}`;
     });
 
     safeSetText("comp-studio-header-title", sheet.title);
-    safeSetText("comp-studio-header-sub", `${sheet.chapter} \u2022 Sheet ${activeCompSheetIndex + 1} of ${currentCompSheets.length} \u2022 Swipe Left/Right`);
+    safeSetText("comp-studio-header-sub", `${sheet.chapter} \u2022 Sheet ${activeCompSheetIndex + 1}/${currentCompSheets.length}`);
+
+    // Load Paper Surface Preset (per-sheet override or follow global)
+    const presetRec = await getRecord("store_notes", `paper_preset_${sheet.id}`);
+    const savedPreset = presetRec && presetRec.preset ? presetRec.preset : "FOLLOW_GLOBAL";
+    await setCompendiumPaperPreset(savedPreset, false);
+
+    // Load Sheet SRS state
+    const srsRec = await getRecord("store_notes", `srs_${sheet.id}`);
+    updateSheetSrsBadges(srsRec);
 
     const linkedQs = await ConceptService.getLinkedQuestions(sheet.id, sheet.chapter);
-    safeSetText("comp-linked-q-count", `${linkedQs.length} Associated Questions Linked`);
+    safeSetText("comp-linked-q-count", `${linkedQs.length} Associated Question${linkedQs.length === 1 ? "" : "s"}`);
+    safeSetText("dock-drill-q-badge", `${linkedQs.length} Qs`);
 
-    // Load persisted user-defined custom masks for this sheet
+    // Load persisted occurrence-indexed custom masks & 4-color highlights for this sheet
     const savedMasksRec = await getRecord("store_notes", `masks_${sheet.id}`);
     activeSheetCustomMasks = savedMasksRec && Array.isArray(savedMasksRec.masks) ? savedMasksRec.masks : [];
 
+    const savedHlRec = await getRecord("store_notes", `highlights_${sheet.id}`);
+    activeSheetHighlights = savedHlRec && Array.isArray(savedHlRec.highlights) ? savedHlRec.highlights : [];
+
     const inlineBraceCount = (sheet.content.match(/\{\{[\s\S]+?\}\}/g) || []).length;
     const totalMasks = activeSheetCustomMasks.length + inlineBraceCount;
-    safeSetText("comp-mask-count-badge", `${totalMasks} Custom Mask${totalMasks === 1 ? "" : "s"}`);
+    safeSetText("comp-mask-count-badge", `${totalMasks} Mask${totalMasks === 1 ? "" : "s"} \u2022 ${activeSheetHighlights.length} Highlight${activeSheetHighlights.length === 1 ? "" : "s"}`);
+
+    // Live Mistake-to-Sheet Callout Banner
+    const perfMap = await PerformanceService.getQuestionPerformanceMap();
+    const failedLinkedQs = linkedQs.filter(q => perfMap[q.id] && (perfMap[q.id].lastWasIncorrect || perfMap[q.id].wrong > 0));
+    const mistakeSlot = document.getElementById("comp-mistake-alert-slot");
+    if (mistakeSlot) {
+      if (failedLinkedQs.length > 0) {
+        const unresolvedCount = failedLinkedQs.filter(q => perfMap[q.id]?.lastWasIncorrect).length;
+        mistakeSlot.innerHTML = `
+          <div class="comp-mistake-callout-banner">
+            <div>
+              <div style="font-size:11.5px; font-weight:800; color:#fda4af;">
+                \u26A0\uFE0F Exam Vulnerability Link: ${failedLinkedQs.length} Mistake Question${failedLinkedQs.length === 1 ? "" : "s"} Tied to This Sheet
+                ${unresolvedCount > 0 ? `<span class="badge" style="background:#e11d48; color:#fff; font-size:9.5px; margin-left:4px;">${unresolvedCount} Unresolved Debt</span>` : ""}
+              </div>
+              <div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">
+                Review the highlighted traps below, then clear your mistake debt in Untimed Dojo.
+              </div>
+            </div>
+            <button class="btn btn-emerald" style="padding:4px 10px; font-size:11px; flex-shrink:0;" onclick="CGL_OS.launchFailedSheetQuestionsDojo()">\uD83E\uDDD8 Fix ${failedLinkedQs.length} Mistake${failedLinkedQs.length === 1 ? "" : "s"} in Dojo</button>
+          </div>
+        `;
+      } else {
+        mistakeSlot.innerHTML = "";
+      }
+    }
 
     const toc = ConceptService.generateTOC(sheet.content);
     let tocHtml = "";
     if (toc.length > 0) {
       tocHtml = `
         <div class="sheet-toc-pill-wrap">
-          <span style="font-size:10px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:0.8px; align-self:center;">Jump to:</span>
+          <span style="font-size:10px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:0.8px; align-self:center;">Sections:</span>
           ${toc.map(item => `
             <a href="#${item.anchor}" class="anchor-pill" onclick="document.getElementById('${item.anchor}')?.scrollIntoView({behavior:'smooth'}); return false;">
               ${item.title}
@@ -9029,36 +9791,91 @@ Explanation: ${parentQ.explanation}`;
 
     let imgHtml = "";
     if (sheet.imageUrl && sheet.imageUrl.trim().length > 0) {
-      imgHtml = `<div style="text-align:center; margin:16px 0;"><img src="${sheet.imageUrl}" style="max-height:280px; max-width:100%; border-radius:8px; border:1px solid var(--border-color);"></div>`;
+      imgHtml = `<div style="text-align:center; margin:18px 0;"><img src="${sheet.imageUrl}" style="max-height:300px; max-width:100%; border-radius:10px; border:1px solid var(--border-color);"></div>`;
     }
 
     const docContent = document.getElementById("comp-studio-doc-content");
     if (docContent) {
       docContent.innerHTML = `
-        <div style="border-bottom:1px solid var(--border-color); padding-bottom:10px; margin-bottom:14px;">
+        <div class="folio-header-meta">
           <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
             <span class="badge" style="background:#1f6feb;">${sheet.chapter}</span>
-            <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">ID: ${sheet.id}</span>
+            <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">FOLIO ID: ${sheet.id}</span>
           </div>
-          <h1 style="font-size:22px; font-weight:800; color:#fff; margin-top:8px;">${sheet.title}</h1>
-          ${sheet.subtitle ? `<div style="font-size:13px; color:var(--accent-cyan); font-family:var(--font-mono); margin-top:2px;">${sheet.subtitle}</div>` : ""}
+          <h1 class="folio-doc-title">${sheet.title}</h1>
+          ${sheet.subtitle ? `<div class="folio-doc-subtitle">${sheet.subtitle}</div>` : ""}
         </div>
         ${tocHtml}
         ${imgHtml}
-        <div style="font-size:calc(14.5px * var(--reader-font-scale)); line-height:1.78; color:var(--text-reading);">${formatRichText(sheet.content, activeSheetCustomMasks)}</div>
+        <div id="comp-studio-doc-body" class="folio-prose-body">${formatRichText(sheet.content, [])}</div>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:28px; padding-top:14px; border-top:1px solid var(--border-color);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:34px; padding-top:16px; border-top:1px solid var(--border-color);">
           <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(-1)">[ \u2190 ] Previous Sheet</button>
-          <span style="font-size:12px; font-weight:700; color:var(--text-muted);">${activeCompSheetIndex + 1} / ${currentCompSheets.length}</span>
+          <span style="font-size:12px; font-weight:700; color:var(--text-muted); font-family:var(--font-mono);">Sheet ${activeCompSheetIndex + 1} of ${currentCompSheets.length}</span>
           <button class="btn btn-secondary" onclick="CGL_OS.navCompStudioSheet(1)">Next Sheet [ \u2192 ]</button>
         </div>
       `;
+      const bodyEl = document.getElementById("comp-studio-doc-body");
+      if (bodyEl) {
+        applyDomMasksAndHighlights(bodyEl, activeSheetCustomMasks, activeSheetHighlights);
+      }
       applyCompendiumZoomStyle();
     }
+
+    renderCompMarginAnnotationsList();
 
     const noteKey = `scratch_${sheet.id}`;
     const savedNote = await getRecord("store_notes", noteKey);
     safeSetValue("comp-studio-scratchpad", savedNote ? savedNote.content : "");
+  }
+
+  function renderCompMarginAnnotationsList() {
+    const listEl = document.getElementById("comp-margin-annotations-list");
+    if (!listEl) return;
+
+    if (activeSheetCustomMasks.length === 0 && activeSheetHighlights.length === 0) {
+      listEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">Tap words in 🖌️ Mask or 🖍️ Highlight mode (or select any phrase) to build your surgical sheet index.</span>`;
+      return;
+    }
+
+    const chips = [];
+    activeSheetCustomMasks.forEach((m, idx) => {
+      const phrase = typeof m === "string" ? m : (m && m.phrase ? m.phrase : "");
+      const occ = (typeof m === "object" && m !== null && typeof m.occurrence === "number") ? `#${m.occurrence + 1}` : "All";
+      if (!phrase) return;
+      chips.push(`
+        <span class="margin-ann-chip mask-chip" title="Tap to remove custom mask" onclick="CGL_OS.removeCustomMaskByIndex(${idx})">
+          \uD83D\uDE48 ${phrase.length > 24 ? phrase.slice(0, 22) + "\u2026" : phrase} <small style="opacity:0.7;">(${occ}) \u2715</small>
+        </span>
+      `);
+    });
+
+    activeSheetHighlights.forEach((h, idx) => {
+      if (!h || !h.phrase) return;
+      const occ = typeof h.occurrence === "number" ? `#${h.occurrence + 1}` : "#1";
+      const c = h.color || "amber";
+      chips.push(`
+        <span class="margin-ann-chip hl-chip-${c}" title="Tap to remove highlight" onclick="CGL_OS.removeCustomHighlightByIndex(${idx})">
+          \uD83D\uDD8D\uFE0F ${h.phrase.length > 24 ? h.phrase.slice(0, 22) + "\u2026" : h.phrase} <small style="opacity:0.7;">(${occ}) \u2715</small>
+        </span>
+      `);
+    });
+
+    listEl.innerHTML = chips.join("");
+  }
+
+  async function launchFailedSheetQuestionsDojo() {
+    const sheet = currentCompSheets[activeCompSheetIndex];
+    if (!sheet) return;
+    const linked = await ConceptService.getLinkedQuestions(sheet.id, sheet.chapter);
+    const perfMap = await PerformanceService.getQuestionPerformanceMap();
+    const failed = linked.filter(q => perfMap[q.id] && (perfMap[q.id].lastWasIncorrect || perfMap[q.id].wrong > 0));
+    if (failed.length === 0) {
+      alert("No failed questions linked to this sheet.");
+      return;
+    }
+    closeCompendiumStudio();
+    await openDojoSessionWithQuestions(failed, `Mistake Clinic: ${sheet.title}`, `**${sheet.title}:** Clearing ${failed.length} linked mistake(s)`);
   }
 
   function navCompStudioSheet(step) {
@@ -9164,6 +9981,8 @@ Explanation: ${parentQ.explanation}`;
   function closeCompendiumStudio() {
     safeSetDisplay("compendium-fullscreen-view", "none");
     toggleScratchpadCanvas(false);
+    document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
+    document.getElementById("comp-dock-more-popover")?.classList.remove("open");
   }
 
   function openConceptEditorModal(isNew = true) {
@@ -10981,19 +11800,23 @@ ${JSON.stringify(TAXONOMY, null, 2)}
   }
 
   /**
-   * FLOATING TEXT-SELECTION ACTION POPOVER ([ 🙈 Mask for Recall ] | [ 📌 Save to Cue ])
+   * FLOATING TEXT-SELECTION ACTION POPOVER ([ 🙈 Mask ] | [ 🟡 🟢 🔵 🔴 Highlight ] | [ 📌 Cue ])
    */
   function initTextSelectionPopover() {
     const popover = document.getElementById("selection-action-popover");
     if (!popover) return;
 
     const handleSelectionCheck = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) {
+      if (compendiumMaskEditMode || compendiumHighlightMode) {
         popover.classList.remove("active");
         return;
       }
-      const txt = sel.toString().trim();
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        popover.classList.remove("active");
+        return;
+      }
+      const txt = sel.toString().replace(/\s+/g, " ").trim();
       if (txt.length < 2 || txt.length > 260) {
         popover.classList.remove("active");
         return;
@@ -11003,7 +11826,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       const el = anchorNode && anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
       if (!el) return;
 
-      const inCompendium = el.closest("#comp-studio-doc-content, #split-sheet-body");
+      const inCompendium = el.closest("#comp-studio-doc-body, #comp-studio-doc-content, #split-sheet-render-body, #split-sheet-body");
       const inQuestion = el.closest("#dojo-arena-body, #arena-body");
 
       if (!inCompendium && !inQuestion) {
@@ -11011,14 +11834,27 @@ ${JSON.stringify(TAXONOMY, null, 2)}
         return;
       }
 
-      pendingSelectedText = txt;
-      pendingSelectionContext = inCompendium ? "SHEET" : "QUESTION";
-
       try {
         const range = sel.getRangeAt(0);
+        pendingSelectedText = txt;
+        pendingSelectionContext = inCompendium ? "SHEET" : "QUESTION";
+        if (inCompendium) {
+          const isSplit = !!el.closest("#split-sheet-body");
+          const containerRoot = isSplit
+            ? (document.getElementById("split-sheet-render-body") || document.getElementById("split-sheet-body"))
+            : (document.getElementById("comp-studio-doc-body") || document.getElementById("comp-studio-doc-content"));
+          pendingSelectionOccurrence = computePhraseOccurrenceAtRange(containerRoot, range, txt);
+          pendingSelectionSheetId = isSplit
+            ? activeSplitSheetId
+            : (currentCompSheets[activeCompSheetIndex] ? currentCompSheets[activeCompSheetIndex].id : null);
+        } else {
+          pendingSelectionOccurrence = null;
+          pendingSelectionSheetId = null;
+        }
+
         const rect = range.getBoundingClientRect();
-        const topPos = Math.max(12, rect.top - 46);
-        const leftPos = Math.min(window.innerWidth - 230, Math.max(10, rect.left));
+        const topPos = Math.max(12, rect.top - 48);
+        const leftPos = Math.min(window.innerWidth - 280, Math.max(10, rect.left));
         popover.style.top = `${topPos}px`;
         popover.style.left = `${leftPos}px`;
         popover.classList.add("active");
@@ -11036,7 +11872,21 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     if (popover) popover.classList.remove("active");
     if (!pendingSelectedText) return;
 
-    await toggleCustomMaskPhraseOnActiveSheet(pendingSelectedText);
+    await toggleCustomMaskPhraseOnActiveSheet(pendingSelectedText, pendingSelectionOccurrence, pendingSelectionSheetId);
+    window.getSelection()?.removeAllRanges();
+  }
+
+  async function applySelectionHighlight(color = "amber") {
+    const popover = document.getElementById("selection-action-popover");
+    if (popover) popover.classList.remove("active");
+    if (!pendingSelectedText) return;
+
+    if (pendingSelectionContext === "SHEET") {
+      await toggleCustomHighlightOnActiveSheet(pendingSelectedText, color, pendingSelectionOccurrence, pendingSelectionSheetId);
+    } else {
+      await saveSelectionToPersonalCue();
+      return;
+    }
     window.getSelection()?.removeAllRanges();
   }
 
@@ -11325,6 +12175,13 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     const labelEl = document.getElementById("theme-toggle-label");
     if (iconEl) iconEl.innerText = normalized === "charcoal" ? "🪨" : "🌙";
     if (labelEl) labelEl.innerText = normalized === "charcoal" ? "Charcoal" : "Midnight";
+
+    if (compendiumPaperPreset === "FOLLOW_GLOBAL") {
+      const folio = document.getElementById("comp-studio-folio");
+      if (folio) {
+        folio.setAttribute("data-paper-preset", normalized === "charcoal" ? "CHARCOAL" : "OBSIDIAN");
+      }
+    }
   }
 
   function toggleThemeMode() {
@@ -11541,9 +12398,19 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     openCompendiumToSheet,
     openAllSheetsIndexModal,
     renderAllSheetsIndexList,
+    toggleCompSheetSwitcherDrawer,
+    toggleCompHighlightPopover,
+    toggleCompStudioMoreMenu,
+    setCompendiumPaperPreset,
     toggleCompendiumRecallMode,
     toggleCompendiumAutoBlurAll,
     toggleCompendiumMaskEditMode,
+    toggleCompendiumHighlightMode,
+    setCompendiumHighlightColor,
+    removeCustomMaskByIndex,
+    removeCustomHighlightByIndex,
+    rateCurrentSheetRecall,
+    launchFailedSheetQuestionsDojo,
     adjustCompendiumZoom,
     resetCompendiumZoom,
     openAiSheetArchitectModal,
@@ -11563,6 +12430,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     saveConceptCard,
 
     applySelectionRecallMask,
+    applySelectionHighlight,
     saveSelectionToPersonalCue,
 
     openOmniSearchModal,

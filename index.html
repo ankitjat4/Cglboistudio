@@ -53,8 +53,14 @@
 
   <!-- ==================== FLOATING TEXT-SELECTION ACTION POPOVER ==================== -->
   <div id="selection-action-popover">
-    <button class="btn btn-purple" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.applySelectionRecallMask()">🙈 Mask for Recall</button>
-    <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.saveSelectionToPersonalCue()">📌 Save to Cue</button>
+    <button class="btn btn-purple" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.applySelectionRecallMask()" title="Mask only this exact occurrence for Active Recall">🙈 Mask</button>
+    <div class="selection-hl-group" title="Highlight exact occurrence">
+      <button class="hl-swatch-btn hl-yellow" onclick="CGL_OS.applySelectionHighlight('yellow')" title="Yellow: Core Fact / Definition">🟡</button>
+      <button class="hl-swatch-btn hl-green" onclick="CGL_OS.applySelectionHighlight('green')" title="Green: Formula / Identity">🟢</button>
+      <button class="hl-swatch-btn hl-red" onclick="CGL_OS.applySelectionHighlight('red')" title="Red: TCS Exam Trap">🔴</button>
+      <button class="hl-swatch-btn hl-purple" onclick="CGL_OS.applySelectionHighlight('purple')" title="Purple: Vocab / Article">🟣</button>
+    </div>
+    <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.saveSelectionToPersonalCue()" title="Append to Personal Solving / Revision Cue">📌 Cue</button>
   </div>
 
   <!-- ==================== FLOATING MINI-PLAYER DOCK ==================== -->
@@ -959,76 +965,182 @@
     <div class="palette-scroll-body" id="dojo-palette-scroll-body"></div>
   </div>
 
-  <!-- 3. LIVING KNOWLEDGE STUDIO FULLSCREEN VIEW (CUSTOM MASKS, SKETCHPAD & AI ARCHITECT) -->
-  <div id="compendium-fullscreen-view">
-    <div class="compendium-header" style="background:#090e18; border-bottom:1px solid var(--border-color); padding:10px 14px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; flex-wrap:wrap; gap:6px;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <button class="hud-icon-btn" onclick="CGL_OS.closeCompendiumStudio()" title="Close Compendium">
-          <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+  <!-- 3. LIVING KNOWLEDGE STUDIO FULLSCREEN VIEW (ACADEMIC FOLIO, ZEN CHROME, SPLIT-RAIL & SRS) -->
+  <div id="compendium-fullscreen-view" class="folio-preset-obsidian">
+    <!-- Single 52px Auto-Collapsing Zen Top Header -->
+    <div class="compendium-zen-header" id="comp-zen-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+        <button class="hud-icon-btn" style="width:34px; height:34px; flex-shrink:0;" onclick="CGL_OS.closeCompendiumStudio()" title="Close Knowledge Studio">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
         </button>
-        <div>
-          <div style="font-size:14px; font-weight:800; color:#38bdf8;" id="comp-studio-header-title">Living Knowledge Studio</div>
-          <div style="font-size:10px; color:var(--text-muted);" id="comp-studio-header-sub">Swipe Left/Right • Custom Active Recall Masks</div>
+        <div class="comp-zen-title-pill" onclick="CGL_OS.toggleCompSheetSwitcherDrawer()" title="Tap to switch Subject, Chapter, or Sheet">
+          <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+            <span style="font-size:13.5px; font-weight:800; color:var(--folio-heading, #fff); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="comp-studio-header-title">Living Knowledge Studio</span>
+            <span style="font-size:10px; color:var(--accent-cyan); flex-shrink:0;">▾</span>
+          </div>
+          <div style="font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="comp-studio-header-sub">Swipe Left/Right • Occurrence-Exact Recall Masks</div>
         </div>
       </div>
-      <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px; color:var(--accent-cyan);" onclick="CGL_OS.openAllSheetsIndexModal()" title="Browse All 370 Sheets Index">
+
+      <div style="display:flex; gap:6px; align-items:center; flex-shrink:0; position:relative;">
+        <!-- Quick Reading Surface Switcher Pills -->
+        <div class="comp-surface-pill-group" title="Reading Surface Preset">
+          <button class="surface-preset-btn active" id="btn-surface-obsidian" onclick="CGL_OS.setCompendiumReadingSurface('obsidian')" title="Obsidian Studio (OLED Dark)">🌑</button>
+          <button class="surface-preset-btn" id="btn-surface-charcoal" onclick="CGL_OS.setCompendiumReadingSurface('charcoal')" title="Warm Charcoal (Low-Glare Slate)">🪨</button>
+          <button class="surface-preset-btn" id="btn-surface-sepia" onclick="CGL_OS.setCompendiumReadingSurface('sepia')" title="Warm Sepia / Ivory Paper (Daytime Zero-Halation)">📜</button>
+        </div>
+
+        <button class="btn btn-secondary" style="padding:5px 9px; font-size:11px; color:var(--accent-cyan);" onclick="CGL_OS.openAllSheetsIndexModal()" title="Browse All 370+ Sheets & SRS Queue">
           📑 Index
         </button>
-        <button class="btn btn-secondary" id="btn-comp-edit-masks" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.toggleCompendiumMaskEditMode()" title="Tap any formula, cell, or word to add/remove it from your personal Recall Masks">
-          🖌️ Edit Masks
-        </button>
-        <button class="btn btn-purple" id="btn-comp-recall-mode" style="padding:4px 10px; font-size:11px;" onclick="CGL_OS.toggleCompendiumRecallMode()" title="Blur your custom masks (tap blurred items to reveal)">
-          🙈 Recall Mode
-        </button>
-        <button class="btn btn-secondary" id="btn-comp-auto-blur-all" style="padding:4px 8px; font-size:10.5px; display:none;" onclick="CGL_OS.toggleCompendiumAutoBlurAll()" title="Also blur all formulas & table cells">
-          +Auto-Blur All
-        </button>
-        <button class="hud-icon-btn" style="width:32px; height:32px;" onclick="CGL_OS.toggleScratchpadCanvas()" title="Scroll-Synced Sketchpad over Sheet">✏️</button>
-        <button class="hud-icon-btn" style="width:32px; height:32px; border-color:var(--accent-purple-light); color:var(--accent-purple-light);" onclick="CGL_OS.openAiSheetArchitectModal()" title="AI Sheet Architect: Auto-Mask or Expand Sheet">🪄</button>
-        <button class="btn btn-secondary" style="padding:4px 7px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(-0.08)" title="Decrease Text Size">A-</button>
-        <button class="btn btn-secondary" id="comp-zoom-pct-btn" style="padding:4px 7px; font-size:10.5px; font-family:var(--font-mono);" onclick="CGL_OS.adjustReaderFontScale(0)" title="Reset Zoom to 100%">100%</button>
-        <button class="btn btn-secondary" style="padding:4px 7px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(0.08)" title="Increase Text Size">A+</button>
-        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.openOmniSearchModal()" title="Omni-Search Sheets">🔍</button>
-        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.openConceptEditorModal(false)" title="Edit Sheet Markdown">✎</button>
-        <button class="btn btn-danger" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.deleteCurrentCompendiumSheet()" title="Delete Sheet">🗑</button>
+        <button class="hud-icon-btn" style="width:34px; height:34px;" id="btn-comp-scratchpad" onclick="CGL_OS.toggleScratchpadCanvas()" title="OnePlus Stylo 2 / Tablet Ink Layer">✏️</button>
+        <button class="hud-icon-btn" style="width:34px; height:34px;" id="btn-comp-more-menu" onclick="CGL_OS.toggleCompMorePopover(event)" title="Studio Tools, Typography Zoom & AI Architect">•••</button>
+
+        <!-- Studio Overflow Menu Popover -->
+        <div id="comp-more-popover" class="comp-overflow-popover">
+          <div style="font-size:9.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:6px;">Typography &amp; Zoom</div>
+          <div style="display:flex; gap:6px; margin-bottom:10px;">
+            <button class="btn btn-secondary" style="flex:1; padding:5px 8px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(-0.08)">A-</button>
+            <button class="btn btn-secondary" id="comp-zoom-pct-btn" style="flex:1; padding:5px 8px; font-size:11px; font-family:var(--font-mono);" onclick="CGL_OS.resetCompendiumZoom()">100%</button>
+            <button class="btn btn-secondary" style="flex:1; padding:5px 8px; font-size:11px;" onclick="CGL_OS.adjustReaderFontScale(0.08)">A+</button>
+          </div>
+
+          <div style="font-size:9.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:6px;">Sheet Studio Actions</div>
+          <div style="display:flex; flex-direction:column; gap:5px;">
+            <button class="btn btn-purple" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.openAiSheetArchitectModal()">🪄 AI Sheet Architect</button>
+            <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.openOmniSearchModal()">🔍 Omni-Search Sheets</button>
+            <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.openConceptEditorModal(false)">✎ Edit Sheet Markdown</button>
+            <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.openConceptEditorModal(true)">+ Author New Sheet</button>
+            <button class="btn btn-danger" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.deleteCurrentCompendiumSheet()">🗑 Delete Current Sheet</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Selector & Sheet Control Bar -->
-    <div style="display:grid; grid-template-columns: 95px 1fr auto; gap:6px; padding:8px 14px; background:#070a10; border-bottom:1px solid var(--border-color); align-items:center; flex-shrink:0;">
-      <select id="comp-studio-subject-select" class="form-control" style="padding:6px; font-size:12px; font-weight:700;" onchange="CGL_OS.handleCompStudioSubjectChange(this.value)"></select>
-      <div style="display:flex; gap:4px; align-items:center; overflow:hidden;">
-        <select id="comp-studio-chapter-select" class="form-control" style="padding:6px; font-size:12px;" onchange="CGL_OS.handleCompStudioChapterChange(this.value)"></select>
-        <button class="btn btn-secondary" style="padding:6px 8px; font-size:11px;" onclick="CGL_OS.promptCreateNewChapter()" title="Add New Chapter Tag">+</button>
+    <!-- Collapsible Subject / Chapter / Sheet Switcher Drawer -->
+    <div id="comp-sheet-switcher-drawer" class="comp-switcher-drawer">
+      <div style="display:grid; grid-template-columns: 95px 1fr auto; gap:6px; padding:8px 14px; align-items:center;">
+        <select id="comp-studio-subject-select" class="form-control" style="padding:6px; font-size:12px; font-weight:700;" onchange="CGL_OS.handleCompStudioSubjectChange(this.value)"></select>
+        <div style="display:flex; gap:4px; align-items:center; overflow:hidden;">
+          <select id="comp-studio-chapter-select" class="form-control" style="padding:6px; font-size:12px;" onchange="CGL_OS.handleCompStudioChapterChange(this.value)"></select>
+          <button class="btn btn-secondary" style="padding:6px 8px; font-size:11px;" onclick="CGL_OS.promptCreateNewChapter()" title="Add New Chapter Tag">+</button>
+        </div>
+        <button class="btn" style="padding:6px 10px; font-size:11px; white-space:nowrap;" onclick="CGL_OS.openConceptEditorModal(true)">+ New Sheet</button>
       </div>
-      <button class="btn" style="padding:6px 10px; font-size:11px; white-space:nowrap;" onclick="CGL_OS.openConceptEditorModal(true)">+ New Sheet</button>
+      <!-- Sheet Tabs Bar -->
+      <div class="comp-tabs-bar" id="comp-studio-sheet-tabs"></div>
+      <!-- Compact Linked Questions & Mask Summary Strip inside Drawer -->
+      <div id="comp-linked-questions-bar" style="padding:6px 14px; display:flex; justify-content:space-between; align-items:center; font-size:11px; flex-wrap:wrap; gap:6px; border-top:1px solid rgba(255,255,255,0.05);">
+        <span style="color:var(--accent-cyan); font-weight:700;" id="comp-linked-q-count">0 Associated Questions Linked</span>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span id="comp-mask-count-badge" class="badge" style="background:rgba(124,58,237,0.2); color:var(--accent-purple-light);">0 Custom Masks</span>
+          <button class="btn btn-emerald" style="padding:3px 9px; font-size:11px;" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(true)">🧘 Dojo Sheet Qs</button>
+          <button class="btn btn-secondary" style="padding:3px 9px; font-size:11px;" id="btn-drill-sheet-questions" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(false)">⚡ Timed Sheet Qs</button>
+        </div>
+      </div>
     </div>
 
-    <!-- Sticky Sheets Tab Bar -->
-    <div class="comp-tabs-bar" id="comp-studio-sheet-tabs"></div>
+    <!-- Split-Studio Workspace: Left A4 Academic Folio + Right Tablet Landscape Margin Rail -->
+    <div class="comp-studio-workspace" id="comp-studio-workspace">
+      <!-- Primary Scrollable Document Canvas -->
+      <div class="comp-document-canvas" id="comp-studio-canvas">
+        <div class="comp-folio-page" id="comp-folio-page">
+          <!-- Interactive Active Recall Progress Bar (Visible when 🙈 Recall Mode is ON) -->
+          <div id="comp-recall-progress-bar" class="comp-recall-hud-bar" style="display:none;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-size:11.5px; font-weight:800; color:var(--accent-purple-light);" id="comp-recall-progress-text">🙈 Recalled: 0 / 0 Masks</span>
+              <button class="btn btn-secondary" id="btn-comp-auto-blur-all" style="padding:2px 8px; font-size:10.5px;" onclick="CGL_OS.toggleCompendiumAutoBlurAll()" title="Also blur all bold terms, formulas & table cells">+Auto-Blur All</button>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button class="btn btn-cyan" style="padding:3px 9px; font-size:10.5px;" onclick="CGL_OS.revealNextCompendiumMask()">👁️ Reveal Next</button>
+              <button class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px;" onclick="CGL_OS.resetCompendiumRevealedMasks()">↺ Reset</button>
+            </div>
+          </div>
 
-    <!-- Bi-Directional Bridge: Questions Associated with this Sheet -->
-    <div id="comp-linked-questions-bar" style="background:#090e18; border-bottom:1px solid var(--border-color); padding:6px 14px; display:flex; justify-content:space-between; align-items:center; font-size:11px; flex-shrink:0; flex-wrap:wrap; gap:6px;">
-      <span style="color:var(--accent-cyan); font-weight:700;" id="comp-linked-q-count">0 Associated Questions Linked</span>
-      <div style="display:flex; gap:6px; align-items:center;">
-        <span id="comp-mask-count-badge" class="badge" style="background:rgba(124,58,237,0.2); color:var(--accent-purple-light);">0 Custom Masks</span>
-        <button class="btn btn-emerald" style="padding:3px 9px; font-size:11px;" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(true)">🧘 Dojo Sheet Qs</button>
-        <button class="btn btn-secondary" style="padding:3px 9px; font-size:11px;" id="btn-drill-sheet-questions" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(false)">⚡ Timed Sheet Qs</button>
+          <!-- Bi-Directional Past Exam Vulnerability Banner (Auto-shows when linked questions have errors/traps) -->
+          <div id="comp-sheet-trap-banner" class="comp-trap-alert-banner" style="display:none;"></div>
+
+          <!-- Rendered Academic Folio Content -->
+          <div id="comp-studio-doc-content"></div>
+
+          <!-- 1-Tap Sheet Spaced-Repetition (SRS) Mastery Check-In Bar -->
+          <div id="comp-sheet-srs-bar" class="comp-srs-checkin-bar">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+              <div>
+                <div style="font-size:10px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:0.7px;">// SPACED REPETITION (SRS) MASTERY CHECK-IN</div>
+                <div style="font-size:11.5px; color:var(--text-muted);" id="comp-srs-status-label">Rate your active recall of this sheet to schedule next review</div>
+              </div>
+              <span class="badge" id="comp-srs-badge" style="background:rgba(56,189,248,0.15); color:var(--accent-cyan);">Unrated</span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;">
+              <button class="btn btn-danger" style="padding:7px 8px; font-size:11px;" onclick="CGL_OS.rateCurrentSheetRecall('HARD')">🔴 Forgot / Hard (1d)</button>
+              <button class="btn btn-amber" style="padding:7px 8px; font-size:11px;" onclick="CGL_OS.rateCurrentSheetRecall('GOOD')">🟡 Effortful (4d)</button>
+              <button class="btn btn-emerald" style="padding:7px 8px; font-size:11px;" onclick="CGL_OS.rateCurrentSheetRecall('EASY')">🟢 Mastered (10d)</button>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Tablet Landscape Side-by-Side Margin Notes, Highlights & Linked Questions Rail (Also accessible at bottom on Portrait) -->
+      <aside class="comp-margin-rail" id="comp-margin-rail">
+        <!-- 1. Linked Questions & Exam Vulnerability Box -->
+        <div class="comp-rail-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-size:10.5px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:0.6px;">⚡ Linked Questions &amp; Traps</span>
+            <span class="badge" style="background:#1f6feb; font-size:10px;" id="comp-rail-q-badge">0 Qs</span>
+          </div>
+          <div id="comp-rail-linked-qs-list" style="max-height:175px; overflow-y:auto; margin-bottom:8px; font-size:11.5px;"></div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+            <button class="btn btn-emerald" style="padding:6px 8px; font-size:11px;" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(true)">🧘 Dojo Drill</button>
+            <button class="btn btn-secondary" style="padding:6px 8px; font-size:11px;" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(false)">⚡ Timed Sprint</button>
+          </div>
+        </div>
+
+        <!-- 2. Personal Sheet Revision Cue / Margin Scratchpad -->
+        <div class="comp-rail-card">
+          <label style="font-size:10.5px; font-weight:800; color:var(--accent-purple-light); text-transform:uppercase; letter-spacing:0.6px; display:flex; justify-content:space-between; align-items:center;">
+            <span>📌 Margin Notes &amp; Revision Cue</span>
+            <span id="comp-scratchpad-status" style="color:var(--status-green); font-size:10px; display:none;">✓ Saved</span>
+          </label>
+          <textarea id="comp-studio-scratchpad" class="form-control" style="height:88px; margin-top:6px; font-size:12px;" placeholder="Personal formula synthesis, mnemonic, or exam trap reminder..." oninput="CGL_OS.autoSaveCompScratchpad(this.value)"></textarea>
+        </div>
+
+        <!-- 3. Active Sheet Masks & 4-Color Highlights Ledger -->
+        <div class="comp-rail-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:10.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.6px;">🖍️ Sheet Masks &amp; Highlights</span>
+            <span style="font-size:10px; color:var(--accent-purple-light); font-family:var(--font-mono);" id="comp-rail-ann-count">0 items</span>
+          </div>
+          <div id="comp-rail-annotations-list" style="max-height:160px; overflow-y:auto; font-size:11.5px;"></div>
+        </div>
+      </aside>
     </div>
 
-    <!-- Living Document Canvas Body -->
-    <div class="comp-document-canvas" id="comp-studio-canvas">
-      <div id="comp-studio-doc-content"></div>
-
-      <div style="margin-top:28px; border-top:1px solid var(--border-color); padding-top:14px; max-width:960px; margin-left:auto; margin-right:auto;">
-        <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:flex; justify-content:space-between;">
-          <span>Sheet Revision Cue / Personal Scratchpad (Auto-Saves)</span>
-          <span id="comp-scratchpad-status" style="color:var(--status-green); font-size:10px; display:none;">Saved</span>
-        </label>
-        <textarea id="comp-studio-scratchpad" class="form-control" style="height:70px; margin-top:6px;" placeholder="Personal formula reminder, exam trap caveats..." oninput="CGL_OS.autoSaveCompScratchpad(this.value)"></textarea>
+    <!-- Floating Bottom Glass Action Dock (GoodNotes / Apple Books Style) -->
+    <div class="comp-floating-dock" id="comp-floating-dock">
+      <button class="dock-pill-btn" id="btn-dock-sheets" onclick="CGL_OS.toggleCompSheetSwitcherDrawer()" title="Switch Chapter or Sheet">
+        <span>📑</span><span>Sheets</span>
+      </button>
+      <button class="dock-pill-btn" id="btn-comp-recall-mode" onclick="CGL_OS.toggleCompendiumRecallMode()" title="Toggle Active Recall Blur Mode">
+        <span>🙈</span><span id="lbl-comp-recall-mode">Recall</span>
+      </button>
+      <button class="dock-pill-btn" id="btn-comp-edit-masks" onclick="CGL_OS.toggleCompendiumMaskEditMode()" title="Tap or select any specific word/formula occurrence to mask">
+        <span>🖌️</span><span id="lbl-comp-edit-masks">Mask</span>
+      </button>
+      <div style="display:inline-flex; align-items:center; gap:3px; background:rgba(255,255,255,0.04); border-radius:18px; padding:2px 5px; border:1px solid rgba(255,255,255,0.08);">
+        <button class="dock-pill-btn" id="btn-comp-highlight-mode" style="padding:5px 9px;" onclick="CGL_OS.toggleCompendiumHighlightMode()" title="Toggle Persistent Stylus/Finger Highlighter Mode">
+          <span>🖍️</span><span id="lbl-comp-highlight-mode">Highlight</span>
+        </button>
+        <div id="comp-dock-hl-swatches" style="display:inline-flex; align-items:center; gap:3px; padding-right:3px;">
+          <button class="hl-dock-dot active" data-hlcolor="yellow" style="background:#facc15;" onclick="CGL_OS.setCompendiumHighlightColor('yellow', this)" title="Yellow: Core Fact"></button>
+          <button class="hl-dock-dot" data-hlcolor="green" style="background:#34d399;" onclick="CGL_OS.setCompendiumHighlightColor('green', this)" title="Green: Formula"></button>
+          <button class="hl-dock-dot" data-hlcolor="red" style="background:#fb7185;" onclick="CGL_OS.setCompendiumHighlightColor('red', this)" title="Red: Exam Trap"></button>
+          <button class="hl-dock-dot" data-hlcolor="purple" style="background:#c084fc;" onclick="CGL_OS.setCompendiumHighlightColor('purple', this)" title="Purple: Vocab / Article"></button>
+        </div>
       </div>
+      <button class="dock-pill-btn dock-pill-emerald" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(true)" title="Practice Linked Sheet Questions in Dojo">
+        <span>⚡</span><span id="comp-dock-drill-label">Drill Qs</span>
+      </button>
     </div>
   </div>
 
@@ -1081,9 +1193,16 @@
         <button class="btn btn-secondary" style="padding:4px 8px;" onclick="document.getElementById('modal-all-sheets-index').classList.remove('active')">✕</button>
       </div>
 
-      <div style="display:grid; grid-template-columns:120px 1fr; gap:8px; margin-bottom:10px;">
+      <div style="display:grid; grid-template-columns:110px 140px 1fr; gap:8px; margin-bottom:10px;">
         <select id="sheets-index-filter-sub" class="form-control" style="padding:7px; font-size:12px;" onchange="CGL_OS.renderAllSheetsIndexList()">
           <option value="ALL">All Subjects</option>
+        </select>
+        <select id="sheets-index-filter-srs" class="form-control" style="padding:7px; font-size:12px;" onchange="CGL_OS.renderAllSheetsIndexList()">
+          <option value="ALL">All SRS States</option>
+          <option value="DUE">🔥 Due for Recall</option>
+          <option value="HARD">🔴 Forgot / Hard</option>
+          <option value="MASTERED">🟢 Mastered</option>
+          <option value="UNRATED">✨ Unrated</option>
         </select>
         <input type="text" id="sheets-index-search" class="form-control" style="padding:7px 12px; font-size:12px;" placeholder="🔎 Filter sheet titles, chapters, formulas, or ID..." oninput="CGL_OS.renderAllSheetsIndexList()">
       </div>
