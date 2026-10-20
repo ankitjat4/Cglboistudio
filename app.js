@@ -10633,6 +10633,55 @@ ${JSON.stringify(TAXONOMY, null, 2)}
   }
 
   const THEME_STORAGE_KEY = "cgl_os_theme_mode";
+  let deferredWebApkPrompt = null;
+
+  function initWebApkServiceWorkerAndInstallPrompt() {
+    if (typeof window === "undefined") return;
+
+    // Register Offline-First Service Worker (works on HTTPS / GitHub Pages & localhost)
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch(() => {});
+      });
+    }
+
+    // Hide install button if already running as installed standalone WebAPK
+    const isStandalone =
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      window.navigator.standalone === true;
+    const installBtn = document.getElementById("btn-install-webapk");
+    if (isStandalone && installBtn) {
+      installBtn.style.display = "none";
+    }
+
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredWebApkPrompt = e;
+      const btn = document.getElementById("btn-install-webapk");
+      const lbl = document.getElementById("install-webapk-label");
+      if (btn) btn.style.display = "inline-flex";
+      if (lbl) lbl.innerText = "Install WebAPK";
+    });
+
+    window.addEventListener("appinstalled", () => {
+      deferredWebApkPrompt = null;
+      const btn = document.getElementById("btn-install-webapk");
+      if (btn) btn.style.display = "none";
+    });
+  }
+
+  async function triggerWebApkInstall() {
+    if (deferredWebApkPrompt) {
+      deferredWebApkPrompt.prompt();
+      try {
+        await deferredWebApkPrompt.userChoice;
+      } catch (_) {}
+      deferredWebApkPrompt = null;
+      return;
+    }
+    const modal = document.getElementById("modal-webapk-guide");
+    if (modal) modal.classList.add("active");
+  }
 
   function setThemeMode(mode) {
     const normalized = mode === "charcoal" ? "charcoal" : "midnight";
@@ -10703,6 +10752,8 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       setThemeMode(savedTheme);
     } catch (_) {}
 
+    initWebApkServiceWorkerAndInstallPrompt();
+
     try {
       await getDB();
       await hydratePersistedUiConfig();
@@ -10746,6 +10797,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     adjustReaderFontScale,
     setThemeMode,
     toggleThemeMode,
+    triggerWebApkInstall,
 
     handleApiProviderPresetChange,
     addApiKeyToVault,

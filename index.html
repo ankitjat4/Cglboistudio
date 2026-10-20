@@ -4,19 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
   <meta name="theme-color" content="#04060b">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CGL OS">
   <title>SSC CGL Intelligence OS</title>
   <meta name="description" content="Local-first SSC CGL 2026 preparation, diagnostic mock test engine, knowledge compendium studio, and analytics operating system.">
   <meta property="og:title" content="SSC CGL Intelligence OS">
   <meta property="og:description" content="Local-first SSC CGL 2026 preparation, diagnostic mock test engine, knowledge compendium studio, and analytics operating system.">
+
+  <!-- PWA / WebAPK Manifest & Icons (Relative paths for GitHub Pages compatibility) -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
 
   <!-- KaTeX from Cloudflare CDN (Unblocked across Indian ISPs + Permissive CORS) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js" crossorigin="anonymous"></script>
 
   <!-- External Stylesheet with Cache-Buster v8.0 -->
-  <link rel="stylesheet" href="style.css?v=8.0">
+  <link rel="stylesheet" href="./style.css?v=8.0">
 </head>
 <body>
   <!-- MOBILE ON-SCREEN DEBUGGER (Auto-hides on clean boot) -->
@@ -91,6 +98,10 @@
               <button id="btn-theme-toggle" class="theme-toggle-btn" onclick="CGL_OS.toggleThemeMode()" title="Switch between Midnight and Charcoal theme to reduce eye strain">
                 <span id="theme-toggle-icon">🌙</span>
                 <span id="theme-toggle-label">Midnight</span>
+              </button>
+              <button id="btn-install-webapk" class="theme-toggle-btn" style="border-color:rgba(16,185,129,0.45); color:var(--status-green);" onclick="CGL_OS.triggerWebApkInstall()" title="Install SSC CGL Intelligence OS as an Offline Android WebAPK / App">
+                <span>📲</span>
+                <span id="install-webapk-label">Install App</span>
               </button>
             </div>
             <h2 style="font-size:20px; font-weight:800; color:#fff; margin-top:4px;">Welcome back, Ankit</h2>
@@ -2110,10 +2121,37 @@
     </button>
   </nav>
 
+  <!-- ==================== WEBAPK / GITHUB PAGES INSTALL GUIDE MODAL ==================== -->
+  <div id="modal-webapk-guide" class="modal-overlay">
+    <div class="modal-window" style="max-width:520px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-color); padding-bottom:8px;">
+        <h3 style="font-size:16px; font-weight:800; color:#fff;">📲 Install as Native WebAPK (Android / Pad / iOS)</h3>
+        <button class="btn btn-secondary" style="padding:3px 9px; font-size:11px;" onclick="document.getElementById('modal-webapk-guide').classList.remove('active')">✕ Close</button>
+      </div>
+      <div style="font-size:12.5px; color:var(--text-reading); line-height:1.6; display:flex; flex-direction:column; gap:10px;">
+        <div class="callout-box" style="margin:0;">
+          <b>1. Hosting on GitHub Pages (Free Forever):</b><br>
+          Push all repository files (<code>index.html</code>, <code>style.css</code>, <code>app.js</code>, <code>manifest.json</code>, <code>sw.js</code>, <code>.nojekyll</code>, and the <code>.png</code> / <code>.svg</code> icons) to a GitHub repo. Go to <b>Settings ➔ Pages ➔ Branch: main / root</b> and Save.
+        </div>
+        <div style="background:var(--bg-elevated); padding:10px 12px; border-radius:8px; border:1px solid var(--border-color);">
+          <b style="color:var(--accent-cyan);">2. Installing as a Signed Android WebAPK (Phone &amp; OnePlus Pad):</b><br>
+          Open your GitHub Pages URL (<code>https://&lt;username&gt;.github.io/&lt;repo&gt;/</code>) in <b>Google Chrome</b>.<br>
+          • Tap the <b>📲 Install App</b> button in the Dashboard header, OR<br>
+          • Tap Chrome's <b>⋮ (3-dots menu) ➔ Install app / Add to Home screen ➔ Install</b>.<br>
+          Chrome will compile and install a true standalone <b>WebAPK</b> into your Android app drawer with 100% offline support!
+        </div>
+        <div style="background:var(--bg-elevated); padding:10px 12px; border-radius:8px; border:1px solid var(--border-color);">
+          <b style="color:var(--accent-purple-light);">3. Installing on iPad / iPhone (Safari):</b><br>
+          Open the URL in Safari ➔ Tap the <b>Share</b> button ➔ <b>Add to Home Screen</b>.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== PUBLISHING-GRADE TYPESET PRINT ROOT ==================== -->
   <div id="print-sheet-root" style="display:none;" class="print-page"></div>
 
   <!-- Master JavaScript Controller with Cache-Buster Parameter v8.0 -->
-  <script src="app.js?v=8.0"></script>
+  <script src="./app.js?v=8.0"></script>
 </body>
 </html>
