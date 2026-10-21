@@ -1073,6 +1073,7 @@
     <!-- Page-Anchored Stylus Ink Floating Toolbar (Visible when ✏️ Sheet Ink Mode is ON) -->
     <div id="comp-folio-ink-toolbar" class="comp-folio-ink-toolbar" style="display:none;">
       <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-pan" onclick="CGL_OS.setCompendiumFolioInkTool('PAN')" title="Pan & Scroll Page with 1 Finger or Mouse Drag">✋ Pan / Move</button>
         <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-folio-pen" onclick="CGL_OS.setCompendiumFolioInkTool('PEN')" title="Fine Precision Pen (Hold 350ms at stroke end to snap geometric shapes)">🖊️ Pen</button>
         <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-marker" onclick="CGL_OS.setCompendiumFolioInkTool('MARKER')" title="Chisel Marker Highlighter (Hold 350ms at stroke end to snap shapes)">🖍️ Marker</button>
         <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-tape" onclick="CGL_OS.setCompendiumFolioInkTool('TAPE')" title="GoodNotes Recall Tape: Draw opaque occlusion ribbon over formulas/diagrams; tap to reveal/hide">🩹 Tape</button>
@@ -1135,22 +1136,34 @@
 
           <!-- ==================== EMBEDDED GOODNOTES / LIQUIDTEXT PDF STUDIO BAR & VIEWPORT ==================== -->
           <div id="comp-pdf-studio-bar" class="comp-pdf-studio-bar" style="display:none;">
-            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-              <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navCompPdfPage(-1)" title="Previous PDF Page">◀ Prev</button>
+            <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+              <div id="comp-pdf-active-name-pill" style="display:inline-flex; align-items:center; gap:5px; background:rgba(168,85,247,0.16); border:1px solid rgba(168,85,247,0.42); border-radius:6px; padding:3px 7px; font-size:11px; font-weight:700; color:#e9d5ff; max-width:210px;">
+                <span id="comp-pdf-active-name-text" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 PDF</span>
+                <button type="button" onclick="CGL_OS.deleteActiveCompPdfDocument()" title="Delete this PDF" style="background:rgba(244,63,94,0.22); border:1px solid rgba(244,63,94,0.45); color:#fda4af; border-radius:4px; padding:0 5px; font-size:10.5px; font-weight:900; line-height:1.35; cursor:pointer; flex-shrink:0;">✕</button>
+              </div>
+              <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navCompPdfPage(-1)" title="Previous PDF Page (ArrowLeft / PageUp)">◀ Prev</button>
               <div class="pdf-page-jump-pill">
                 <span>Page</span>
                 <input type="number" id="comp-pdf-page-input" min="1" value="1" onchange="CGL_OS.jumpToCompPdfPage(this.value)">
                 <span>of <b id="comp-pdf-page-total">1</b></span>
               </div>
-              <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navCompPdfPage(1)" title="Next PDF Page">Next ▶</button>
-              <button class="btn btn-secondary" id="btn-comp-pdf-thumbs" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.toggleCompPdfThumbnailScrubber()" title="Toggle Multi-Page Thumbnail Scrubber">🗂️ Thumbnails</button>
-              <button class="btn btn-secondary" id="btn-comp-pdf-bookmark" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.toggleActivePdfPageBookmark()" title="Bookmark this PDF Page">☆ Bookmark</button>
-              <button class="btn btn-secondary" id="btn-comp-pdf-invert" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.toggleActivePdfDarkInvert()" title="Toggle Dark Comfort Invert Filter on PDF Page">🌗 Invert PDF</button>
+              <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navCompPdfPage(1)" title="Next PDF Page (ArrowRight / PageDown)">Next ▶</button>
+              <div style="display:inline-flex; align-items:center; gap:3px; padding:0 4px; border-left:1px solid rgba(255,255,255,0.14); border-right:1px solid rgba(255,255,255,0.14);">
+                <button class="btn btn-secondary" style="padding:3px 7px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(-0.15)" title="Zoom Out PDF">🔍-</button>
+                <button class="btn btn-secondary" id="comp-pdf-zoom-btn" style="padding:3px 7px; font-size:10.5px; font-family:var(--font-mono);" onclick="CGL_OS.resetCompendiumZoom()" title="Reset PDF Zoom to 100%">100%</button>
+                <button class="btn btn-secondary" style="padding:3px 7px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(0.15)" title="Zoom In PDF">🔍+</button>
+              </div>
+              <button class="btn btn-cyan active" id="btn-comp-pdf-scroll-mode" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleCompPdfScrollMode()" title="Switch between Continuous Vertical Scroll (all pages) and Single Page view">📜 Continuous Scroll</button>
+              <button class="btn btn-emerald" id="btn-comp-pdf-pan" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.enableCompPdfPanMode()" title="Enable 1-Finger & Mouse Drag Pan/Scroll on PDF">✋ Move / Scroll</button>
+              <button class="btn btn-secondary" id="btn-comp-pdf-thumbs" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleCompPdfThumbnailScrubber()" title="Toggle Multi-Page Thumbnail Scrubber">🗂️ Pages</button>
+              <button class="btn btn-secondary" id="btn-comp-pdf-bookmark" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleActivePdfPageBookmark()" title="Bookmark this PDF Page">☆ Bookmark</button>
+              <button class="btn btn-secondary" id="btn-comp-pdf-invert" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleActivePdfDarkInvert()" title="Toggle Dark Comfort Invert Filter on PDF Page">🌗 Invert</button>
             </div>
-            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-              <button class="btn btn-purple" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.insertBlankPageIntoActivePdf()" title="Splice a clean A4 page right after this page for handwritten derivations">📄 + Blank Page</button>
-              <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(false)" title="Bake all vector ink, Recall Tapes & sticky notes into the stored PDF binary while keeping editable vectors">💾 Bake &amp; Save PDF</button>
-              <button class="btn btn-emerald" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(true)" title="Flatten annotations and download portable PDF file">📥 Download PDF</button>
+            <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+              <button class="btn btn-secondary" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.promptMoveActivePdfChapter()" title="Move or reassign this PDF to another Subject or Chapter">📁 Move Chapter</button>
+              <button class="btn btn-purple" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.insertBlankPageIntoActivePdf()" title="Splice a clean A4 page right after this page for handwritten derivations">📄 + Blank Page</button>
+              <button class="btn btn-cyan" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(false)" title="Bake all vector ink, Recall Tapes & sticky notes into the stored PDF binary while keeping editable vectors">💾 Bake &amp; Save</button>
+              <button class="btn btn-emerald" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(true)" title="Flatten annotations and download portable PDF file">📥 Download</button>
             </div>
           </div>
 
@@ -1168,9 +1181,26 @@
             <div id="comp-pdf-thumb-strip" class="comp-pdf-thumb-strip"></div>
           </div>
 
-          <!-- High-DPI PDF Page Render Surface (Visible in PDF Studio Mode) -->
-          <div id="comp-pdf-canvas-wrap" class="comp-pdf-canvas-wrap" style="display:none;">
-            <canvas id="comp-pdf-render-canvas" class="comp-pdf-render-canvas"></canvas>
+          <!-- High-DPI PDF Page Render Surface (Supports both Continuous Vertical Scroll & Single-Page Mode) -->
+          <div id="comp-pdf-canvas-wrap" class="comp-pdf-canvas-wrap" style="display:none;" title="Scroll naturally or drag to pan PDF pages">
+            <div id="comp-pdf-single-stage" class="comp-pdf-page-stage" style="position:relative; margin:0 auto; display:none;">
+              <canvas id="comp-pdf-render-canvas" class="comp-pdf-render-canvas"></canvas>
+            </div>
+            <div id="comp-pdf-continuous-container" class="comp-pdf-continuous-container"></div>
+          </div>
+
+          <!-- Bottom PDF Page & Document Navigation Bar (Visible in PDF Studio Mode) -->
+          <div id="comp-pdf-bottom-nav" class="comp-pdf-bottom-nav" style="display:none;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-secondary" style="padding:6px 12px; font-size:11.5px;" onclick="CGL_OS.navCompPdfPage(-1)">◀ Prev Page</button>
+              <span id="comp-pdf-bottom-page-info" style="font-size:12px; font-weight:800; color:var(--accent-cyan); font-family:var(--font-mono);">Page 1 of 1</span>
+              <button class="btn btn-cyan" style="padding:6px 14px; font-size:11.5px; font-weight:800;" onclick="CGL_OS.navCompPdfPage(1)">Next Page ▶</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <button class="btn btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.scrollCompendiumToTop()">↑ Top of Page</button>
+              <button class="btn btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.navCompStudioSheet(-1)">[ ← ] Prev Doc</button>
+              <button class="btn btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.navCompStudioSheet(1)">Next Doc [ → ]</button>
+            </div>
           </div>
 
           <!-- Rendered Academic Folio Content (Visible in Markdown Sheet Mode) -->

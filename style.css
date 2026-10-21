@@ -1425,7 +1425,7 @@ body {
   line-height: 1.82;
   font-size: calc(15px * var(--reader-font-scale));
   color: var(--folio-ink, var(--text-reading));
-  touch-action: pan-y;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 
 .comp-folio-page {
@@ -1876,7 +1876,7 @@ mark.user-hl-purple {
   height: 100%;
   z-index: 25;
   pointer-events: none;
-  touch-action: pan-y;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 .comp-folio-page.sheet-ink-mode-active .comp-folio-ink-canvas {
   pointer-events: auto;
@@ -1885,7 +1885,7 @@ mark.user-hl-purple {
 }
 .comp-folio-page.sheet-ink-mode-active.stylus-only-scroll .comp-folio-ink-canvas {
   pointer-events: none !important;
-  touch-action: pan-y pinch-zoom !important;
+  touch-action: pan-x pan-y pinch-zoom !important;
 }
 .folio-header-meta,
 .folio-sheet-nav-footer,
@@ -3169,8 +3169,9 @@ mark.user-hl-purple {
 
 /* Embedded PDF Studio Bar & Multi-Page Scrubber */
 .comp-pdf-studio-bar {
-  position: relative;
-  z-index: 65;
+  position: sticky;
+  top: 6px;
+  z-index: 75;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -3178,14 +3179,16 @@ mark.user-hl-purple {
   gap: 8px;
   padding: 9px 12px;
   margin-bottom: 12px;
-  background: rgba(8, 13, 25, 0.92);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(8, 13, 25, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(56, 189, 248, 0.38);
   border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
 }
 
 #compendium-fullscreen-view.folio-preset-sepia .comp-pdf-studio-bar {
-  background: #ede4d2;
+  background: rgba(237, 228, 210, 0.96);
   border-color: rgba(120, 102, 78, 0.35);
   color: #1e293b;
 }
@@ -3272,25 +3275,126 @@ mark.user-hl-purple {
   position: relative;
   width: 100%;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
   background: rgba(4, 7, 14, 0.4);
   border-radius: 10px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y pinch-zoom;
   min-height: 420px;
+  cursor: grab;
+  padding: 6px 0;
 }
 
-.comp-pdf-render-canvas {
+.comp-pdf-canvas-wrap.pdf-grabbing {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.comp-pdf-continuous-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.comp-pdf-page-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  border-radius: 10px;
+  padding: 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.06);
+  background: rgba(9, 14, 26, 0.55);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.comp-pdf-page-slot.active-pdf-page-slot {
+  border-color: rgba(56, 189, 248, 0.65);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.16);
+}
+
+#compendium-fullscreen-view.folio-preset-sepia .comp-pdf-page-slot {
+  background: rgba(235, 226, 208, 0.65);
+  border-color: rgba(120, 102, 78, 0.25);
+}
+
+.comp-pdf-page-slot-bar {
+  width: 100%;
+  max-width: 860px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.comp-pdf-page-slot.active-pdf-page-slot .comp-pdf-page-slot-bar {
+  color: var(--accent-cyan);
+}
+
+.comp-pdf-page-stage {
+  position: relative;
+  margin: 0 auto;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.comp-pdf-render-canvas,
+.comp-pdf-page-canvas {
   display: block;
-  max-width: 100%;
-  height: auto;
+  margin: 0 auto;
+  flex-shrink: 0;
   border-radius: 8px;
+  background: #ffffff;
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
   transition: filter 0.2s ease;
 }
 
-.comp-pdf-render-canvas.pdf-dark-inverted {
+.comp-pdf-render-canvas.pdf-dark-inverted,
+.comp-pdf-page-canvas.pdf-dark-inverted,
+.comp-pdf-render-canvas.pdf-dark-invert,
+.comp-pdf-page-canvas.pdf-dark-invert {
   filter: invert(0.92) hue-rotate(180deg) contrast(1.06);
+}
+
+.comp-pdf-page-ink-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.comp-pdf-bottom-nav {
+  position: relative;
+  z-index: 65;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(8, 13, 25, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 10px;
+}
+
+#compendium-fullscreen-view.folio-preset-sepia .comp-pdf-bottom-nav {
+  background: #ede4d2;
+  border-color: rgba(120, 102, 78, 0.35);
+  color: #1e293b;
 }
 
 /* LiquidText Excerpt Action Bar & Margin Rail Excerpt Cards */

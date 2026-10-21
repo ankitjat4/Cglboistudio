@@ -1093,14 +1093,12 @@ const CGL_OS = (() => {
   }
 
   function adjustReaderFontScale(delta) {
-    readerFontScale = Math.min(1.35, Math.max(0.84, parseFloat((readerFontScale + delta).toFixed(2))));
+    readerFontScale = Math.min(2.2, Math.max(0.75, parseFloat((readerFontScale + delta).toFixed(2))));
     document.documentElement.style.setProperty("--reader-font-scale", String(readerFontScale));
     compendiumZoomScale = readerFontScale;
-    const pctBtn = document.getElementById("comp-zoom-pct-btn") || document.getElementById("comp-zoom-badge");
-    if (pctBtn) pctBtn.innerText = `${Math.round(readerFontScale * 100)}%`;
-    const docEl = document.getElementById("comp-studio-doc-content");
-    if (docEl) {
-      docEl.style.zoom = Math.abs(readerFontScale - 1.0) < 0.02 ? "" : String(readerFontScale);
+    applyCompendiumZoomStyle();
+    if (isCompPdfActive()) {
+      renderPdfPage(activeCompPdfPageNum);
     }
     putRecord("store_config", { key: "reader_font_scale", value: readerFontScale });
   }
@@ -1331,6 +1329,7 @@ const CGL_OS = (() => {
       });
     } catch (e) { return false; }
   }
+  const deleteRecord = deleteRecordFromStore;
 
   async function clearStore(sName) {
     try {
@@ -4599,12 +4598,17 @@ Return ONLY valid JSON.`;
    */
   async function openSplitSheetDrawer(conceptId, fallbackSub, fallbackChap) {
     let sheet = null;
+    await loadPdfLibraryIndex();
     if (conceptId) {
-      sheet = await ConceptService.get(conceptId);
+      if (String(conceptId).startsWith("pdf_")) {
+        sheet = pdfLibraryIndex.find(p => p.id === conceptId) || null;
+      } else {
+        sheet = await ConceptService.get(conceptId);
+      }
     }
     if (!sheet && fallbackChap) {
       const all = await ConceptService.getAll();
-      sheet = all.find(c => c.chapter === fallbackChap);
+      sheet = all.find(c => c.chapter === fallbackChap) || pdfLibraryIndex.find(p => p.chapter === fallbackChap) || null;
     }
     if (!sheet) {
       showToast(`No Knowledge Sheet found for ${conceptId || fallbackChap}.`, "amber");
@@ -4616,18 +4620,29 @@ Return ONLY valid JSON.`;
     activeSplitSheetChapter = sheet.chapter;
 
     safeSetText("split-sheet-title", `${sheet.title} (${sheet.chapter})`);
-    const savedMasksRec = await getRecord("store_notes", `masks_${sheet.id}`);
-    const masks = savedMasksRec && Array.isArray(savedMasksRec.masks) ? savedMasksRec.masks : [];
-    const savedHlRec = await getRecord("store_notes", `highlights_${sheet.id}`);
-    const highlights = savedHlRec && Array.isArray(savedHlRec.highlights) ? savedHlRec.highlights : [];
 
-    safeSetHtml("split-sheet-body", `
-      <div style="font-size:11.5px; color:var(--accent-cyan); font-family:var(--font-mono); margin-bottom:8px;">${sheet.subtitle || ""}</div>
-      <div id="split-sheet-render-body">${formatRichText(sheet.content, [])}</div>
-    `);
-    const renderBody = document.getElementById("split-sheet-render-body");
-    if (renderBody) {
-      applyDomMasksAndHighlights(renderBody, masks, highlights);
+    if (sheet.isPdf) {
+      safeSetHtml("split-sheet-body", `
+        <div style="padding:14px; background:rgba(15,23,42,0.75); border:1px solid rgba(56,189,248,0.35); border-radius:10px; text-align:center;">
+          <div style="font-size:13px; font-weight:800; color:var(--accent-cyan); margin-bottom:4px;">\uD83D\uDCC4 ${sheet.title}</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">${sheet.subtitle || `${sheet.numPages || 1} Pages`}</div>
+          <button class="btn btn-cyan" onclick="CGL_OS.expandSplitSheetToFullStudio()">Open Full PDF Studio \u2794</button>
+        </div>
+      `);
+    } else {
+      const savedMasksRec = await getRecord("store_notes", `masks_${sheet.id}`);
+      const masks = savedMasksRec && Array.isArray(savedMasksRec.masks) ? savedMasksRec.masks : [];
+      const savedHlRec = await getRecord("store_notes", `highlights_${sheet.id}`);
+      const highlights = savedHlRec && Array.isArray(savedHlRec.highlights) ? savedHlRec.highlights : [];
+
+      safeSetHtml("split-sheet-body", `
+        <div style="font-size:11.5px; color:var(--accent-cyan); font-family:var(--font-mono); margin-bottom:8px;">${sheet.subtitle || ""}</div>
+        <div id="split-sheet-render-body">${formatRichText(sheet.content, [])}</div>
+      `);
+      const renderBody = document.getElementById("split-sheet-render-body");
+      if (renderBody) {
+        applyDomMasksAndHighlights(renderBody, masks, highlights);
+      }
     }
 
     const drawer = document.getElementById("arena-split-sheet-drawer");
@@ -5896,7 +5911,12 @@ Explanation: ${parentQ.explanation}`;
   function getActiveScrollContainerForInk() {
     const compView = document.getElementById("compendium-fullscreen-view");
     if (compView && compView.style.display === "flex") {
-      return document.getElementById("comp-studio-canvas");
+      const canvas = document.getElementById("comp-studio-canvas");
+      const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
+      if (ws && ws.scrollHeight > ws.clientHeight + 4 && (!canvas || canvas.scrollHeight <= canvas.clientHeight + 4)) {
+        return ws;
+      }
+      return canvas || ws;
     }
     const dojoView = document.getElementById("dojo-arena-view");
     if (dojoView && dojoView.style.display === "flex") {
@@ -9208,6 +9228,15 @@ Explanation: ${parentQ.explanation}`;
   let activeCompPdfRawBytes = null;
   let activeCompPdfPageNum = 1;
   let activeCompPdfTotalPages = 1;
+  let activeCompPdfScrollMode = "continuous"; // 'continuous' | 'single'
+  let activeCompPdfPageStrokesMap = {}; // { [pageNum]: strokes[] }
+  let activeCompPdfPageMediaMap = {}; // { [pageNum]: blocks[] }
+  let activeCompPdfLoadedIdForMaps = null;
+  let activeCompPdfRenderedPagesSet = new Set();
+  let activeCompPdfRenderingPagesMap = {};
+  let activeCompPdfBuiltDomSignature = "";
+  let pdfProgrammaticScrollUntil = 0;
+  let pdfScrollRafPending = false;
   let activeCompPdfDarkInvert = false;
   let activeCompPdfThumbnailsOpen = false;
   let activeCompPdfThumbnailFilter = "ALL";
@@ -9227,6 +9256,33 @@ Explanation: ${parentQ.explanation}`;
   function isCompPdfActive() {
     const cur = currentCompSheets && currentCompSheets[activeCompSheetIndex];
     return !!(cur && cur.isPdf && activeCompPdfItem);
+  }
+
+  function getActivePdfPageStage(pageNum = activeCompPdfPageNum) {
+    if (isCompPdfActive() && activeCompPdfScrollMode === "continuous") {
+      return document.getElementById(`comp-pdf-page-stage-${pageNum}`) || document.getElementById("comp-pdf-canvas-wrap");
+    }
+    return document.getElementById("comp-pdf-single-stage") || document.getElementById("comp-pdf-canvas-wrap");
+  }
+
+  function getActivePdfPageCanvas(pageNum = activeCompPdfPageNum) {
+    if (isCompPdfActive() && activeCompPdfScrollMode === "continuous") {
+      return document.getElementById(`comp-pdf-page-canvas-${pageNum}`) || document.getElementById("comp-pdf-render-canvas");
+    }
+    return document.getElementById("comp-pdf-render-canvas");
+  }
+
+  function findPdfPageStageAtPoint(clientX, clientY) {
+    if (!isCompPdfActive() || activeCompPdfScrollMode !== "continuous") return null;
+    const stages = document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-page-stage[data-page-num]");
+    for (let i = 0; i < stages.length; i++) {
+      const st = stages[i];
+      const r = st.getBoundingClientRect();
+      if (clientX >= r.left - 18 && clientX <= r.right + 18 && clientY >= r.top - 10 && clientY <= r.bottom + 10) {
+        return st;
+      }
+    }
+    return null;
   }
 
   function toggleCompSheetSwitcherDrawer(forceState = null) {
@@ -9355,12 +9411,24 @@ Explanation: ${parentQ.explanation}`;
     const selector = compendiumAutoBlurAll
       ? ".user-recall-mask, #comp-studio-doc-body strong, #comp-studio-doc-body .katex-display, #comp-studio-doc-body td"
       : ".user-recall-mask";
-    const allTargets = isCompPdfMode ? [] : Array.from(canvas.querySelectorAll(selector));
+    const allTargets = isCompPdfActive() ? [] : Array.from(canvas.querySelectorAll(selector));
     const revealedDomCount = allTargets.filter(el => el.classList.contains("recall-revealed")).length;
 
-    const tapeStrokes = Array.isArray(activeSheetInkStrokes)
-      ? activeSheetInkStrokes.filter(s => s && String(s.tool || "").toLowerCase() === "tape")
-      : [];
+    let tapeStrokes = [];
+    if (isCompPdfActive() && activeCompPdfScrollMode === "continuous" && activeCompPdfPageStrokesMap) {
+      activeCompPdfPageStrokesMap[activeCompPdfPageNum] = activeSheetInkStrokes;
+      Object.values(activeCompPdfPageStrokesMap).forEach(list => {
+        if (Array.isArray(list)) {
+          list.forEach(s => {
+            if (s && String(s.tool || "").toLowerCase() === "tape") tapeStrokes.push(s);
+          });
+        }
+      });
+    } else {
+      tapeStrokes = Array.isArray(activeSheetInkStrokes)
+        ? activeSheetInkStrokes.filter(s => s && String(s.tool || "").toLowerCase() === "tape")
+        : [];
+    }
     const revealedTapeCount = tapeStrokes.filter(s => s.revealed).length;
 
     const totalMasks = allTargets.length + tapeStrokes.length;
@@ -9380,6 +9448,22 @@ Explanation: ${parentQ.explanation}`;
       saveActiveSheetInkStrokes();
       updateRecallProgressCounter();
       return;
+    }
+
+    if (isCompPdfActive() && activeCompPdfScrollMode === "continuous" && activeCompPdfPageStrokesMap) {
+      for (let p = 1; p <= activeCompPdfTotalPages; p++) {
+        const list = activeCompPdfPageStrokesMap[p] || [];
+        const pTape = list.find(s => s && String(s.tool || "").toLowerCase() === "tape" && !s.revealed);
+        if (pTape) {
+          setActiveCompPdfPageInScrollSync(p);
+          pTape.revealed = true;
+          redrawSheetInkCanvas();
+          saveActiveSheetInkStrokes();
+          scrollToPdfPageSlot(p, true);
+          updateRecallProgressCounter();
+          return;
+        }
+      }
     }
 
     const selector = compendiumAutoBlurAll
@@ -9405,6 +9489,28 @@ Explanation: ${parentQ.explanation}`;
         changedTape = true;
       }
     });
+    if (isCompPdfActive() && activeCompPdfScrollMode === "continuous" && activeCompPdfPageStrokesMap && activeCompPdfItem) {
+      for (let p = 1; p <= activeCompPdfTotalPages; p++) {
+        const list = activeCompPdfPageStrokesMap[p] || [];
+        let pageChanged = false;
+        list.forEach(s => {
+          if (s && String(s.tool || "").toLowerCase() === "tape" && s.revealed) {
+            s.revealed = false;
+            pageChanged = true;
+          }
+        });
+        if (pageChanged) {
+          renderCompPdfPageInkOverlay(p);
+          putRecord("store_notes", {
+            id: `pdf_ink_${activeCompPdfItem.id}_p${p}`,
+            pdfId: activeCompPdfItem.id,
+            pageNum: p,
+            strokes: list,
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
     if (changedTape) {
       redrawSheetInkCanvas();
       saveActiveSheetInkStrokes();
@@ -9477,6 +9583,18 @@ Explanation: ${parentQ.explanation}`;
 
   function toggleCompendiumMaskEditMode(forceState = null) {
     if (forceState && typeof forceState === "object") forceState = null;
+    // On PDF documents, route 🖌️ Mask directly to GoodNotes Recall Tape tool
+    if (isCompPdfActive() && forceState !== false) {
+      if (compSheetInkMode && compSheetInkTool === "tape" && forceState === null) {
+        toggleCompSheetInkMode(false);
+        showToast("PDF Recall Tape mode off — Pan & Scroll active.", "cyan", 1600);
+      } else {
+        toggleCompSheetInkMode(true);
+        setCompSheetInkTool("tape");
+        showToast("🩹 PDF Recall Tape active — draw over formulas to mask, or tap ✋ Pan to scroll.", "amber", 2400);
+      }
+      return;
+    }
     compendiumMaskEditMode = typeof forceState === "boolean" ? forceState : !compendiumMaskEditMode;
     if (compendiumMaskEditMode) {
       if (compendiumRecallMode) toggleCompendiumRecallMode(false);
@@ -9490,6 +9608,7 @@ Explanation: ${parentQ.explanation}`;
     const dockLbl = document.getElementById("dock-mask-label");
     if (canvas) {
       canvas.classList.toggle("mask-edit-mode-active", compendiumMaskEditMode);
+      if (!compendiumMaskEditMode) canvas.classList.remove("brush-painting-active");
     }
     if (btn) {
       btn.classList.toggle("btn-amber", compendiumMaskEditMode);
@@ -9513,6 +9632,20 @@ Explanation: ${parentQ.explanation}`;
 
   function toggleCompendiumHighlightMode(forceState = null) {
     if (forceState && typeof forceState === "object") forceState = null;
+    // On PDF documents, route 🖍️ Highlight directly to PDF Chisel Marker Highlighter
+    if (isCompPdfActive() && forceState !== false) {
+      if (compSheetInkMode && compSheetInkTool === "marker" && forceState === null) {
+        toggleCompSheetInkMode(false);
+        showToast("PDF Marker Highlighter off — Pan & Scroll active.", "cyan", 1600);
+      } else {
+        const hlHexMap = { yellow: "#facc15", green: "#34d399", pink: "#fb7185", red: "#fb7185", purple: "#c084fc", cyan: "#38bdf8" };
+        compSheetInkColor = hlHexMap[compendiumActiveHighlightColor || "yellow"] || "#facc15";
+        toggleCompSheetInkMode(true);
+        setCompSheetInkTool("marker");
+        showToast("🖍️ PDF Marker Highlighter active — drag to highlight, or tap ✋ Pan to scroll.", "cyan", 2400);
+      }
+      return;
+    }
     compendiumHighlightMode = typeof forceState === "boolean" ? forceState : !compendiumHighlightMode;
     if (compendiumHighlightMode) {
       if (compendiumRecallMode) toggleCompendiumRecallMode(false);
@@ -9533,6 +9666,7 @@ Explanation: ${parentQ.explanation}`;
     if (canvas) {
       canvas.classList.toggle("highlight-edit-mode-active", compendiumHighlightMode);
       canvas.classList.toggle("highlight-mode-active", compendiumHighlightMode);
+      if (!compendiumHighlightMode) canvas.classList.remove("brush-painting-active");
       canvas.setAttribute("data-active-hl", compendiumActiveHighlightColor || "yellow");
     }
     if (btn) {
@@ -9591,6 +9725,15 @@ Explanation: ${parentQ.explanation}`;
       canvas.setAttribute("data-active-hl", compendiumActiveHighlightColor);
     }
 
+    if (isCompPdfActive()) {
+      const hlHexMap = { yellow: "#facc15", green: "#34d399", pink: "#fb7185", red: "#fb7185", purple: "#c084fc", cyan: "#38bdf8" };
+      setCompSheetInkColor(hlHexMap[compendiumActiveHighlightColor] || "#facc15");
+      if (!compSheetInkMode) toggleCompSheetInkMode(true);
+      setCompSheetInkTool("marker");
+      showToast(`🖍️ PDF Marker color set (${compendiumActiveHighlightColor}).`, "cyan", 1600);
+      return;
+    }
+
     if (!compendiumHighlightMode) {
       toggleCompendiumHighlightMode(true);
     }
@@ -9629,13 +9772,45 @@ Explanation: ${parentQ.explanation}`;
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     if (!pageEl || !inkCanvas) return;
 
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+
+    if (isCompPdfActive()) {
+      const targetCanvas = getActivePdfPageCanvas(activeCompPdfPageNum);
+      if (targetCanvas && targetCanvas.offsetWidth > 20 && targetCanvas.offsetHeight > 20) {
+        const pageRect = pageEl.getBoundingClientRect();
+        const targetRect = targetCanvas.getBoundingClientRect();
+        const relLeft = Math.round(targetRect.left - pageRect.left + pageEl.scrollLeft);
+        const relTop = Math.round(targetRect.top - pageRect.top + pageEl.scrollTop);
+        const w = Math.max(Math.round(targetRect.width), 200);
+        const h = Math.max(Math.round(targetRect.height), 260);
+
+        inkCanvas.style.left = `${relLeft}px`;
+        inkCanvas.style.top = `${relTop}px`;
+        inkCanvas.style.width = `${w}px`;
+        inkCanvas.style.height = `${h}px`;
+
+        const targetW = Math.round(w * dpr);
+        const targetH = Math.round(h * dpr);
+        if (inkCanvas.width !== targetW || inkCanvas.height !== targetH) {
+          inkCanvas.width = targetW;
+          inkCanvas.height = targetH;
+        }
+        if (activeCompPdfScrollMode === "continuous") {
+          renderCompPdfPageInkOverlay(activeCompPdfPageNum);
+        }
+        redrawSheetInkCanvas();
+        return;
+      }
+    }
+
+    inkCanvas.style.left = "0px";
+    inkCanvas.style.top = "0px";
     const prevStyleH = inkCanvas.style.height;
     inkCanvas.style.height = "0px";
     const w = Math.max(pageEl.scrollWidth, pageEl.clientWidth, 320);
     const h = Math.max(pageEl.scrollHeight, pageEl.clientHeight, 480);
     inkCanvas.style.height = prevStyleH;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     const targetW = Math.round(w * dpr);
     const targetH = Math.round(h * dpr);
 
@@ -9656,6 +9831,118 @@ Explanation: ${parentQ.explanation}`;
     return 148;
   }
 
+  function drawSingleStrokeOnCtx(ctx, w, h, stroke, idx = -1, selectedIndices = []) {
+    if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
+    const toolType = String(stroke.tool || "pen").toLowerCase();
+    if (toolType === "stroke_eraser") return;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (toolType === "eraser") {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+      ctx.lineWidth = stroke.eraserWidth || getEffectiveEraserPixelWidth(stroke.size);
+    } else if (toolType === "tape") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.lineCap = "butt";
+      ctx.globalAlpha = stroke.revealed ? 0.14 : 0.96;
+      ctx.strokeStyle = stroke.color || "#7c3aed";
+      ctx.lineWidth = 22;
+    } else if (toolType === "marker") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.36;
+      ctx.strokeStyle = stroke.color || "#facc15";
+      ctx.lineWidth = Math.max(16, (stroke.size || 3.0) * 6.8);
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = stroke.color || "#38bdf8";
+      ctx.lineWidth = stroke.size || 3.0;
+    }
+
+    const pts = stroke.points.map(pt => ({
+      x: (pt.nx !== undefined ? pt.nx * w : pt.x),
+      y: (pt.ny !== undefined ? pt.ny * h : pt.y)
+    }));
+
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 1) {
+      ctx.lineTo(pts[0].x + 0.1, pts[0].y + 0.1);
+    } else if (stroke.shapeSnap) {
+      for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo(pts[i].x, pts[i].y);
+      }
+    } else {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const midX = (pts[i].x + pts[i + 1].x) / 2;
+        const midY = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+      }
+      const last = pts[pts.length - 1];
+      ctx.lineTo(last.x, last.y);
+    }
+    ctx.stroke();
+
+    if (toolType === "tape" && pts.length >= 2) {
+      ctx.globalAlpha = stroke.revealed ? 0.45 : 0.85;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "#38bdf8";
+      ctx.stroke();
+    }
+
+    if (idx >= 0 && Array.isArray(selectedIndices) && selectedIndices.includes(idx)) {
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = "#38bdf8";
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function renderCompPdfPageInkOverlay(pageNum) {
+    const ovCanvas = document.getElementById(`comp-pdf-page-ink-${pageNum}`);
+    const pageCanvas = document.getElementById(`comp-pdf-page-canvas-${pageNum}`);
+    if (!ovCanvas || !pageCanvas) return;
+
+    const cssW = Math.max(pageCanvas.offsetWidth || parseInt(pageCanvas.style.width, 10) || 600, 1);
+    const cssH = Math.max(pageCanvas.offsetHeight || parseInt(pageCanvas.style.height, 10) || 800, 1);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
+    const targetW = Math.round(cssW * dpr);
+    const targetH = Math.round(cssH * dpr);
+
+    if (ovCanvas.width !== targetW || ovCanvas.height !== targetH) {
+      ovCanvas.width = targetW;
+      ovCanvas.height = targetH;
+      ovCanvas.style.width = `${cssW}px`;
+      ovCanvas.style.height = `${cssH}px`;
+    }
+
+    const ctx = ovCanvas.getContext("2d");
+    if (!ctx) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ovCanvas.width, ovCanvas.height);
+
+    // When pageNum is the active page, #comp-folio-ink-canvas renders its strokes + live preview directly over it
+    if (pageNum === activeCompPdfPageNum) {
+      ovCanvas.style.visibility = "hidden";
+      ctx.restore();
+      return;
+    }
+
+    ovCanvas.style.visibility = "visible";
+    const strokes = activeCompPdfPageStrokesMap[pageNum] || [];
+    if (strokes.length > 0) {
+      ctx.scale(dpr, dpr);
+      strokes.forEach((s, idx) => drawSingleStrokeOnCtx(ctx, cssW, cssH, s, idx, []));
+    }
+    ctx.restore();
+  }
+
   function redrawSheetInkCanvas() {
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     if (!inkCanvas) return;
@@ -9671,84 +9958,11 @@ Explanation: ${parentQ.explanation}`;
     ctx.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
     ctx.scale(dpr, dpr);
 
-    const drawSingleStroke = (stroke, idx = -1) => {
-      if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
-      const toolType = String(stroke.tool || "pen").toLowerCase();
-      if (toolType === "stroke_eraser") return;
-
-      ctx.save();
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      if (toolType === "eraser") {
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.strokeStyle = "rgba(0,0,0,1)";
-        ctx.lineWidth = stroke.eraserWidth || getEffectiveEraserPixelWidth(stroke.size);
-      } else if (toolType === "tape") {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.lineCap = "butt";
-        ctx.globalAlpha = stroke.revealed ? 0.14 : 0.96;
-        ctx.strokeStyle = stroke.color || "#7c3aed";
-        ctx.lineWidth = 22;
-      } else if (toolType === "marker") {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = 0.36;
-        ctx.strokeStyle = stroke.color || "#facc15";
-        ctx.lineWidth = Math.max(16, (stroke.size || 3.0) * 6.8);
-      } else {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = 1.0;
-        ctx.strokeStyle = stroke.color || "#38bdf8";
-        ctx.lineWidth = stroke.size || 3.0;
-      }
-
-      const pts = stroke.points.map(pt => ({
-        x: (pt.nx !== undefined ? pt.nx * w : pt.x),
-        y: (pt.ny !== undefined ? pt.ny * h : pt.y)
-      }));
-
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      if (pts.length === 1) {
-        ctx.lineTo(pts[0].x + 0.1, pts[0].y + 0.1);
-      } else if (stroke.shapeSnap) {
-        for (let i = 1; i < pts.length; i++) {
-          ctx.lineTo(pts[i].x, pts[i].y);
-        }
-      } else {
-        for (let i = 1; i < pts.length - 1; i++) {
-          const midX = (pts[i].x + pts[i + 1].x) / 2;
-          const midY = (pts[i].y + pts[i + 1].y) / 2;
-          ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
-        }
-        const last = pts[pts.length - 1];
-        ctx.lineTo(last.x, last.y);
-      }
-      ctx.stroke();
-
-      // Draw subtle dashed border on Recall Tape so user knows it's interactive
-      if (toolType === "tape" && pts.length >= 2) {
-        ctx.globalAlpha = stroke.revealed ? 0.45 : 0.85;
-        ctx.lineWidth = 1.2;
-        ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = "#38bdf8";
-        ctx.stroke();
-      }
-
-      if (idx >= 0 && lassoSelectedStrokeIndices.includes(idx)) {
-        ctx.globalAlpha = 0.9;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 3]);
-        ctx.strokeStyle = "#38bdf8";
-        ctx.stroke();
-      }
-      ctx.restore();
-    };
-
     if (Array.isArray(activeSheetInkStrokes)) {
-      activeSheetInkStrokes.forEach((s, idx) => drawSingleStroke(s, idx));
+      activeSheetInkStrokes.forEach((s, idx) => drawSingleStrokeOnCtx(ctx, w, h, s, idx, lassoSelectedStrokeIndices));
     }
     if (currentSheetInkStroke) {
-      drawSingleStroke(currentSheetInkStroke, -1);
+      drawSingleStrokeOnCtx(ctx, w, h, currentSheetInkStroke, -1, []);
     }
 
     // Draw Lasso Polygon Path or Selected Bounding Box
@@ -9951,6 +10165,7 @@ Explanation: ${parentQ.explanation}`;
 
   async function saveActiveSheetInkStrokes() {
     if (isCompPdfActive() && activeCompPdfItem) {
+      activeCompPdfPageStrokesMap[activeCompPdfPageNum] = activeSheetInkStrokes;
       const recId = `pdf_ink_${activeCompPdfItem.id}_p${activeCompPdfPageNum}`;
       await putRecord("store_notes", {
         id: recId,
@@ -9965,6 +10180,10 @@ Explanation: ${parentQ.explanation}`;
       else annSet.delete(activeCompPdfPageNum);
       activeCompPdfItem.annotatedPages = Array.from(annSet).sort((a, b) => a - b);
       await savePdfLibraryIndex();
+      const slotInkBadge = document.getElementById(`comp-pdf-slot-ink-badge-${activeCompPdfPageNum}`);
+      if (slotInkBadge) {
+        slotInkBadge.innerText = hasInk ? "\u270F\uFE0F Annotated" : "";
+      }
       if (activeCompPdfThumbnailsOpen) {
         await renderCompPdfThumbnailsStrip();
       }
@@ -9985,13 +10204,19 @@ Explanation: ${parentQ.explanation}`;
   function syncSheetInkPointerPassthrough() {
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     const pageEl = document.getElementById("comp-folio-page");
+    const pdfPanBtn = document.getElementById("btn-comp-pdf-pan");
+    const isPanMode = !compSheetInkMode || compSheetInkTool === "pan";
+    if (pdfPanBtn) {
+      pdfPanBtn.classList.toggle("btn-emerald", isPanMode);
+      pdfPanBtn.classList.toggle("btn-secondary", !isPanMode);
+    }
     if (!inkCanvas) return;
-    if (!compSheetInkMode) {
+    if (!compSheetInkMode || compSheetInkTool === "pan") {
       inkCanvas.style.pointerEvents = "none";
-      inkCanvas.style.touchAction = "auto";
+      inkCanvas.style.touchAction = "pan-x pan-y pinch-zoom";
       if (pageEl) {
-        pageEl.classList.remove("stylus-only-scroll");
-        pageEl.style.touchAction = "";
+        pageEl.classList.toggle("stylus-only-scroll", compSheetInkMode && compSheetInkTool === "pan");
+        pageEl.style.touchAction = "pan-x pan-y pinch-zoom";
       }
       return;
     }
@@ -10004,10 +10229,10 @@ Explanation: ${parentQ.explanation}`;
       }
     } else {
       inkCanvas.style.pointerEvents = "none";
-      inkCanvas.style.touchAction = "pan-y pinch-zoom";
+      inkCanvas.style.touchAction = "pan-x pan-y pinch-zoom";
       if (pageEl) {
         pageEl.classList.add("stylus-only-scroll");
-        pageEl.style.touchAction = "pan-y pinch-zoom";
+        pageEl.style.touchAction = "pan-x pan-y pinch-zoom";
       }
     }
   }
@@ -10019,6 +10244,8 @@ Explanation: ${parentQ.explanation}`;
       if (compendiumRecallMode) toggleCompendiumRecallMode(false);
       if (compendiumMaskEditMode) toggleCompendiumMaskEditMode(false);
       if (compendiumHighlightMode) toggleCompendiumHighlightMode(false);
+      if (compSheetInkTool === "pan") compSheetInkTool = "pen";
+      setCompSheetInkTool(compSheetInkTool || "pen");
     } else {
       isDrawingSheetInk = false;
       currentSheetInkStroke = null;
@@ -10053,7 +10280,8 @@ Explanation: ${parentQ.explanation}`;
 
   function setCompSheetInkTool(tool = "pen") {
     const norm = String(tool || "pen").toLowerCase();
-    if (norm === "stroke_eraser") compSheetInkTool = "stroke_eraser";
+    if (norm === "pan" || norm === "move" || norm === "scroll") compSheetInkTool = "pan";
+    else if (norm === "stroke_eraser") compSheetInkTool = "stroke_eraser";
     else if (norm === "eraser") compSheetInkTool = "eraser";
     else if (norm === "marker") compSheetInkTool = "marker";
     else if (norm === "tape") compSheetInkTool = "tape";
@@ -10067,8 +10295,10 @@ Explanation: ${parentQ.explanation}`;
     excerptDragStartNorm = null;
     excerptDragCurrNorm = null;
     redrawSheetInkCanvas();
+    syncSheetInkPointerPassthrough();
 
     const btnMap = {
+      pan: document.getElementById("btn-folio-pan"),
       pen: document.getElementById("btn-folio-pen") || document.getElementById("ink-tool-pen"),
       marker: document.getElementById("btn-folio-marker"),
       tape: document.getElementById("btn-folio-tape"),
@@ -10094,7 +10324,7 @@ Explanation: ${parentQ.explanation}`;
 
   function setCompSheetInkColor(color = "#38bdf8", btnEl = null) {
     compSheetInkColor = color;
-    if (compSheetInkTool === "eraser" || compSheetInkTool === "stroke_eraser" || compSheetInkTool === "lasso" || compSheetInkTool === "excerpt") {
+    if (compSheetInkTool === "eraser" || compSheetInkTool === "stroke_eraser" || compSheetInkTool === "lasso" || compSheetInkTool === "excerpt" || compSheetInkTool === "pan") {
       setCompSheetInkTool("pen");
     }
     document.querySelectorAll("#comp-folio-ink-toolbar .folio-ink-swatch, #comp-folio-ink-toolbar .ink-swatch").forEach(el => {
@@ -10184,6 +10414,7 @@ Explanation: ${parentQ.explanation}`;
     let strokeEraserModified = false;
     let lastEraserNormPt = null;
     let folioTwoFingerScrollY = null;
+    let folioTwoFingerScrollX = null;
 
     const getNormalizedPoint = (e) => {
       const rect = inkCanvas.getBoundingClientRect();
@@ -10203,10 +10434,15 @@ Explanation: ${parentQ.explanation}`;
       const elUnder = document.elementFromPoint(clientX, clientY);
       inkCanvas.style.pointerEvents = prevPe;
       if (!elUnder) return null;
-      return elUnder.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap");
+      return elUnder.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-bottom-nav, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap");
     };
 
-    // 2-Finger Natural Scroll on Folio Ink Canvas when 1-Finger Draw Mode is ON
+    // Forward mouse wheel & trackpad scrolling even when Ink Mode is active
+    inkCanvas.addEventListener("wheel", (we) => {
+      scrollCompendiumBy(we.deltaX || 0, we.deltaY || 0);
+    }, { passive: true });
+
+    // 2-Finger Natural Scroll (both X and Y, across mobile & desktop) on Folio Ink Canvas when 1-Finger Draw Mode is ON
     inkCanvas.addEventListener("touchstart", (te) => {
       if (te.touches && te.touches.length >= 2) {
         clearTimeout(folioShapeHoldTimer);
@@ -10216,22 +10452,26 @@ Explanation: ${parentQ.explanation}`;
           redrawSheetInkCanvas();
         }
         folioTwoFingerScrollY = (te.touches[0].clientY + te.touches[1].clientY) / 2;
+        folioTwoFingerScrollX = (te.touches[0].clientX + te.touches[1].clientX) / 2;
       }
     }, { passive: true });
 
     inkCanvas.addEventListener("touchmove", (te) => {
       if (te.touches && te.touches.length >= 2 && folioTwoFingerScrollY !== null) {
         const midY = (te.touches[0].clientY + te.touches[1].clientY) / 2;
+        const midX = (te.touches[0].clientX + te.touches[1].clientX) / 2;
         const dy = folioTwoFingerScrollY - midY;
+        const dx = folioTwoFingerScrollX !== null ? (folioTwoFingerScrollX - midX) : 0;
         folioTwoFingerScrollY = midY;
-        const scrollContainer = document.getElementById("comp-studio-canvas") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
-        if (scrollContainer) scrollContainer.scrollTop += dy;
+        folioTwoFingerScrollX = midX;
+        scrollCompendiumBy(dx, dy);
       }
     }, { passive: true });
 
     inkCanvas.addEventListener("touchend", (te) => {
       if (!te.touches || te.touches.length < 2) {
         folioTwoFingerScrollY = null;
+        folioTwoFingerScrollX = null;
       }
     }, { passive: true });
 
@@ -10526,8 +10766,21 @@ Explanation: ${parentQ.explanation}`;
       }, { capture: true });
 
       pageEl.addEventListener("pointerdown", (e) => {
+        // In Continuous PDF Scroll mode, touching or clicking ANY visible page immediately activates that page
+        let switchedPdfPageInContinuous = false;
+        if (isCompPdfActive() && activeCompPdfScrollMode === "continuous") {
+          const hitStage = findPdfPageStageAtPoint(e.clientX, e.clientY);
+          if (hitStage) {
+            const hitPage = Number(hitStage.getAttribute("data-page-num"));
+            if (hitPage >= 1 && hitPage !== activeCompPdfPageNum) {
+              setActiveCompPdfPageInScrollSync(hitPage);
+              switchedPdfPageInContinuous = true;
+            }
+          }
+        }
+
         // Allow tapping Recall Tape ribbons when Ink Mode is OFF or in Stylus-Only Touch mode
-        if (!compSheetInkMode || (!compSheetInkFingerDraw && e.pointerType === "touch")) {
+        if (!compSheetInkMode || compSheetInkTool === "pan" || (!compSheetInkFingerDraw && e.pointerType === "touch")) {
           const pt = getNormalizedPoint(e);
           if (tryToggleRecallTapeAtNormPoint(pt.nx, pt.ny)) {
             e.preventDefault();
@@ -10535,6 +10788,20 @@ Explanation: ${parentQ.explanation}`;
             return;
           }
         }
+
+        // If user started drawing on a newly-clicked PDF page in Continuous Scroll mode (where e.target was the page canvas before inkCanvas moved onto it), start stroke seamlessly
+        if (switchedPdfPageInContinuous && compSheetInkMode && compSheetInkTool !== "pan" && e.target !== inkCanvas) {
+          if ((compSheetInkFingerDraw || e.pointerType === "pen") && (e.button === undefined || e.button === 0 || e.pointerType !== "mouse")) {
+            if (!getUnderlyingInteractiveControl(e.clientX, e.clientY)) {
+              e.preventDefault();
+              e.stopPropagation();
+              try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+              beginInkAtEvent(e);
+              return;
+            }
+          }
+        }
+
         if (!compSheetInkMode || compSheetInkFingerDraw) return;
         if (e.pointerType === "touch") {
           pageEl.style.touchAction = "pan-y pinch-zoom";
@@ -10594,13 +10861,41 @@ Explanation: ${parentQ.explanation}`;
 
   function getActiveCompendiumScrollTop() {
     const canvas = document.getElementById("comp-studio-canvas");
-    const ws = document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
+    const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
     return Math.max(canvas ? canvas.scrollTop : 0, ws ? ws.scrollTop : 0);
+  }
+
+  function scrollCompendiumBy(dx = 0, dy = 0) {
+    const canvas = document.getElementById("comp-studio-canvas");
+    const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
+    const pdfWrap = document.getElementById("comp-pdf-canvas-wrap");
+    if (dy !== 0) {
+      if (canvas && canvas.scrollHeight > canvas.clientHeight) canvas.scrollTop += dy;
+      if (ws && ws.scrollHeight > ws.clientHeight) ws.scrollTop += dy;
+    }
+    if (dx !== 0) {
+      if (pdfWrap && isCompPdfActive()) pdfWrap.scrollLeft += dx;
+      if (canvas) canvas.scrollLeft += dx;
+      if (ws) ws.scrollLeft += dx;
+    }
+  }
+
+  function scrollCompendiumToTop() {
+    const canvas = document.getElementById("comp-studio-canvas");
+    const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
+    const pdfWrap = document.getElementById("comp-pdf-canvas-wrap");
+    if (canvas) canvas.scrollTo({ top: 0, behavior: "smooth" });
+    if (ws) ws.scrollTo({ top: 0, behavior: "smooth" });
+    if (pdfWrap) pdfWrap.scrollTo({ top: 0, left: 0, behavior: "smooth" });
   }
 
   function setSheetMediaPlacementMode(mode = "floating") {
     stagedSheetMediaPlacement = mode === "inline" ? "inline" : "floating";
-    const floatBtn = document.getElementById("btn-media-mode-floating");
+    const modeSel = document.getElementById("sheet-media-insert-mode");
+    if (modeSel && modeSel.value !== stagedSheetMediaPlacement) {
+      modeSel.value = stagedSheetMediaPlacement;
+    }
+    const floatBtn = document.getElementById("btn-media-mode-float") || document.getElementById("btn-media-mode-floating");
     const inlineBtn = document.getElementById("btn-media-mode-inline");
     if (floatBtn) {
       floatBtn.className = stagedSheetMediaPlacement === "floating" ? "btn btn-cyan" : "btn btn-secondary";
@@ -10610,9 +10905,17 @@ Explanation: ${parentQ.explanation}`;
     }
   }
 
+  function getSelectedSheetMediaPlacementMode() {
+    const modeSel = document.getElementById("sheet-media-insert-mode");
+    if (modeSel && (modeSel.value === "inline" || modeSel.value === "floating")) {
+      stagedSheetMediaPlacement = modeSel.value;
+    }
+    return stagedSheetMediaPlacement || "floating";
+  }
+
   function updateSheetMediaModalPreview(src) {
     stagedSheetMediaBase64 = src || "";
-    const wrap = document.getElementById("sheet-media-preview-wrap");
+    const wrap = document.getElementById("sheet-media-preview-box") || document.getElementById("sheet-media-preview-wrap");
     const img = document.getElementById("sheet-media-preview-img");
     if (wrap && img) {
       if (stagedSheetMediaBase64) {
@@ -10629,7 +10932,19 @@ Explanation: ${parentQ.explanation}`;
     if (!input || !input.files || !input.files[0]) return;
     const base64 = await compressImageFile(input.files[0]);
     if (base64) {
-      updateSheetMediaModalPreview(base64);
+      const mode = getSelectedSheetMediaPlacementMode();
+      const scrollY = getActiveCompendiumScrollTop();
+      await insertMediaBlockIntoActiveSheet({
+        type: "image",
+        mode,
+        src: base64,
+        caption: "",
+        x: 36,
+        y: Math.max(70, scrollY + 90),
+        width: 260
+      });
+      document.getElementById("modal-sheet-media-studio")?.classList.remove("active");
+      showToast("Image card added to workspace!", "emerald", 1800);
     }
   }
 
@@ -10642,6 +10957,7 @@ Explanation: ${parentQ.explanation}`;
 
   async function handleMediaModalPasteEvent(ev) {
     if (!ev) return;
+    const mode = getSelectedSheetMediaPlacementMode();
     const items = ev.clipboardData?.items;
     if (items) {
       for (let i = 0; i < items.length; i++) {
@@ -10651,7 +10967,18 @@ Explanation: ${parentQ.explanation}`;
             ev.preventDefault();
             const base64 = await compressImageFile(file);
             if (base64) {
-              updateSheetMediaModalPreview(base64);
+              const scrollY = getActiveCompendiumScrollTop();
+              await insertMediaBlockIntoActiveSheet({
+                type: "image",
+                mode,
+                src: base64,
+                caption: "Pasted visual",
+                x: 36,
+                y: Math.max(72, scrollY + 85),
+                width: 260
+              });
+              document.getElementById("modal-sheet-media-studio")?.classList.remove("active");
+              showToast("Clipboard image pasted onto workspace!", "emerald", 1800);
             }
           }
           return;
@@ -10662,7 +10989,7 @@ Explanation: ${parentQ.explanation}`;
     if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("data:image/")) {
       ev.preventDefault();
       safeSetValue("sheet-media-url-input", text);
-      updateSheetMediaModalPreview(text);
+      await commitSheetMediaFromModal();
     }
   }
 
@@ -10677,11 +11004,12 @@ Explanation: ${parentQ.explanation}`;
       showToast("Choose an image file, paste from clipboard, or enter an image URL first.", "amber");
       return;
     }
-    const caption = document.getElementById("sheet-media-caption-input")?.value.trim() || "";
+    const mode = getSelectedSheetMediaPlacementMode();
+    const caption = (document.getElementById("sheet-media-caption") || document.getElementById("sheet-media-caption-input"))?.value.trim() || "";
     const scrollY = getActiveCompendiumScrollTop();
     await insertMediaBlockIntoActiveSheet({
       type: "image",
-      mode: stagedSheetMediaPlacement || "floating",
+      mode,
       src: finalSrc,
       caption,
       x: 34,
@@ -10696,9 +11024,7 @@ Explanation: ${parentQ.explanation}`;
     closeCompMorePopover();
     stagedSheetMediaBase64 = "";
     setSheetMediaPlacementMode(defaultMode);
-    safeSetValue("sheet-media-studio-file", "");
     safeSetValue("sheet-media-url-input", "");
-    safeSetValue("sheet-media-caption-input", "");
     updateSheetMediaModalPreview("");
 
     pushHistoryState("modal-sheet-media-studio");
@@ -10707,23 +11033,34 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function triggerCompSheetImageUpload() {
-    openAddSheetMediaPrompt("floating");
+    closeCompMorePopover();
+    getSelectedSheetMediaPlacementMode();
+    const fileInput = document.getElementById("comp-media-file-input") || document.getElementById("comp-sheet-image-file-input");
+    if (fileInput) {
+      fileInput.value = "";
+      fileInput.click();
+    } else {
+      openAddSheetMediaPrompt("floating");
+    }
   }
 
   async function handleCompSheetImageUpload(input) {
     if (!input || !input.files || !input.files[0]) return;
     const base64 = await compressImageFile(input.files[0]);
     if (base64) {
+      const mode = getSelectedSheetMediaPlacementMode();
       const scrollY = getActiveCompendiumScrollTop();
       await insertMediaBlockIntoActiveSheet({
         type: "image",
-        mode: "floating",
+        mode,
         src: base64,
         caption: "",
         x: 36,
         y: Math.max(70, scrollY + 90),
         width: 260
       });
+      document.getElementById("modal-sheet-media-studio")?.classList.remove("active");
+      showToast("Image added to workspace!", "emerald", 1800);
     }
   }
 
@@ -10743,8 +11080,17 @@ Explanation: ${parentQ.explanation}`;
             const file = new File([blob], "clipboard-image.png", { type: imgType });
             const base64 = await compressImageFile(file);
             if (base64) {
-              openAddSheetMediaPrompt("floating");
-              updateSheetMediaModalPreview(base64);
+              const scrollY = getActiveCompendiumScrollTop();
+              await insertMediaBlockIntoActiveSheet({
+                type: "image",
+                mode: "floating",
+                src: base64,
+                caption: "Pasted visual",
+                x: 36,
+                y: Math.max(70, scrollY + 90),
+                width: 260
+              });
+              showToast("Clipboard image pasted onto sheet!", "emerald", 1800);
               return;
             }
           }
@@ -10753,9 +11099,17 @@ Explanation: ${parentQ.explanation}`;
       if (navigator.clipboard && navigator.clipboard.readText) {
         const txt = (await navigator.clipboard.readText() || "").trim();
         if (txt.startsWith("http://") || txt.startsWith("https://") || txt.startsWith("data:image/")) {
-          openAddSheetMediaPrompt("floating");
-          safeSetValue("sheet-media-url-input", txt);
-          updateSheetMediaModalPreview(txt);
+          const scrollY = getActiveCompendiumScrollTop();
+          await insertMediaBlockIntoActiveSheet({
+            type: "image",
+            mode: "floating",
+            src: txt,
+            caption: "",
+            x: 36,
+            y: Math.max(70, scrollY + 90),
+            width: 260
+          });
+          showToast("Clipboard image URL added to sheet!", "emerald", 1800);
           return;
         }
       }
@@ -10819,6 +11173,9 @@ Explanation: ${parentQ.explanation}`;
   async function saveActiveSheetMediaBlocks() {
     const key = getActiveMediaBlocksStorageKey();
     if (!key) return;
+    if (isCompPdfActive()) {
+      activeCompPdfPageMediaMap[activeCompPdfPageNum] = activeSheetMediaBlocks;
+    }
     await putRecord("store_notes", {
       id: key,
       blocks: activeSheetMediaBlocks,
@@ -11208,19 +11565,12 @@ Explanation: ${parentQ.explanation}`;
     const ex = activeSheetMarginExcerpts.find(x => x.id === excerptId);
     if (!ex || !ex.dataUrl) return;
     closeCompendiumStudio();
-    await openNewQuestionCreatorModal();
-    currentNewQuestionImageBase64 = ex.dataUrl;
-    const subSel = document.getElementById("new-q-subject");
-    if (subSel && activeCompSubject) {
-      subSel.value = activeCompSubject;
-      await syncNewQuestionChapterSelect(activeCompSubject, activeCompChapter);
-    }
-    const prevWrap = document.getElementById("new-q-img-preview-wrap");
-    const prevImg = document.getElementById("new-q-img-preview");
-    if (prevWrap && prevImg) {
-      prevImg.src = ex.dataUrl;
-      prevWrap.style.display = "block";
-    }
+    openNewQuestionCreatorModal(
+      activeCompSubject || "QA",
+      activeCompChapter || null,
+      ex.dataUrl,
+      ex.label || "PDF / Sheet Excerpt"
+    );
     showToast("Excerpt attached to Question Creator!", "emerald", 2400);
   }
 
@@ -11257,8 +11607,8 @@ Explanation: ${parentQ.explanation}`;
         : (compendiumReadingSurface === "charcoal" ? "#161920" : "#0b101d");
       octx.fillRect(0, 0, outW, outH);
 
-      // 1. If PDF mode is active, composite the cropped region from #comp-pdf-render-canvas
-      const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
+      // 1. If PDF mode is active, composite the cropped region from the active PDF page canvas
+      const pdfCanvas = getActivePdfPageCanvas(activeCompPdfPageNum);
       if (isCompPdfActive() && pdfCanvas && pdfCanvas.width > 0 && pdfCanvas.height > 0) {
         const inkRect = inkCanvas.getBoundingClientRect();
         const pdfRect = pdfCanvas.getBoundingClientRect();
@@ -11361,24 +11711,18 @@ Explanation: ${parentQ.explanation}`;
   async function sendActiveExcerptToQuestionCreator() {
     if (!stagedExcerptCrop || !stagedExcerptCrop.dataUrl) return;
     const capturedUrl = stagedExcerptCrop.dataUrl;
+    const capturedLabel = stagedExcerptCrop.label || "PDF / Sheet Excerpt";
     stagedExcerptCrop = null;
     const bar = document.getElementById("comp-excerpt-action-bar");
     if (bar) bar.style.display = "none";
 
     closeCompendiumStudio();
-    await openNewQuestionCreatorModal();
-    currentNewQuestionImageBase64 = capturedUrl;
-    const subSel = document.getElementById("new-q-subject");
-    if (subSel && activeCompSubject) {
-      subSel.value = activeCompSubject;
-      await syncNewQuestionChapterSelect(activeCompSubject, activeCompChapter);
-    }
-    const prevWrap = document.getElementById("new-q-img-preview-wrap");
-    const prevImg = document.getElementById("new-q-img-preview");
-    if (prevWrap && prevImg) {
-      prevImg.src = capturedUrl;
-      prevWrap.style.display = "block";
-    }
+    openNewQuestionCreatorModal(
+      activeCompSubject || "QA",
+      activeCompChapter || null,
+      capturedUrl,
+      capturedLabel
+    );
     showToast("Excerpt loaded into Question Creator!", "emerald", 2400);
   }
 
@@ -11414,11 +11758,13 @@ Explanation: ${parentQ.explanation}`;
 
   function applyCompendiumZoomStyle() {
     const docEl = document.getElementById("comp-studio-doc-content");
-    const pdfStage = document.getElementById("comp-pdf-canvas-stage");
+    const pdfStage = document.getElementById("comp-pdf-canvas-wrap") || document.getElementById("comp-pdf-canvas-stage");
+    const pctText = `${Math.round(compendiumZoomScale * 100)}%`;
     const badgeEl = document.getElementById("comp-zoom-pct-btn") || document.getElementById("comp-zoom-badge");
-    if (badgeEl) {
-      badgeEl.innerText = `${Math.round(compendiumZoomScale * 100)}%`;
-    }
+    const pdfZoomBtn = document.getElementById("comp-pdf-zoom-btn");
+    if (badgeEl) badgeEl.innerText = pctText;
+    if (pdfZoomBtn) pdfZoomBtn.innerText = pctText;
+
     if (docEl) {
       if (Math.abs(compendiumZoomScale - 1.0) < 0.02) {
         docEl.style.zoom = "";
@@ -11427,8 +11773,9 @@ Explanation: ${parentQ.explanation}`;
         docEl.style.zoom = String(compendiumZoomScale);
       }
     }
-    if (pdfStage && isCompPdfActive()) {
-      pdfStage.style.zoom = Math.abs(compendiumZoomScale - 1.0) < 0.02 ? "" : String(compendiumZoomScale);
+    if (pdfStage) {
+      // PDF canvas scales natively via PDF.js viewport in renderPdfPage so glyphs stay crisp without double-zoom
+      pdfStage.style.zoom = "";
     }
     setTimeout(syncSheetInkCanvasGeometry, 40);
   }
@@ -11438,6 +11785,9 @@ Explanation: ${parentQ.explanation}`;
     readerFontScale = compendiumZoomScale;
     document.documentElement.style.setProperty("--reader-font-scale", String(readerFontScale));
     applyCompendiumZoomStyle();
+    if (isCompPdfActive()) {
+      renderPdfPage(activeCompPdfPageNum);
+    }
   }
 
   function resetCompendiumZoom() {
@@ -11446,13 +11796,26 @@ Explanation: ${parentQ.explanation}`;
     document.documentElement.style.setProperty("--reader-font-scale", "1");
     putRecord("store_config", { key: "reader_font_scale", value: 1.0 });
     applyCompendiumZoomStyle();
+    if (isCompPdfActive()) {
+      renderPdfPage(activeCompPdfPageNum);
+    }
   }
 
   /**
    * ==========================================================================
-   * EMBEDDED GOODNOTES / LIQUIDTEXT PDF STUDIO ENGINE
+   * EMBEDDED GOODNOTES / LIQUIDTEXT PDF STUDIO ENGINE (pdfjsLib + pdf-lib)
    * ==========================================================================
    */
+  let activePdfRenderTask = null;
+
+  function ensurePdfJsReady() {
+    const lib = window.pdfjsLib || window["pdfjs-dist/build/pdf"];
+    if (lib && lib.GlobalWorkerOptions && !lib.GlobalWorkerOptions.workerSrc) {
+      lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+    return lib || null;
+  }
+
   async function loadPdfLibraryIndex() {
     const rec = await getRecord("store_config", "pdf_library_index");
     pdfLibraryIndex = (rec && Array.isArray(rec.value)) ? rec.value : [];
@@ -11467,11 +11830,12 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function uint8ArrayToBase64(bytes) {
+    const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     let binary = "";
-    const len = bytes.byteLength;
+    const len = u8.byteLength;
     const chunkSize = 0x8000;
     for (let i = 0; i < len; i += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, len)));
+      binary += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + chunkSize, len)));
     }
     return btoa(binary);
   }
@@ -11486,6 +11850,23 @@ Explanation: ${parentQ.explanation}`;
     return bytes;
   }
 
+  function extractBinaryPdfBytesFromRecord(pdfRec) {
+    if (!pdfRec) return null;
+    if (pdfRec.unbakedBase64Data && typeof pdfRec.unbakedBase64Data === "string") {
+      return base64ToUint8Array(pdfRec.unbakedBase64Data);
+    }
+    if (pdfRec.pdfBytes instanceof Uint8Array && pdfRec.pdfBytes.byteLength > 0) {
+      return new Uint8Array(pdfRec.pdfBytes);
+    }
+    if (pdfRec.pdfBytes instanceof ArrayBuffer && pdfRec.pdfBytes.byteLength > 0) {
+      return new Uint8Array(pdfRec.pdfBytes);
+    }
+    if (pdfRec.base64Data && typeof pdfRec.base64Data === "string") {
+      return base64ToUint8Array(pdfRec.base64Data);
+    }
+    return null;
+  }
+
   function triggerPdfUploadPrompt() {
     closeCompMorePopover();
     const fileInput = document.getElementById("comp-pdf-file-input");
@@ -11496,28 +11877,39 @@ Explanation: ${parentQ.explanation}`;
   }
 
   async function handlePdfDocumentUpload(input) {
-    if (!input || !input.files || !input.files[0]) return;
-    const file = input.files[0];
+    const fileInput = input && input.target ? input.target : input;
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+    const file = fileInput.files[0];
     if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
       showToast("Please select a valid PDF document (.pdf).", "rose");
       return;
     }
 
-    showToast(`Importing "${file.name}" into ${activeCompChapter || "Studio"}...`, "cyan", 2600);
+    const targetSub = activeCompSubject || document.getElementById("comp-studio-subject-select")?.value || "QA";
+    const targetChap = activeCompChapter || document.getElementById("comp-studio-chapter-select")?.value || (TAXONOMY[targetSub]?.chapters?.[0] || "QA_PERCENTAGE");
+    activeCompSubject = targetSub;
+    activeCompChapter = targetChap;
+
+    showToast(`Importing "${file.name}" into ${targetChap}...`, "cyan", 2600);
     try {
       const arrayBuf = await file.arrayBuffer();
       const pdfBytes = new Uint8Array(arrayBuf);
+      if (pdfBytes.byteLength < 8) {
+        throw new Error("Selected PDF file is empty.");
+      }
+
+      const pdfjs = ensurePdfJsReady();
       let numPages = 1;
-      if (window.pdfjsLib) {
-        const loadingTask = window.pdfjsLib.getDocument({ data: pdfBytes.slice(0) });
-        const pdfDoc = await loadingTask.promise;
-        numPages = pdfDoc.numPages || 1;
+      let loadedProxy = null;
+      if (pdfjs) {
+        const loadingTask = pdfjs.getDocument({ data: pdfBytes.slice(0) });
+        loadedProxy = await loadingTask.promise;
+        numPages = loadedProxy.numPages || 1;
       }
 
       const pdfId = "pdf_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
       const cleanTitle = file.name.replace(/\.pdf$/i, "").trim() || "Imported PDF Document";
-      const targetSub = activeCompSubject || "QA";
-      const targetChap = activeCompChapter || (TAXONOMY[targetSub]?.chapters?.[0] || "QA_PERCENTAGE");
+      const encodedBase64 = uint8ArrayToBase64(pdfBytes);
 
       const metaItem = {
         id: pdfId,
@@ -11533,10 +11925,16 @@ Explanation: ${parentQ.explanation}`;
         updatedAt: Date.now()
       };
 
+      // Store binary PDF data in IndexedDB store_notes (both native Uint8Array and base64)
       await putRecord("store_notes", {
         id: `pdf_doc_${pdfId}`,
         pdfId,
-        base64Data: uint8ArrayToBase64(pdfBytes),
+        title: cleanTitle,
+        subject: targetSub,
+        chapter: targetChap,
+        pdfBytes: pdfBytes.slice(0),
+        base64Data: encodedBase64,
+        unbakedBase64Data: encodedBase64,
         numPages,
         timestamp: Date.now()
       });
@@ -11545,16 +11943,782 @@ Explanation: ${parentQ.explanation}`;
       pdfLibraryIndex.push(metaItem);
       await savePdfLibraryIndex();
 
+      // Cache active proxy & bytes immediately for zero-latency first page render
+      activeCompPdfItem = metaItem;
+      activeCompPdfRawBytes = pdfBytes;
+      activeCompPdfPageNum = 1;
+      activeCompPdfTotalPages = numPages;
+      if (loadedProxy) {
+        loadedProxy._cglPdfId = pdfId;
+        activeCompPdfDocProxy = loadedProxy;
+      }
+
       document.getElementById("modal-all-sheets-index")?.classList.remove("active");
+      document.getElementById("comp-sheet-switcher-drawer")?.classList.remove("open");
+
+      // Ensure Living Knowledge Studio view is open and visible before rendering canvas
+      const fsView = document.getElementById("compendium-fullscreen-view");
+      if (fsView && fsView.style.display === "none") {
+        pushNavLayer("compendium-fullscreen-view", () => {
+          safeSetDisplay("compendium-fullscreen-view", "none");
+          toggleScratchpadCanvas(false);
+        });
+      }
+      safeSetDisplay("compendium-fullscreen-view", "flex");
+      initCompendiumRecallTapHandler();
+      bindSheetInkCanvasEvents();
+
+      const subSelect = document.getElementById("comp-studio-subject-select");
+      if (subSelect) subSelect.value = targetSub;
+      await handleCompStudioSubjectChange(targetSub);
+
+      const chapSelect = document.getElementById("comp-studio-chapter-select");
+      if (chapSelect && chapSelect.value !== targetChap) {
+        chapSelect.value = targetChap;
+      }
+
       await renderCompStudioSheets();
       const idx = currentCompSheets.findIndex(item => item.id === pdfId);
       if (idx !== -1) {
         activeCompSheetIndex = idx;
         await renderActiveCompSheet();
+      } else {
+        await renderPdfPage(1, pdfId);
       }
-      showToast(`Imported "${cleanTitle}" (${numPages} pages)!`, "emerald", 2600);
+
+      if (fileInput) fileInput.value = "";
+      showToast(`Imported "${cleanTitle}" (${numPages} page${numPages === 1 ? "" : "s"})!`, "emerald", 2600);
     } catch (err) {
       showToast(`PDF import failed: ${err.message || "Corrupt PDF"}`, "rose", 3200);
+    }
+  }
+
+  /**
+   * Enables 1-Finger & Mouse Drag Pan/Scroll Mode on the active PDF (or Sheet),
+   * turning off any blocking brush/ink capture so the user can move the PDF freely.
+   */
+  function enableCompPdfPanMode() {
+    if (compendiumMaskEditMode) toggleCompendiumMaskEditMode(false);
+    if (compendiumHighlightMode) toggleCompendiumHighlightMode(false);
+    const canvas = document.getElementById("comp-studio-canvas");
+    if (canvas) {
+      canvas.classList.remove("brush-painting-active", "mask-edit-mode-active", "highlight-edit-mode-active", "highlight-mode-active");
+    }
+    if (compSheetInkMode) {
+      setCompSheetInkTool("pan");
+      showToast("✋ Pan & Move active — drag with 1 finger or mouse to move PDF (tap 🖊️ Pen to draw).", "emerald", 2200);
+    } else {
+      syncSheetInkPointerPassthrough();
+      showToast("✋ Pan & Scroll active — drag or swipe to move PDF, or use ◀ Prev / Next ▶ for pages.", "emerald", 2200);
+    }
+  }
+
+  /**
+   * Moves/reassigns the currently opened PDF document to any Subject & Chapter
+   */
+  async function promptMoveActivePdfChapter() {
+    if (!isCompPdfActive() || !activeCompPdfItem) return;
+    const tax = await TaxonomyService.getTaxonomy();
+    const subjects = Object.keys(tax);
+    const curSub = activeCompPdfItem.subject || "QA";
+    const curChap = activeCompPdfItem.chapter || "QA_PERCENTAGE";
+
+    const input = prompt(
+      `Move PDF "${activeCompPdfItem.title}" to Subject / Chapter.\nAvailable Subjects: ${subjects.join(", ")}\nEnter as SUBJECT:CHAPTER (or just CHAPTER_NAME):`,
+      `${curSub}:${curChap}`
+    );
+    if (!input || !input.trim()) return;
+
+    let nextSub = curSub;
+    let nextChap = curChap;
+    const raw = input.trim().toUpperCase();
+    if (raw.includes(":")) {
+      const parts = raw.split(":");
+      const candSub = parts[0].trim();
+      const candChap = parts.slice(1).join("_").trim().replace(/\s+/g, "_");
+      if (tax[candSub]) nextSub = candSub;
+      if (candChap) nextChap = candChap.startsWith(nextSub + "_") ? candChap : `${nextSub}_${candChap}`;
+    } else {
+      const cleaned = raw.replace(/\s+/g, "_");
+      const matchedSub = subjects.find(s => cleaned.startsWith(s + "_"));
+      if (matchedSub) {
+        nextSub = matchedSub;
+        nextChap = cleaned;
+      } else {
+        nextChap = `${curSub}_${cleaned}`;
+      }
+    }
+
+    if (tax[nextSub] && !tax[nextSub].chapters.includes(nextChap)) {
+      await TaxonomyService.addChapter(nextSub, nextChap);
+    }
+
+    activeCompPdfItem.subject = nextSub;
+    activeCompPdfItem.chapter = nextChap;
+    activeCompPdfItem.updatedAt = Date.now();
+
+    await loadPdfLibraryIndex();
+    const idx = pdfLibraryIndex.findIndex(p => p.id === activeCompPdfItem.id);
+    if (idx !== -1) {
+      pdfLibraryIndex[idx] = { ...pdfLibraryIndex[idx], subject: nextSub, chapter: nextChap, updatedAt: Date.now() };
+    }
+    await savePdfLibraryIndex();
+
+    const pdfRec = await getRecord("store_notes", `pdf_doc_${activeCompPdfItem.id}`);
+    if (pdfRec) {
+      pdfRec.subject = nextSub;
+      pdfRec.chapter = nextChap;
+      await putRecord("store_notes", pdfRec);
+    }
+
+    activeCompSubject = nextSub;
+    activeCompChapter = nextChap;
+    const subSel = document.getElementById("comp-studio-subject-select");
+    if (subSel) subSel.value = nextSub;
+    await handleCompStudioSubjectChange(nextSub);
+    const chapSel = document.getElementById("comp-studio-chapter-select");
+    if (chapSel) chapSel.value = nextChap;
+    await renderCompStudioSheets();
+    const newSheetIdx = currentCompSheets.findIndex(s => s.id === activeCompPdfItem.id);
+    if (newSheetIdx !== -1) {
+      activeCompSheetIndex = newSheetIdx;
+      await renderActiveCompSheet();
+    }
+    showToast(`Moved "${activeCompPdfItem.title}" to ${nextSub} \u2022 ${nextChap}!`, "emerald", 2400);
+  }
+
+  /**
+   * Binds interactive Mouse Grab-to-Pan, 2-Finger Pinch-to-Zoom, Horizontal Swipe Page Turn,
+   * and Keyboard ArrowLeft/ArrowRight/PageUp/PageDown navigation on the PDF viewport.
+   */
+  function bindPdfViewportPanAndKeyEvents() {
+    const pdfWrap = document.getElementById("comp-pdf-canvas-wrap");
+    if (pdfWrap && pdfWrap.dataset.panBound !== "true") {
+      pdfWrap.dataset.panBound = "true";
+
+      let isGrabPanning = false;
+      let grabStartX = 0;
+      let grabStartY = 0;
+
+      pdfWrap.addEventListener("mousedown", (e) => {
+        if (!isCompPdfActive()) return;
+        // Allow mouse grab-to-pan when Ink Mode is OFF, or when Pan tool is selected, or middle-click
+        const canPan = !compSheetInkMode || compSheetInkTool === "pan" || e.button === 1;
+        if (!canPan) return;
+        if (e.target && e.target.closest("button, input, select, textarea, a")) return;
+        isGrabPanning = true;
+        grabStartX = e.clientX;
+        grabStartY = e.clientY;
+        pdfWrap.classList.add("pdf-grabbing");
+        e.preventDefault();
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (!isGrabPanning) return;
+        const dx = grabStartX - e.clientX;
+        const dy = grabStartY - e.clientY;
+        grabStartX = e.clientX;
+        grabStartY = e.clientY;
+        scrollCompendiumBy(dx, dy);
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (isGrabPanning) {
+          isGrabPanning = false;
+          pdfWrap.classList.remove("pdf-grabbing");
+        }
+      });
+    }
+
+    if (!window._cglPdfKeyNavBound) {
+      window._cglPdfKeyNavBound = true;
+      window.addEventListener("keydown", (ke) => {
+        const fsView = document.getElementById("compendium-fullscreen-view");
+        if (!fsView || fsView.style.display === "none" || !isCompPdfActive()) return;
+        const tag = (ke.target && ke.target.tagName) ? ke.target.tagName.toUpperCase() : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || ke.target?.isContentEditable) return;
+
+        if (ke.key === "ArrowRight" || ke.key === "PageDown") {
+          ke.preventDefault();
+          navCompPdfPage(1);
+        } else if (ke.key === "ArrowLeft" || ke.key === "PageUp") {
+          ke.preventDefault();
+          navCompPdfPage(-1);
+        }
+      });
+    }
+  }
+
+  function syncCompPdfPageControlsHud() {
+    if (!isCompPdfActive() || !activeCompPdfItem) return;
+    const item = activeCompPdfItem;
+    const pageInputEl = document.getElementById("comp-pdf-page-input");
+    if (pageInputEl) {
+      pageInputEl.value = String(activeCompPdfPageNum);
+      pageInputEl.max = String(activeCompPdfTotalPages);
+    }
+    safeSetText("comp-pdf-page-total", String(activeCompPdfTotalPages));
+    safeSetText("comp-pdf-total-pages", `/ ${activeCompPdfTotalPages}`);
+    safeSetText("comp-pdf-bottom-page-info", `Page ${activeCompPdfPageNum} of ${activeCompPdfTotalPages}`);
+    safeSetText("comp-pdf-zoom-btn", `${Math.round((compendiumZoomScale || 1) * 100)}%`);
+
+    const scrollModeBtn = document.getElementById("btn-comp-pdf-scroll-mode");
+    if (scrollModeBtn) {
+      const isCont = activeCompPdfScrollMode === "continuous";
+      scrollModeBtn.innerText = isCont ? "\uD83D\uDCDC Continuous Scroll" : "\uD83D\uDCC4 Single Page";
+      scrollModeBtn.classList.toggle("btn-cyan", isCont);
+      scrollModeBtn.classList.toggle("active", isCont);
+      scrollModeBtn.classList.toggle("btn-secondary", !isCont);
+    }
+
+    const isBookmarked = Array.isArray(item.bookmarkedPages) && item.bookmarkedPages.includes(activeCompPdfPageNum);
+    const bmBtn = document.getElementById("btn-comp-pdf-bookmark") || document.getElementById("btn-pdf-bookmark-page");
+    if (bmBtn) {
+      bmBtn.innerText = isBookmarked ? "\u2605 Bookmarked" : "\u2606 Bookmark";
+      bmBtn.style.color = isBookmarked ? "#fbbf24" : "";
+      bmBtn.style.borderColor = isBookmarked ? "rgba(251, 191, 36, 0.55)" : "";
+    }
+
+    document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-page-slot").forEach(slot => {
+      const p = Number(slot.getAttribute("data-page-num"));
+      slot.classList.toggle("active-pdf-page-slot", p === activeCompPdfPageNum);
+      const statusBadge = document.getElementById(`comp-pdf-slot-active-badge-${p}`);
+      if (statusBadge) {
+        statusBadge.innerText = p === activeCompPdfPageNum ? "\u25CF Active Page" : `Page ${p}`;
+        statusBadge.style.color = p === activeCompPdfPageNum ? "#38bdf8" : "var(--text-muted)";
+      }
+    });
+
+    document.querySelectorAll("#comp-pdf-thumb-strip .comp-pdf-thumb-card").forEach(card => {
+      const p = Number(card.getAttribute("data-page-num"));
+      card.classList.toggle("active", p === activeCompPdfPageNum);
+    });
+  }
+
+  /**
+   * Synchronously switches the active PDF page context (`activeCompPdfPageNum`)
+   * during continuous scrolling or when clicking/drawing on any page slot!
+   */
+  function setActiveCompPdfPageInScrollSync(newPageNum) {
+    if (!isCompPdfActive() || !activeCompPdfItem) return;
+    const clamped = Math.max(1, Math.min(activeCompPdfTotalPages || 1, Math.floor(Number(newPageNum) || 1)));
+    const oldPage = activeCompPdfPageNum;
+
+    activeCompPdfPageStrokesMap[oldPage] = activeSheetInkStrokes || [];
+    activeCompPdfPageMediaMap[oldPage] = activeSheetMediaBlocks || [];
+
+    if (clamped !== oldPage) {
+      activeCompPdfPageNum = clamped;
+      activeSheetInkStrokes = activeCompPdfPageStrokesMap[clamped] || [];
+      activeSheetMediaBlocks = activeCompPdfPageMediaMap[clamped] || [];
+      sheetInkUndoStack = [];
+      lastClearedSheetInkBackup = null;
+      currentSheetInkStroke = null;
+      lassoSelectedStrokeIndices = [];
+      lassoBoundingBoxNorm = null;
+      renderCompPdfPageInkOverlay(oldPage);
+      renderActiveSheetMediaBlocks();
+    }
+
+    renderCompPdfPageInkOverlay(clamped);
+    syncCompPdfPageControlsHud();
+    updateCompMaskAndHighlightBadge();
+    updateRecallProgressCounter();
+    syncSheetInkCanvasGeometry();
+  }
+
+  async function renderSingleContinuousPdfPageCanvas(pageNum) {
+    if (!activeCompPdfDocProxy || !isCompPdfActive()) return;
+    const pNum = Math.max(1, Math.min(activeCompPdfTotalPages, Math.floor(Number(pageNum) || 1)));
+    if (activeCompPdfRenderedPagesSet.has(pNum) || activeCompPdfRenderingPagesMap[pNum]) return;
+
+    const pageCanvas = document.getElementById(`comp-pdf-page-canvas-${pNum}`);
+    if (!pageCanvas) return;
+
+    activeCompPdfRenderingPagesMap[pNum] = true;
+    try {
+      const page = await activeCompPdfDocProxy.getPage(pNum);
+      const pdfWrap = document.getElementById("comp-pdf-canvas-wrap");
+      const pageEl = document.getElementById("comp-folio-page");
+      const measuredW = (pdfWrap && pdfWrap.clientWidth > 120)
+        ? pdfWrap.clientWidth - 20
+        : ((pageEl && pageEl.clientWidth > 120) ? pageEl.clientWidth - 36 : 720);
+      const availW = Math.max(280, Math.min(840, measuredW));
+
+      const unscaledVp = page.getViewport({ scale: 1 });
+      const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
+      const cssScale = (availW / Math.max(unscaledVp.width, 1)) * zoomFactor;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
+      const renderViewport = page.getViewport({ scale: cssScale * dpr });
+
+      const pixelW = Math.max(1, Math.floor(renderViewport.width));
+      const pixelH = Math.max(1, Math.floor(renderViewport.height));
+      const cssW = Math.max(1, Math.floor(unscaledVp.width * cssScale));
+      const cssH = Math.max(1, Math.floor(unscaledVp.height * cssScale));
+
+      pageCanvas.width = pixelW;
+      pageCanvas.height = pixelH;
+      pageCanvas.style.width = `${cssW}px`;
+      pageCanvas.style.height = `${cssH}px`;
+      pageCanvas.classList.toggle("pdf-dark-inverted", !!activeCompPdfDarkInvert);
+      pageCanvas.classList.toggle("pdf-dark-invert", !!activeCompPdfDarkInvert);
+
+      const ctx = pageCanvas.getContext("2d", { alpha: false });
+      if (ctx) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, pixelW, pixelH);
+        ctx.restore();
+
+        const task = page.render({
+          canvasContext: ctx,
+          viewport: renderViewport
+        });
+        activeCompPdfRenderingPagesMap[pNum] = task;
+        await task.promise;
+        activeCompPdfRenderedPagesSet.add(pNum);
+      }
+      renderCompPdfPageInkOverlay(pNum);
+      if (pNum === activeCompPdfPageNum) {
+        syncSheetInkCanvasGeometry();
+      }
+    } catch (err) {
+      if (err && err.name !== "RenderingCancelledException") {
+        console.warn(`PDF page ${pNum} render notice:`, err);
+      }
+    } finally {
+      delete activeCompPdfRenderingPagesMap[pNum];
+    }
+  }
+
+  function renderVisibleAndNearbyContinuousPdfPages() {
+    if (!isCompPdfActive() || activeCompPdfScrollMode !== "continuous" || !activeCompPdfDocProxy) return;
+    const vh = window.innerHeight || 800;
+    const bufferPx = 1500;
+    const slots = document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-page-slot[data-page-num]");
+    slots.forEach(slot => {
+      const pNum = Number(slot.getAttribute("data-page-num"));
+      if (!pNum || activeCompPdfRenderedPagesSet.has(pNum) || activeCompPdfRenderingPagesMap[pNum]) return;
+      const r = slot.getBoundingClientRect();
+      if (r.bottom >= -bufferPx && r.top <= vh + bufferPx) {
+        renderSingleContinuousPdfPageCanvas(pNum);
+      }
+    });
+  }
+
+  function onContinuousPdfWorkspaceScroll() {
+    if (!isCompPdfActive() || activeCompPdfScrollMode !== "continuous") return;
+    if (pdfScrollRafPending) return;
+    pdfScrollRafPending = true;
+    requestAnimationFrame(() => {
+      pdfScrollRafPending = false;
+      if (!isCompPdfActive() || activeCompPdfScrollMode !== "continuous") return;
+      renderVisibleAndNearbyContinuousPdfPages();
+
+      if (Date.now() < pdfProgrammaticScrollUntil || isDrawingSheetInk) {
+        syncSheetInkCanvasGeometry();
+        return;
+      }
+
+      const vh = window.innerHeight || 800;
+      const targetLineY = vh * 0.38;
+      let bestPage = activeCompPdfPageNum;
+      let bestDist = Infinity;
+
+      const slots = document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-page-slot[data-page-num]");
+      slots.forEach(slot => {
+        const pNum = Number(slot.getAttribute("data-page-num"));
+        const r = slot.getBoundingClientRect();
+        if (r.bottom < 60 || r.top > vh - 40) return;
+        const dist = (r.top <= targetLineY && r.bottom >= targetLineY)
+          ? 0
+          : Math.min(Math.abs(r.top - targetLineY), Math.abs(r.bottom - targetLineY));
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestPage = pNum;
+        }
+      });
+
+      if (bestPage !== activeCompPdfPageNum) {
+        setActiveCompPdfPageInScrollSync(bestPage);
+      }
+    });
+  }
+
+  function scrollToPdfPageSlot(pageNum, smooth = true) {
+    const slot = document.getElementById(`comp-pdf-page-slot-${pageNum}`);
+    if (!slot) return;
+    pdfProgrammaticScrollUntil = Date.now() + 520;
+    const canvas = document.getElementById("comp-studio-canvas");
+    const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
+    const scrollHost = (canvas && canvas.scrollHeight > canvas.clientHeight + 10) ? canvas : ws;
+    if (scrollHost) {
+      const hostRect = scrollHost.getBoundingClientRect();
+      const slotRect = slot.getBoundingClientRect();
+      const targetScrollTop = Math.max(0, scrollHost.scrollTop + (slotRect.top - hostRect.top) - 68);
+      scrollHost.scrollTo({
+        top: targetScrollTop,
+        behavior: smooth ? "smooth" : "auto"
+      });
+    } else {
+      slot.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    }
+    setTimeout(() => {
+      renderVisibleAndNearbyContinuousPdfPages();
+      syncSheetInkCanvasGeometry();
+    }, smooth ? 320 : 40);
+  }
+
+  /**
+   * Core PDF.js Canvas Renderer (`renderPdfPage`):
+   * Loads binary PDF data from IndexedDB (`store_notes` key `pdf_doc_${pdfId}`),
+   * supports BOTH Continuous Multi-Page Vertical Scroll Mode AND Page-by-Page Single View Mode,
+   * and syncs per-page vector ink, Recall Tapes, Excerpts & Media overlays across all pages.
+   */
+  async function renderPdfPage(pageNum = 1, pdfId = null) {
+    const currentItem = currentCompSheets[activeCompSheetIndex];
+    let item = (currentItem && currentItem.isPdf) ? currentItem : activeCompPdfItem;
+    if (pdfId && (!item || item.id !== pdfId)) {
+      await loadPdfLibraryIndex();
+      item = pdfLibraryIndex.find(p => p.id === pdfId) || item;
+    }
+    if (!item || !item.isPdf) return;
+    activeCompPdfItem = item;
+
+    if (compendiumMaskEditMode) compendiumMaskEditMode = false;
+    if (compendiumHighlightMode) compendiumHighlightMode = false;
+    const studioCanvas = document.getElementById("comp-studio-canvas");
+    if (studioCanvas) {
+      studioCanvas.classList.remove("brush-painting-active", "mask-edit-mode-active", "highlight-edit-mode-active", "highlight-mode-active");
+    }
+
+    bindPdfViewportPanAndKeyEvents();
+
+    // 1. Reveal PDF Studio Bar, Bottom Page Bar & Canvas Wrapper, hide Markdown prose container
+    const pdfBar = document.getElementById("comp-pdf-studio-bar");
+    const pdfBottomNav = document.getElementById("comp-pdf-bottom-nav");
+    const pdfWrap = document.getElementById("comp-pdf-canvas-wrap") || document.getElementById("comp-pdf-canvas-stage");
+    const singleStage = document.getElementById("comp-pdf-single-stage");
+    const contContainer = document.getElementById("comp-pdf-continuous-container");
+    const docContent = document.getElementById("comp-studio-doc-content");
+    if (pdfBar) pdfBar.style.display = "flex";
+    if (pdfBottomNav) pdfBottomNav.style.display = "flex";
+    if (pdfWrap) pdfWrap.style.display = "flex";
+    if (docContent) {
+      docContent.style.display = "none";
+      docContent.innerHTML = "";
+    }
+
+    safeSetText("comp-studio-header-title", `\uD83D\uDCC4 ${item.title}`);
+    safeSetText("comp-studio-header-sub", `${item.chapter} \u2022 PDF Studio`);
+    safeSetText("comp-pdf-active-name-text", `\uD83D\uDCC4 ${item.title || "PDF"}`);
+
+    // 2. Auto-track Last Opened timestamp
+    const prevOpenRec = await getRecord("store_notes", `last_opened_${item.id}`);
+    const prevEpoch = prevOpenRec && prevOpenRec.lastOpenedAt ? prevOpenRec.lastOpenedAt : null;
+    const badgeSpec = formatLastOpenedBadgeText(prevEpoch);
+    const lastOpenedBadge = document.getElementById("comp-zen-last-opened-badge");
+    if (lastOpenedBadge) {
+      lastOpenedBadge.innerText = badgeSpec.text;
+      lastOpenedBadge.style.color = badgeSpec.color;
+      lastOpenedBadge.style.background = badgeSpec.bg;
+    }
+    await putRecord("store_notes", {
+      id: `last_opened_${item.id}`,
+      sheetId: item.id,
+      lastOpenedAt: Date.now(),
+      openCount: (prevOpenRec && prevOpenRec.openCount ? prevOpenRec.openCount : 0) + 1
+    });
+
+    // 3. Hydrate binary PDF bytes from IndexedDB and initialize pdfjsLib DocumentProxy
+    const pdfjs = ensurePdfJsReady();
+    if (!activeCompPdfDocProxy || activeCompPdfDocProxy._cglPdfId !== item.id) {
+      const pdfRec = await getRecord("store_notes", `pdf_doc_${item.id}`);
+      const binaryBytes = extractBinaryPdfBytesFromRecord(pdfRec);
+      if (!binaryBytes || binaryBytes.byteLength === 0) {
+        showToast("PDF binary record missing in IndexedDB.", "rose");
+        return;
+      }
+      activeCompPdfRawBytes = binaryBytes;
+      if (pdfjs) {
+        const loadingTask = pdfjs.getDocument({ data: activeCompPdfRawBytes.slice(0) });
+        activeCompPdfDocProxy = await loadingTask.promise;
+        activeCompPdfDocProxy._cglPdfId = item.id;
+      }
+      activeCompPdfLoadedIdForMaps = null;
+      activeCompPdfBuiltDomSignature = "";
+    }
+
+    activeCompPdfTotalPages = (activeCompPdfDocProxy && activeCompPdfDocProxy.numPages) || item.numPages || 1;
+    if (pageNum !== null && pageNum !== undefined && !Number.isNaN(Number(pageNum))) {
+      activeCompPdfPageNum = Math.max(1, Math.min(activeCompPdfTotalPages, Math.floor(Number(pageNum))));
+    } else {
+      activeCompPdfPageNum = Math.max(1, Math.min(activeCompPdfTotalPages, activeCompPdfPageNum || 1));
+    }
+
+    // 4. Preload per-page ink & media maps for synchronous 0ms page switching during continuous scroll
+    if (activeCompPdfLoadedIdForMaps !== item.id) {
+      activeCompPdfPageStrokesMap = {};
+      activeCompPdfPageMediaMap = {};
+      for (let p = 1; p <= activeCompPdfTotalPages; p++) {
+        const pInk = await getRecord("store_notes", `pdf_ink_${item.id}_p${p}`);
+        activeCompPdfPageStrokesMap[p] = (pInk && Array.isArray(pInk.strokes)) ? pInk.strokes : [];
+        const pMed = await getRecord("store_notes", `pdf_media_${item.id}_p${p}`);
+        activeCompPdfPageMediaMap[p] = (pMed && Array.isArray(pMed.blocks)) ? pMed.blocks : [];
+      }
+      activeCompPdfLoadedIdForMaps = item.id;
+    }
+
+    const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
+    const invBtn = document.getElementById("btn-comp-pdf-invert") || document.getElementById("btn-pdf-dark-invert");
+    if (pdfCanvas) {
+      pdfCanvas.classList.toggle("pdf-dark-inverted", !!activeCompPdfDarkInvert);
+      pdfCanvas.classList.toggle("pdf-dark-invert", !!activeCompPdfDarkInvert);
+    }
+    if (invBtn) {
+      invBtn.classList.toggle("active", !!activeCompPdfDarkInvert);
+      invBtn.classList.toggle("btn-cyan", !!activeCompPdfDarkInvert);
+    }
+
+    // 5. Render either Continuous Multi-Page Vertical Scroll Stack OR Single-Page Canvas
+    if (activeCompPdfScrollMode === "continuous" && contContainer && activeCompPdfDocProxy) {
+      if (singleStage) singleStage.style.display = "none";
+      contContainer.style.display = "flex";
+
+      const pageEl = document.getElementById("comp-folio-page");
+      const measuredW = (pdfWrap && pdfWrap.clientWidth > 120)
+        ? pdfWrap.clientWidth - 20
+        : ((pageEl && pageEl.clientWidth > 120) ? pageEl.clientWidth - 36 : 720);
+      const availW = Math.max(280, Math.min(840, measuredW));
+      const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
+      const domSig = `${item.id}_${activeCompPdfTotalPages}_${Math.round(availW)}_${Math.round(zoomFactor * 100)}`;
+
+      if (activeCompPdfBuiltDomSignature !== domSig || contContainer.children.length !== activeCompPdfTotalPages) {
+        activeCompPdfBuiltDomSignature = domSig;
+        activeCompPdfRenderedPagesSet.clear();
+        Object.values(activeCompPdfRenderingPagesMap).forEach(t => {
+          if (t && typeof t.cancel === "function") {
+            try { t.cancel(); } catch (_) {}
+          }
+        });
+        activeCompPdfRenderingPagesMap = {};
+        contContainer.innerHTML = "";
+
+        const firstPage = await activeCompPdfDocProxy.getPage(1);
+        const unscaledVp1 = firstPage.getViewport({ scale: 1 });
+        const cssScale1 = (availW / Math.max(unscaledVp1.width, 1)) * zoomFactor;
+        const estCssW = Math.max(1, Math.floor(unscaledVp1.width * cssScale1));
+        const estCssH = Math.max(1, Math.floor(unscaledVp1.height * cssScale1));
+
+        const annSet = new Set(Array.isArray(item.annotatedPages) ? item.annotatedPages : []);
+        const bmSet = new Set(Array.isArray(item.bookmarkedPages) ? item.bookmarkedPages : []);
+
+        for (let p = 1; p <= activeCompPdfTotalPages; p++) {
+          const slot = document.createElement("div");
+          slot.className = "comp-pdf-page-slot" + (p === activeCompPdfPageNum ? " active-pdf-page-slot" : "");
+          slot.id = `comp-pdf-page-slot-${p}`;
+          slot.setAttribute("data-page-num", String(p));
+
+          const hasInk = annSet.has(p) || (activeCompPdfPageStrokesMap[p] && activeCompPdfPageStrokesMap[p].length > 0);
+          const hasBm = bmSet.has(p);
+
+          slot.innerHTML = `
+            <div class="comp-pdf-page-slot-bar">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="comp-pdf-slot-active-badge-${p}" style="color:${p === activeCompPdfPageNum ? "#38bdf8" : "var(--text-muted)"};">${p === activeCompPdfPageNum ? "\u25CF Active Page" : `Page ${p}`}</span>
+                <span style="opacity:0.65;">of ${activeCompPdfTotalPages}</span>
+                <span id="comp-pdf-slot-ink-badge-${p}" style="color:#a78bfa; font-size:10px;">${hasInk ? "\u270F\uFE0F Annotated" : ""}</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <button type="button" class="btn btn-secondary" id="comp-pdf-slot-bm-${p}" style="padding:1px 7px; font-size:10px; color:${hasBm ? "#fbbf24" : "var(--text-muted)"};" title="Bookmark Page ${p}">${hasBm ? "\u2605 Bookmarked" : "\u2606 Bookmark"}</button>
+              </div>
+            </div>
+            <div class="comp-pdf-page-stage" id="comp-pdf-page-stage-${p}" data-page-num="${p}">
+              <canvas class="comp-pdf-page-canvas ${activeCompPdfDarkInvert ? "pdf-dark-inverted" : ""}" id="comp-pdf-page-canvas-${p}" data-page-num="${p}" style="width:${estCssW}px; height:${estCssH}px;"></canvas>
+              <canvas class="comp-pdf-page-ink-overlay" id="comp-pdf-page-ink-${p}" data-page-num="${p}" style="width:${estCssW}px; height:${estCssH}px;"></canvas>
+            </div>
+          `;
+
+          const slotBmBtn = slot.querySelector(`#comp-pdf-slot-bm-${p}`);
+          if (slotBmBtn) {
+            slotBmBtn.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              setActiveCompPdfPageInScrollSync(p);
+              toggleCompPdfBookmarkPage();
+            });
+          }
+
+          contContainer.appendChild(slot);
+          renderCompPdfPageInkOverlay(p);
+        }
+      }
+
+      // Render target page + neighbor pages immediately and schedule viewport check
+      await renderSingleContinuousPdfPageCanvas(activeCompPdfPageNum);
+      if (activeCompPdfPageNum > 1) renderSingleContinuousPdfPageCanvas(activeCompPdfPageNum - 1);
+      if (activeCompPdfPageNum < activeCompPdfTotalPages) renderSingleContinuousPdfPageCanvas(activeCompPdfPageNum + 1);
+      setTimeout(renderVisibleAndNearbyContinuousPdfPages, 60);
+    } else if (activeCompPdfDocProxy && pdfCanvas) {
+      if (contContainer) contContainer.style.display = "none";
+      if (singleStage) singleStage.style.display = "inline-block";
+
+      try {
+        if (activePdfRenderTask && typeof activePdfRenderTask.cancel === "function") {
+          try { activePdfRenderTask.cancel(); } catch (_) {}
+          activePdfRenderTask = null;
+        }
+
+        const page = await activeCompPdfDocProxy.getPage(activeCompPdfPageNum);
+        const pageEl = document.getElementById("comp-folio-page");
+        const measuredW = (pdfWrap && pdfWrap.clientWidth > 120)
+          ? pdfWrap.clientWidth - 20
+          : ((pageEl && pageEl.clientWidth > 120) ? pageEl.clientWidth - 36 : 720);
+        const availW = Math.max(280, Math.min(840, measuredW));
+
+        const unscaledVp = page.getViewport({ scale: 1 });
+        const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
+        const cssScale = (availW / Math.max(unscaledVp.width, 1)) * zoomFactor;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
+        const renderViewport = page.getViewport({ scale: cssScale * dpr });
+
+        const pixelW = Math.max(1, Math.floor(renderViewport.width));
+        const pixelH = Math.max(1, Math.floor(renderViewport.height));
+        const cssW = Math.max(1, Math.floor(unscaledVp.width * cssScale));
+        const cssH = Math.max(1, Math.floor(unscaledVp.height * cssScale));
+
+        pdfCanvas.width = pixelW;
+        pdfCanvas.height = pixelH;
+        pdfCanvas.style.width = `${cssW}px`;
+        pdfCanvas.style.height = `${cssH}px`;
+
+        const ctx = pdfCanvas.getContext("2d", { alpha: false });
+        if (ctx) {
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, pixelW, pixelH);
+          ctx.restore();
+
+          activePdfRenderTask = page.render({
+            canvasContext: ctx,
+            viewport: renderViewport
+          });
+          await activePdfRenderTask.promise;
+          activePdfRenderTask = null;
+        }
+      } catch (err) {
+        if (err && err.name !== "RenderingCancelledException") {
+          console.warn("PDF page render notice:", err);
+        }
+      }
+    }
+
+    // 6. Activate current page's vector ink strokes, media blocks & PDF-level margin excerpts
+    activeSheetInkStrokes = activeCompPdfPageStrokesMap[activeCompPdfPageNum] || [];
+    sheetInkUndoStack = [];
+    lastClearedSheetInkBackup = null;
+    currentSheetInkStroke = null;
+    lassoSelectedStrokeIndices = [];
+    lassoBoundingBoxNorm = null;
+
+    activeSheetMediaBlocks = activeCompPdfPageMediaMap[activeCompPdfPageNum] || [];
+
+    const exRec = await getRecord("store_notes", `excerpts_pdf_${item.id}`);
+    activeSheetMarginExcerpts = exRec && Array.isArray(exRec.excerpts) ? exRec.excerpts : [];
+
+    activeSheetCustomMasks = [];
+    activeSheetHighlights = [];
+
+    syncCompPdfPageControlsHud();
+    renderActiveSheetMediaBlocks();
+    updateCompMaskAndHighlightBadge();
+    renderCompMarginAnnotationsList();
+    updateRecallProgressCounter();
+    syncSheetInkPointerPassthrough();
+    setTimeout(syncSheetInkCanvasGeometry, 45);
+
+    if (activeCompPdfThumbnailsOpen) {
+      await renderCompPdfThumbnailsStrip();
+    }
+
+    // 7. Populate Chapter Linked Questions, Mistake Banner & Personal Scratchpad in Margin Rail
+    const linkedQs = await ConceptService.getLinkedQuestions(item.id, item.chapter);
+    safeSetText("comp-linked-q-count", `${linkedQs.length} Associated Question${linkedQs.length === 1 ? "" : "s"}`);
+    safeSetText("comp-rail-q-badge", `${linkedQs.length} Qs`);
+    safeSetText("comp-dock-drill-label", `Drill (${linkedQs.length})`);
+
+    const perfMap = await PerformanceService.getQuestionPerformanceMap();
+    const failedLinkedQs = linkedQs.filter(q => perfMap[q.id] && (perfMap[q.id].lastWasIncorrect || perfMap[q.id].wrong > 0));
+    const mistakeSlot = document.getElementById("comp-sheet-trap-banner");
+    if (mistakeSlot) {
+      if (failedLinkedQs.length > 0) {
+        const unresolvedCount = failedLinkedQs.filter(q => perfMap[q.id]?.lastWasIncorrect).length;
+        mistakeSlot.style.display = "block";
+        mistakeSlot.innerHTML = `
+          <div class="comp-mistake-callout-banner">
+            <div>
+              <div style="font-size:11.5px; font-weight:800; color:#fda4af;">
+                \u26A0\uFE0F Exam Vulnerability Link: ${failedLinkedQs.length} Mistake Question${failedLinkedQs.length === 1 ? "" : "s"} Tied to ${item.chapter}
+                ${unresolvedCount > 0 ? `<span class="badge" style="background:#e11d48; color:#fff; font-size:9.5px; margin-left:4px;">${unresolvedCount} Unresolved Debt</span>` : ""}
+              </div>
+            </div>
+            <button class="btn btn-emerald" style="padding:4px 10px; font-size:11px; flex-shrink:0;" onclick="CGL_OS.launchFailedSheetQuestionsDojo()">\uD83E\uDDD8 Fix ${failedLinkedQs.length} Mistake${failedLinkedQs.length === 1 ? "" : "s"} in Dojo</button>
+          </div>
+        `;
+      } else {
+        mistakeSlot.style.display = "none";
+        mistakeSlot.innerHTML = "";
+      }
+    }
+
+    const railQsList = document.getElementById("comp-rail-linked-qs-list");
+    if (railQsList) {
+      if (linkedQs.length === 0) {
+        railQsList.innerHTML = `<div style="color:var(--text-muted); font-size:11px; padding:6px 0;">No questions linked to ${item.chapter} yet.</div>`;
+      } else {
+        railQsList.innerHTML = linkedQs.slice(0, 12).map((q, idx) => {
+          const p = perfMap[q.id];
+          const statusDot = p
+            ? (p.lastWasIncorrect ? `<span style="color:#fb7185;" title="Unresolved Mistake">\u25CF</span>` : `<span style="color:#34d399;" title="Solved">\u25CF</span>`)
+            : `<span style="color:#64748b;" title="Unseen">\u25CB</span>`;
+          const plainStem = String(q.questionText || "").replace(/[$#*`_~]/g, "").slice(0, 68);
+          return `
+            <div style="padding:5px 6px; border-bottom:1px solid rgba(255,255,255,0.05); display:flex; justify-content:space-between; align-items:center; gap:6px; cursor:pointer;" onclick="CGL_OS.closeCompendiumStudio(); CGL_OS.launchSingleQuestionDojo('${q.id}')">
+              <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">
+                ${statusDot} <b style="color:var(--folio-heading, #e2e8f0);">Q${idx + 1}:</b> <span style="color:var(--text-muted);">${plainStem}...</span>
+              </div>
+              <span style="font-size:10px; color:var(--accent-cyan); flex-shrink:0;">Dojo \u2794</span>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    const noteKey = `scratch_${item.id}`;
+    const savedNote = await getRecord("store_notes", noteKey);
+    safeSetValue("comp-studio-scratchpad", savedNote ? savedNote.content : "");
+  }
+
+  async function renderActiveCompPdfDocument(targetPageNum = null) {
+    await renderPdfPage(targetPageNum !== null ? targetPageNum : activeCompPdfPageNum);
+  }
+
+  async function toggleCompPdfScrollMode(forceMode = null) {
+    if (forceMode === "continuous" || forceMode === "single") {
+      activeCompPdfScrollMode = forceMode;
+    } else {
+      activeCompPdfScrollMode = activeCompPdfScrollMode === "continuous" ? "single" : "continuous";
+    }
+    activeCompPdfBuiltDomSignature = "";
+    const curPage = activeCompPdfPageNum || 1;
+    await renderPdfPage(curPage);
+    if (activeCompPdfScrollMode === "continuous") {
+      scrollToPdfPageSlot(curPage, false);
+      showToast("\uD83D\uDCDC Continuous Scroll ON — scroll through all PDF pages naturally or use \u25C0 Prev / Next \u25B6!", "cyan", 2200);
+    } else {
+      scrollCompendiumToTop();
+      showToast("\uD83D\uDCC4 Single Page Mode ON — use \u25C0 Prev / Next \u25B6 to flip pages.", "cyan", 2000);
     }
   }
 
@@ -11592,165 +12756,49 @@ Explanation: ${parentQ.explanation}`;
       activeCompSheetIndex = idx;
       activeCompPdfPageNum = Math.max(1, pageNum || 1);
       await renderActiveCompSheet();
-    }
-  }
-
-  async function renderActiveCompPdfDocument(targetPageNum = null) {
-    const item = currentCompSheets[activeCompSheetIndex];
-    if (!item || !item.isPdf) return;
-    activeCompPdfItem = item;
-
-    const pdfBar = document.getElementById("comp-pdf-studio-bar");
-    const pdfStage = document.getElementById("comp-pdf-canvas-stage");
-    const docContent = document.getElementById("comp-studio-doc-content");
-    if (pdfBar) pdfBar.style.display = "flex";
-    if (pdfStage) pdfStage.style.display = "flex";
-    if (docContent) {
-      docContent.style.display = "none";
-      docContent.innerHTML = "";
-    }
-
-    safeSetText("comp-studio-header-title", `\uD83D\uDCC4 ${item.title}`);
-    safeSetText("comp-studio-header-sub", `${item.chapter} \u2022 PDF Studio`);
-
-    // Auto-Track Last Opened Date
-    const prevOpenRec = await getRecord("store_notes", `last_opened_${item.id}`);
-    const prevEpoch = prevOpenRec && prevOpenRec.lastOpenedAt ? prevOpenRec.lastOpenedAt : null;
-    const badgeSpec = formatLastOpenedBadgeText(prevEpoch);
-    const lastOpenedBadge = document.getElementById("comp-zen-last-opened-badge");
-    if (lastOpenedBadge) {
-      lastOpenedBadge.innerText = badgeSpec.text;
-      lastOpenedBadge.style.color = badgeSpec.color;
-      lastOpenedBadge.style.background = badgeSpec.bg;
-    }
-    await putRecord("store_notes", {
-      id: `last_opened_${item.id}`,
-      sheetId: item.id,
-      lastOpenedAt: Date.now(),
-      openCount: (prevOpenRec && prevOpenRec.openCount ? prevOpenRec.openCount : 0) + 1
-    });
-
-    // Load binary PDF from IndexedDB if not cached for this pdfId
-    if (!activeCompPdfDocProxy || activeCompPdfDocProxy._cglPdfId !== item.id) {
-      const pdfRec = await getRecord("store_notes", `pdf_doc_${item.id}`);
-      if (!pdfRec || !pdfRec.base64Data) {
-        showToast("PDF binary record missing in IndexedDB.", "rose");
-        return;
-      }
-      activeCompPdfRawBytes = base64ToUint8Array(pdfRec.base64Data);
-      if (window.pdfjsLib) {
-        const loadingTask = window.pdfjsLib.getDocument({ data: activeCompPdfRawBytes.slice(0) });
-        activeCompPdfDocProxy = await loadingTask.promise;
-        activeCompPdfDocProxy._cglPdfId = item.id;
-      }
-    }
-
-    activeCompPdfTotalPages = (activeCompPdfDocProxy && activeCompPdfDocProxy.numPages) || item.numPages || 1;
-    if (targetPageNum !== null && !Number.isNaN(Number(targetPageNum))) {
-      activeCompPdfPageNum = Math.max(1, Math.min(activeCompPdfTotalPages, Number(targetPageNum)));
     } else {
-      activeCompPdfPageNum = Math.max(1, Math.min(activeCompPdfTotalPages, activeCompPdfPageNum || 1));
+      activeCompPdfItem = meta;
+      await renderPdfPage(Math.max(1, pageNum || 1), pdfId);
     }
-
-    safeSetValue("comp-pdf-page-input", activeCompPdfPageNum);
-    safeSetText("comp-pdf-total-pages", `/ ${activeCompPdfTotalPages}`);
-
-    // Update Bookmark button state for this page
-    const isBookmarked = Array.isArray(item.bookmarkedPages) && item.bookmarkedPages.includes(activeCompPdfPageNum);
-    const bmBtn = document.getElementById("btn-pdf-bookmark-page");
-    if (bmBtn) {
-      bmBtn.innerText = isBookmarked ? "\u2605" : "\u2606";
-      bmBtn.style.color = isBookmarked ? "#fbbf24" : "";
+    if (activeCompPdfScrollMode === "continuous" && pageNum > 1) {
+      scrollToPdfPageSlot(pageNum, false);
     }
-
-    // Update Dark Invert filter on PDF canvas
-    const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
-    const invBtn = document.getElementById("btn-pdf-dark-invert");
-    if (pdfCanvas) {
-      pdfCanvas.classList.toggle("pdf-dark-invert", !!activeCompPdfDarkInvert);
-    }
-    if (invBtn) {
-      invBtn.classList.toggle("active", !!activeCompPdfDarkInvert);
-    }
-
-    // Render current PDF page onto #comp-pdf-render-canvas at crisp retina DPI
-    if (activeCompPdfDocProxy && pdfCanvas) {
-      try {
-        const page = await activeCompPdfDocProxy.getPage(activeCompPdfPageNum);
-        const pageEl = document.getElementById("comp-folio-page");
-        const availW = Math.max(320, Math.min(820, (pageEl ? pageEl.clientWidth : 740) - 24));
-        const unscaledVp = page.getViewport({ scale: 1 });
-        const cssScale = availW / Math.max(unscaledVp.width, 1);
-        const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
-        const renderViewport = page.getViewport({ scale: cssScale * dpr });
-
-        pdfCanvas.width = Math.floor(renderViewport.width);
-        pdfCanvas.height = Math.floor(renderViewport.height);
-        pdfCanvas.style.width = `${Math.floor(unscaledVp.width * cssScale)}px`;
-        pdfCanvas.style.height = `${Math.floor(unscaledVp.height * cssScale)}px`;
-
-        const ctx = pdfCanvas.getContext("2d");
-        ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-        await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-      } catch (err) {
-        console.warn("PDF page render notice:", err);
-      }
-    }
-
-    // Load per-page ink strokes, media blocks, and PDF-level margin excerpts
-    const pageInkRec = await getRecord("store_notes", `pdf_ink_${item.id}_p${activeCompPdfPageNum}`);
-    activeSheetInkStrokes = pageInkRec && Array.isArray(pageInkRec.strokes) ? pageInkRec.strokes : [];
-    sheetInkUndoStack = [];
-    lastClearedSheetInkBackup = null;
-    currentSheetInkStroke = null;
-    lassoSelectedStrokeIndices = [];
-    lassoBoundingBoxNorm = null;
-
-    const pageMediaRec = await getRecord("store_notes", `pdf_media_${item.id}_p${activeCompPdfPageNum}`);
-    activeSheetMediaBlocks = pageMediaRec && Array.isArray(pageMediaRec.blocks) ? pageMediaRec.blocks : [];
-
-    const exRec = await getRecord("store_notes", `excerpts_pdf_${item.id}`);
-    activeSheetMarginExcerpts = exRec && Array.isArray(exRec.excerpts) ? exRec.excerpts : [];
-
-    activeSheetCustomMasks = [];
-    activeSheetHighlights = [];
-
-    renderActiveSheetMediaBlocks();
-    updateCompMaskAndHighlightBadge();
-    renderCompMarginAnnotationsList();
-    applyCompendiumZoomStyle();
-    updateRecallProgressCounter();
-    syncSheetInkPointerPassthrough();
-    setTimeout(syncSheetInkCanvasGeometry, 55);
-
-    if (activeCompPdfThumbnailsOpen) {
-      await renderCompPdfThumbnailsStrip();
-    }
-
-    // Populate Chapter Linked Questions in Margin Rail
-    const linkedQs = await ConceptService.getLinkedQuestions(item.id, item.chapter);
-    safeSetText("comp-linked-q-count", `${linkedQs.length} Associated Question${linkedQs.length === 1 ? "" : "s"}`);
-    safeSetText("dock-drill-q-badge", `${linkedQs.length} Qs`);
-    safeSetText("comp-rail-q-badge", `${linkedQs.length} Qs`);
-    safeSetText("comp-dock-drill-label", `Drill (${linkedQs.length})`);
-
-    const noteKey = `scratch_${item.id}`;
-    const savedNote = await getRecord("store_notes", noteKey);
-    safeSetValue("comp-studio-scratchpad", savedNote ? savedNote.content : "");
   }
 
   async function navCompPdfPage(delta) {
     if (!isCompPdfActive()) return;
     const next = activeCompPdfPageNum + delta;
-    if (next < 1 || next > activeCompPdfTotalPages) return;
-    await renderActiveCompPdfDocument(next);
+    if (next < 1) {
+      showToast("Already on Page 1.", "cyan", 1200);
+      return;
+    }
+    if (next > activeCompPdfTotalPages) {
+      showToast(`Reached last page (Page ${activeCompPdfTotalPages}).`, "cyan", 1400);
+      return;
+    }
+    if (activeCompPdfScrollMode === "continuous") {
+      setActiveCompPdfPageInScrollSync(next);
+      await renderSingleContinuousPdfPageCanvas(next);
+      scrollToPdfPageSlot(next, true);
+    } else {
+      await renderPdfPage(next);
+      scrollCompendiumToTop();
+    }
   }
 
   async function jumpCompPdfToPage(pageVal) {
     if (!isCompPdfActive()) return;
     const num = parseInt(pageVal, 10);
     if (Number.isNaN(num)) return;
-    await renderActiveCompPdfDocument(Math.max(1, Math.min(activeCompPdfTotalPages, num)));
+    const targetPage = Math.max(1, Math.min(activeCompPdfTotalPages, num));
+    if (activeCompPdfScrollMode === "continuous") {
+      setActiveCompPdfPageInScrollSync(targetPage);
+      await renderSingleContinuousPdfPageCanvas(targetPage);
+      scrollToPdfPageSlot(targetPage, true);
+    } else {
+      await renderPdfPage(targetPage);
+      scrollCompendiumToTop();
+    }
   }
 
   async function toggleCompPdfBookmarkPage() {
@@ -11759,7 +12807,8 @@ Explanation: ${parentQ.explanation}`;
       activeCompPdfItem.bookmarkedPages = [];
     }
     const idx = activeCompPdfItem.bookmarkedPages.indexOf(activeCompPdfPageNum);
-    if (idx === -1) {
+    const isNowBm = idx === -1;
+    if (isNowBm) {
       activeCompPdfItem.bookmarkedPages.push(activeCompPdfPageNum);
       activeCompPdfItem.bookmarkedPages.sort((a, b) => a - b);
       showToast(`Bookmarked Page ${activeCompPdfPageNum}`, "amber", 1500);
@@ -11768,23 +12817,45 @@ Explanation: ${parentQ.explanation}`;
       showToast(`Removed bookmark on Page ${activeCompPdfPageNum}`, "cyan", 1500);
     }
     await savePdfLibraryIndex();
-    await renderActiveCompPdfDocument(activeCompPdfPageNum);
+    const slotBmBtn = document.getElementById(`comp-pdf-slot-bm-${activeCompPdfPageNum}`);
+    if (slotBmBtn) {
+      slotBmBtn.innerText = isNowBm ? "\u2605 Bookmarked" : "\u2606 Bookmark";
+      slotBmBtn.style.color = isNowBm ? "#fbbf24" : "var(--text-muted)";
+    }
+    syncCompPdfPageControlsHud();
+    if (activeCompPdfThumbnailsOpen) {
+      await renderCompPdfThumbnailsStrip();
+    }
   }
 
   function toggleCompPdfDarkInvert() {
     activeCompPdfDarkInvert = !activeCompPdfDarkInvert;
     const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
-    const invBtn = document.getElementById("btn-pdf-dark-invert");
-    if (pdfCanvas) pdfCanvas.classList.toggle("pdf-dark-invert", activeCompPdfDarkInvert);
-    if (invBtn) invBtn.classList.toggle("active", activeCompPdfDarkInvert);
+    const invBtn = document.getElementById("btn-comp-pdf-invert") || document.getElementById("btn-pdf-dark-invert");
+    if (pdfCanvas) {
+      pdfCanvas.classList.toggle("pdf-dark-inverted", activeCompPdfDarkInvert);
+      pdfCanvas.classList.toggle("pdf-dark-invert", activeCompPdfDarkInvert);
+    }
+    document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-page-canvas").forEach(c => {
+      c.classList.toggle("pdf-dark-inverted", activeCompPdfDarkInvert);
+      c.classList.toggle("pdf-dark-invert", activeCompPdfDarkInvert);
+    });
+    if (invBtn) {
+      invBtn.classList.toggle("active", activeCompPdfDarkInvert);
+      invBtn.classList.toggle("btn-cyan", activeCompPdfDarkInvert);
+    }
     showToast(activeCompPdfDarkInvert ? "PDF Dark Invert enabled." : "Natural PDF colors restored.", "cyan", 1500);
   }
 
-  async function toggleCompPdfThumbnailsBar() {
-    activeCompPdfThumbnailsOpen = !activeCompPdfThumbnailsOpen;
+  async function toggleCompPdfThumbnailsBar(forceState = null) {
+    if (typeof forceState === "boolean") {
+      activeCompPdfThumbnailsOpen = forceState;
+    } else {
+      activeCompPdfThumbnailsOpen = !activeCompPdfThumbnailsOpen;
+    }
     const scrubber = document.getElementById("comp-pdf-thumb-scrubber");
-    const btn = document.getElementById("btn-pdf-thumbnails");
-    if (scrubber) scrubber.style.display = activeCompPdfThumbnailsOpen ? "flex" : "none";
+    const btn = document.getElementById("btn-comp-pdf-thumbs") || document.getElementById("btn-pdf-thumbnails");
+    if (scrubber) scrubber.style.display = activeCompPdfThumbnailsOpen ? "block" : "none";
     if (btn) btn.classList.toggle("active", activeCompPdfThumbnailsOpen);
     if (activeCompPdfThumbnailsOpen) {
       await renderCompPdfThumbnailsStrip();
@@ -11793,15 +12864,16 @@ Explanation: ${parentQ.explanation}`;
   }
 
   async function setCompPdfThumbnailFilter(filterKey) {
-    activeCompPdfThumbnailFilter = filterKey || "ALL";
+    activeCompPdfThumbnailFilter = String(filterKey || "ALL").toUpperCase();
     ["ALL", "ANNOTATED", "BOOKMARKED"].forEach(k => {
       document.getElementById(`pdf-thumb-filter-${k}`)?.classList.toggle("active", k === activeCompPdfThumbnailFilter);
+      document.getElementById(`pdf-thumb-filter-${k.toLowerCase()}`)?.classList.toggle("active", k === activeCompPdfThumbnailFilter);
     });
     await renderCompPdfThumbnailsStrip();
   }
 
   async function renderCompPdfThumbnailsStrip() {
-    const track = document.getElementById("comp-pdf-thumb-track");
+    const track = document.getElementById("comp-pdf-thumb-strip") || document.getElementById("comp-pdf-thumb-track");
     if (!track || !isCompPdfActive() || !activeCompPdfItem) return;
     track.innerHTML = "";
 
@@ -11824,16 +12896,18 @@ Explanation: ${parentQ.explanation}`;
     for (const pNum of pagesToShow) {
       const card = document.createElement("div");
       card.className = "comp-pdf-thumb-card" + (pNum === activeCompPdfPageNum ? " active" : "");
+      card.setAttribute("data-page-num", String(pNum));
       const hasInk = annotatedSet.has(pNum);
       const hasStar = bookmarkedSet.has(pNum);
       card.innerHTML = `
-        <div class="comp-pdf-thumb-preview">P.${pNum}</div>
-        <div class="comp-pdf-thumb-meta">
-          <span>#${pNum}</span>
-          <span>${hasInk ? "\u270F\uFE0F" : ""}${hasStar ? "\u2B50" : ""}</span>
+        <div style="font-weight:800; color:${pNum === activeCompPdfPageNum ? "#38bdf8" : "#e2e8f0"}; margin-bottom:2px;">Page ${pNum}</div>
+        <div style="font-size:10px; display:flex; justify-content:center; gap:4px; min-height:14px;">
+          <span>${hasInk ? "\u270F\uFE0F" : ""}</span>
+          <span>${hasStar ? "\u2B50" : ""}</span>
+          ${!hasInk && !hasStar ? `<span style="opacity:0.45;">#${pNum}</span>` : ""}
         </div>
       `;
-      card.addEventListener("click", () => renderActiveCompPdfDocument(pNum));
+      card.addEventListener("click", () => jumpCompPdfToPage(pNum));
       track.appendChild(card);
     }
   }
@@ -11852,7 +12926,6 @@ Explanation: ${parentQ.explanation}`;
       const insertAtIndex = currentIdx + 1;
       const newPage = pdfDoc.insertPage(insertAtIndex, [width || 595.28, height || 841.89]);
 
-      // Subtle dot-grid header note on inserted scratch page
       newPage.drawText(`Scratchpad & Derivations — Inserted after Page ${activeCompPdfPageNum}`, {
         x: 28,
         y: (height || 841.89) - 26,
@@ -11862,8 +12935,8 @@ Explanation: ${parentQ.explanation}`;
 
       const updatedBytes = await pdfDoc.save();
       activeCompPdfRawBytes = new Uint8Array(updatedBytes);
+      const updatedBase64 = uint8ArrayToBase64(activeCompPdfRawBytes);
 
-      // Shift existing per-page ink & media records for pages > activeCompPdfPageNum up by 1
       const oldTotal = activeCompPdfTotalPages;
       for (let p = oldTotal; p > activeCompPdfPageNum; p--) {
         const oldInk = await getRecord("store_notes", `pdf_ink_${activeCompPdfItem.id}_p${p}`);
@@ -11900,19 +12973,30 @@ Explanation: ${parentQ.explanation}`;
       await putRecord("store_notes", {
         id: `pdf_doc_${activeCompPdfItem.id}`,
         pdfId: activeCompPdfItem.id,
-        base64Data: uint8ArrayToBase64(activeCompPdfRawBytes),
+        title: activeCompPdfItem.title,
+        subject: activeCompPdfItem.subject,
+        chapter: activeCompPdfItem.chapter,
+        pdfBytes: activeCompPdfRawBytes.slice(0),
+        base64Data: updatedBase64,
+        unbakedBase64Data: updatedBase64,
         numPages: activeCompPdfTotalPages,
         timestamp: Date.now()
       });
       await savePdfLibraryIndex();
 
-      if (window.pdfjsLib) {
-        const loadingTask = window.pdfjsLib.getDocument({ data: activeCompPdfRawBytes.slice(0) });
+      const pdfjs = ensurePdfJsReady();
+      if (pdfjs) {
+        const loadingTask = pdfjs.getDocument({ data: activeCompPdfRawBytes.slice(0) });
         activeCompPdfDocProxy = await loadingTask.promise;
         activeCompPdfDocProxy._cglPdfId = activeCompPdfItem.id;
       }
+      activeCompPdfLoadedIdForMaps = null;
+      activeCompPdfBuiltDomSignature = "";
 
-      await renderActiveCompPdfDocument(activeCompPdfPageNum + 1);
+      await renderPdfPage(activeCompPdfPageNum + 1);
+      if (activeCompPdfScrollMode === "continuous") {
+        scrollToPdfPageSlot(activeCompPdfPageNum, true);
+      }
       showToast(`Inserted blank page at Page ${activeCompPdfPageNum}!`, "emerald", 2200);
     } catch (err) {
       showToast(`Could not insert blank page: ${err.message}`, "rose");
@@ -11930,7 +13014,8 @@ Explanation: ${parentQ.explanation}`;
 
   /**
    * Flattens/bakes all vector ink strokes across all annotated pages into the PDF binary via `pdf-lib`
-   * AND preserves the live editable vector strokes in `store_notes` so future Undo / Lasso moves remain available!
+   * AND preserves the live editable vector strokes in `store_notes` (plus `unbakedBase64Data`)
+   * so future Undo / Eraser / Lasso moves remain 100% non-destructive!
    */
   async function flattenAndSaveActivePdf(downloadCopy = false) {
     if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
@@ -11966,16 +13051,27 @@ Explanation: ${parentQ.explanation}`;
             ? Math.max(18, (stroke.size || 3) * 6.5)
             : (isMarker ? Math.max(10, (stroke.size || 3) * 4.5) : Math.max(1.5, stroke.size || 2.5));
 
-          for (let i = 1; i < stroke.points.length; i++) {
-            const p0 = stroke.points[i - 1];
-            const p1 = stroke.points[i];
-            pdfPage.drawLine({
-              start: { x: p0.nx * width, y: (1 - p0.ny) * height },
-              end: { x: p1.nx * width, y: (1 - p1.ny) * height },
-              thickness,
+          if (stroke.points.length === 1) {
+            const p0 = stroke.points[0];
+            pdfPage.drawCircle({
+              x: p0.nx * width,
+              y: (1 - p0.ny) * height,
+              size: thickness / 2,
               color: colorRgb,
               opacity
             });
+          } else {
+            for (let i = 1; i < stroke.points.length; i++) {
+              const p0 = stroke.points[i - 1];
+              const p1 = stroke.points[i];
+              pdfPage.drawLine({
+                start: { x: p0.nx * width, y: (1 - p0.ny) * height },
+                end: { x: p1.nx * width, y: (1 - p1.ny) * height },
+                thickness,
+                color: colorRgb,
+                opacity
+              });
+            }
           }
           bakedStrokeCount++;
         });
@@ -11983,11 +13079,15 @@ Explanation: ${parentQ.explanation}`;
 
       const bakedBytes = new Uint8Array(await pdfDoc.save());
 
-      // Save updated binary into IndexedDB while keeping per-page live vector strokes intact!
       await putRecord("store_notes", {
         id: `pdf_doc_${activeCompPdfItem.id}`,
         pdfId: activeCompPdfItem.id,
+        title: activeCompPdfItem.title,
+        subject: activeCompPdfItem.subject,
+        chapter: activeCompPdfItem.chapter,
+        pdfBytes: bakedBytes.slice(0),
         base64Data: uint8ArrayToBase64(bakedBytes),
+        unbakedBase64Data: uint8ArrayToBase64(activeCompPdfRawBytes),
         numPages: totalPages,
         lastBakedAt: Date.now(),
         timestamp: Date.now()
@@ -12017,27 +13117,38 @@ Explanation: ${parentQ.explanation}`;
     }
   }
 
-  async function deleteActiveCompPdfDocument() {
-    if (!isCompPdfActive() || !activeCompPdfItem) return;
-    if (!confirm(`Permanently delete PDF "${activeCompPdfItem.title}" and all its annotations?`)) return;
+  async function deleteCompPdfById(targetPdfId) {
+    if (!targetPdfId) return;
+    await loadPdfLibraryIndex();
+    const targetItem = pdfLibraryIndex.find(x => x.id === targetPdfId) || (activeCompPdfItem && activeCompPdfItem.id === targetPdfId ? activeCompPdfItem : null);
+    const pdfTitle = (targetItem && targetItem.title) ? targetItem.title : "PDF";
+    const totalPages = (targetItem && targetItem.numPages) ? targetItem.numPages : (activeCompPdfTotalPages || 50);
 
-    const pdfId = activeCompPdfItem.id;
-    await deleteRecord("store_notes", `pdf_doc_${pdfId}`);
-    await deleteRecord("store_notes", `excerpts_pdf_${pdfId}`);
-    for (let p = 1; p <= (activeCompPdfTotalPages || 1); p++) {
-      await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${p}`);
-      await deleteRecord("store_notes", `pdf_media_${pdfId}_p${p}`);
+    await deleteRecord("store_notes", `pdf_doc_${targetPdfId}`);
+    await deleteRecord("store_notes", `excerpts_pdf_${targetPdfId}`);
+    await deleteRecord("store_notes", `last_opened_${targetPdfId}`);
+    for (let p = 1; p <= totalPages; p++) {
+      await deleteRecord("store_notes", `pdf_ink_${targetPdfId}_p${p}`);
+      await deleteRecord("store_notes", `pdf_media_${targetPdfId}_p${p}`);
     }
 
-    await loadPdfLibraryIndex();
-    pdfLibraryIndex = pdfLibraryIndex.filter(x => x.id !== pdfId);
+    pdfLibraryIndex = pdfLibraryIndex.filter(x => x.id !== targetPdfId);
     await savePdfLibraryIndex();
 
-    activeCompPdfItem = null;
-    activeCompPdfDocProxy = null;
-    activeCompPdfRawBytes = null;
-    showToast("PDF document deleted.", "emerald", 1800);
+    if (activeCompPdfItem && activeCompPdfItem.id === targetPdfId) {
+      activeCompPdfItem = null;
+      activeCompPdfDocProxy = null;
+      activeCompPdfRawBytes = null;
+      activeCompSheetIndex = Math.max(0, activeCompSheetIndex - 1);
+    }
+
+    showToast(`Deleted PDF "${pdfTitle}".`, "emerald", 2000);
     await renderCompStudioSheets();
+  }
+
+  async function deleteActiveCompPdfDocument() {
+    if (!isCompPdfActive() || !activeCompPdfItem) return;
+    await deleteCompPdfById(activeCompPdfItem.id);
   }
 
   /**
@@ -12191,6 +13302,9 @@ Explanation: ${parentQ.explanation}`;
         }
       }
       lastScrollTop = st;
+      if (isCompPdfActive() && activeCompPdfScrollMode === "continuous") {
+        onContinuousPdfWorkspaceScroll();
+      }
     };
     canvas.addEventListener("scroll", () => handleStudioScroll(canvas), { passive: true });
     const wsEl = document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
@@ -12357,6 +13471,7 @@ Explanation: ${parentQ.explanation}`;
         pinchBaseScale = compendiumZoomScale;
         return;
       }
+      if (isCompPdfActive()) return;
       if (e.touches.length === 1 && (compendiumMaskEditMode || compendiumHighlightMode)) {
         const t = e.touches[0];
         const docBody = document.getElementById("comp-studio-doc-body");
@@ -12379,6 +13494,7 @@ Explanation: ${parentQ.explanation}`;
         applyCompendiumZoomStyle();
         return;
       }
+      if (isCompPdfActive()) return;
       if (e.touches.length === 1 && brushSession && (compendiumMaskEditMode || compendiumHighlightMode)) {
         const t = e.touches[0];
         updateBrushToPoint(t.clientX, t.clientY, e);
@@ -12386,7 +13502,12 @@ Explanation: ${parentQ.explanation}`;
     }, { passive: false });
 
     canvas.addEventListener("touchend", async (e) => {
-      if (e.touches.length < 2) pinchStartDist = 0;
+      if (e.touches.length < 2 && pinchStartDist > 20) {
+        pinchStartDist = 0;
+        if (isCompPdfActive()) {
+          await renderPdfPage(activeCompPdfPageNum);
+        }
+      }
       if (brushSession) {
         await commitBrushSession();
       }
@@ -12400,7 +13521,7 @@ Explanation: ${parentQ.explanation}`;
 
     // Mouse / Stylus Brush-Drag on Desktop & Tablet
     canvas.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || isCompPdfActive()) return;
       if (!compendiumMaskEditMode && !compendiumHighlightMode) return;
       const docBody = document.getElementById("comp-studio-doc-body");
       if (docBody && docBody.contains(e.target)) {
@@ -12579,6 +13700,14 @@ Explanation: ${parentQ.explanation}`;
       }
     });
 
+    const perfMap = await PerformanceService.getQuestionPerformanceMap();
+    const allQuestions = await QuestionService.getAll();
+    const mistakeChapters = new Set(
+      allQuestions
+        .filter(q => perfMap[q.id] && (perfMap[q.id].lastWasIncorrect || perfMap[q.id].wrong > 0))
+        .map(q => q.chapter)
+    );
+
     const filtered = combinedDocs.filter(c => {
       if (subFilter !== "ALL" && c.subject !== subFilter) return false;
       const openedRec = openedMap[c.id];
@@ -12589,15 +13718,17 @@ Explanation: ${parentQ.explanation}`;
         if (!c.isPdf) return false;
       } else if (neglectedFilter === "NEGLECTED_3D") {
         if (daysSince < 3) return false;
-      } else if (neglectedFilter === "NEGLECTED_7D") {
+      } else if (neglectedFilter === "NEGLECTED_7D" || neglectedFilter === "NEGLECTED") {
         if (daysSince < 7) return false;
       } else if (neglectedFilter === "NEGLECTED_14D") {
         if (daysSince < 14) return false;
       } else if (neglectedFilter === "NEVER_OPENED") {
         if (lastEpoch > 0) return false;
+      } else if (neglectedFilter === "MISTAKE_DEBT") {
+        if (!mistakeChapters.has(c.chapter)) return false;
       } else if (neglectedFilter === "RECENT_TODAY") {
         if (daysSince > 1) return false;
-      } else if (neglectedFilter === "RECENTLY_OPENED") {
+      } else if (neglectedFilter === "RECENTLY_OPENED" || neglectedFilter === "RECENTLY_READ" || neglectedFilter === "RECENT") {
         if (daysSince > 7) return false;
       }
 
@@ -12606,18 +13737,19 @@ Explanation: ${parentQ.explanation}`;
         const inSub = (c.subtitle || "").toLowerCase().includes(term);
         const inChap = (c.chapter || "").toLowerCase().includes(term);
         const inId = (c.id || "").toLowerCase().includes(term);
-        if (!inTitle && !inSub && !inChap && !inId) return false;
+        const inBody = (c.content || "").toLowerCase().includes(term);
+        if (!inTitle && !inSub && !inChap && !inId && !inBody) return false;
       }
       return true;
     });
 
-    if (neglectedFilter === "NEGLECTED_7D" || neglectedFilter === "NEGLECTED_14D") {
+    if (neglectedFilter === "NEGLECTED_7D" || neglectedFilter === "NEGLECTED_14D" || neglectedFilter === "NEGLECTED") {
       filtered.sort((a, b) => {
         const tA = openedMap[a.id]?.lastOpenedAt || 0;
         const tB = openedMap[b.id]?.lastOpenedAt || 0;
         return tA - tB;
       });
-    } else if (neglectedFilter === "RECENTLY_OPENED") {
+    } else if (neglectedFilter === "RECENTLY_OPENED" || neglectedFilter === "RECENTLY_READ" || neglectedFilter === "RECENT") {
       filtered.sort((a, b) => {
         const tA = openedMap[a.id]?.lastOpenedAt || 0;
         const tB = openedMap[b.id]?.lastOpenedAt || 0;
@@ -12849,6 +13981,7 @@ Explanation: ${parentQ.explanation}`;
       activeCompPdfItem = null;
       safeSetDisplay("comp-pdf-studio-bar", "none");
       safeSetDisplay("comp-pdf-thumb-scrubber", "none");
+      safeSetDisplay("comp-pdf-canvas-wrap", "none");
       safeSetDisplay("comp-pdf-canvas-stage", "none");
       if (docContent) {
         docContent.style.display = "block";
@@ -12864,7 +13997,8 @@ Explanation: ${parentQ.explanation}`;
         `;
       }
       safeSetText("comp-linked-q-count", "0 Questions Linked");
-      safeSetText("dock-drill-q-badge", "0 Qs");
+      safeSetText("comp-rail-q-badge", "0 Qs");
+      safeSetText("comp-dock-drill-label", "Drill Qs");
       safeSetText("comp-mask-count-badge", "0 Masks \u2022 0 Highlights");
       return;
     }
@@ -12875,9 +14009,25 @@ Explanation: ${parentQ.explanation}`;
       currentCompSheets.forEach((sheet, idx) => {
         const tab = document.createElement("button");
         tab.className = "comp-sheet-tab" + (idx === activeCompSheetIndex ? " active" : "");
-        tab.innerHTML = sheet.isPdf
-          ? `\uD83D\uDCC4 ${sheet.title || "PDF"} <span style="font-size:9px; opacity:0.75; margin-left:3px;">(${sheet.numPages || 1}p)</span>`
-          : (sheet.title || `Sheet ${idx + 1}`);
+        if (sheet.isPdf) {
+          const titleSpan = document.createElement("span");
+          titleSpan.innerHTML = `\uD83D\uDCC4 ${sheet.title || "PDF"} <span style="font-size:9px; opacity:0.75; margin-left:3px;">(${sheet.numPages || 1}p)</span>`;
+          const delCross = document.createElement("span");
+          delCross.className = "pdf-tab-delete-cross";
+          delCross.innerText = "\u2715";
+          delCross.title = `Delete PDF "${sheet.title || "PDF"}"`;
+          delCross.setAttribute("role", "button");
+          delCross.style.cssText = "margin-left:6px; padding:1px 5px; border-radius:4px; font-size:10px; font-weight:900; line-height:1.2; color:#fda4af; background:rgba(244,63,94,0.2); border:1px solid rgba(244,63,94,0.42); cursor:pointer; display:inline-flex; align-items:center; justify-content:center;";
+          delCross.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await deleteCompPdfById(sheet.id);
+          });
+          tab.appendChild(titleSpan);
+          tab.appendChild(delCross);
+        } else {
+          tab.textContent = sheet.title || `Sheet ${idx + 1}`;
+        }
         tab.addEventListener("click", () => {
           activeCompSheetIndex = idx;
           renderActiveCompSheet();
@@ -12898,14 +14048,17 @@ Explanation: ${parentQ.explanation}`;
     });
 
     if (sheet.isPdf) {
-      await renderActiveCompPdfDocument(activeCompPdfItem && activeCompPdfItem.id === sheet.id ? activeCompPdfPageNum : 1);
+      activeCompPdfItem = sheet;
+      await renderPdfPage(activeCompPdfItem && activeCompPdfItem.id === sheet.id ? activeCompPdfPageNum : 1, sheet.id);
       return;
     }
 
-    // Standard Markdown Knowledge Sheet Mode: Hide PDF Studio Bar & Stage
+    // Standard Markdown Knowledge Sheet Mode: Hide PDF Studio Bar, Bottom Nav & Stage
     activeCompPdfItem = null;
     safeSetDisplay("comp-pdf-studio-bar", "none");
+    safeSetDisplay("comp-pdf-bottom-nav", "none");
     safeSetDisplay("comp-pdf-thumb-scrubber", "none");
+    safeSetDisplay("comp-pdf-canvas-wrap", "none");
     safeSetDisplay("comp-pdf-canvas-stage", "none");
     const docContentEl = document.getElementById("comp-studio-doc-content");
     if (docContentEl) docContentEl.style.display = "block";
@@ -13093,40 +14246,50 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function renderCompMarginAnnotationsList() {
-    const listEl = document.getElementById("comp-rail-annotations-list") || document.getElementById("comp-margin-annotations-list");
     const excerptCount = Array.isArray(activeSheetMarginExcerpts) ? activeSheetMarginExcerpts.length : 0;
-    const totalCount = activeSheetCustomMasks.length + activeSheetHighlights.length + excerptCount;
-    safeSetText("comp-rail-ann-count", `${totalCount} item${totalCount === 1 ? "" : "s"}`);
+    const exCountEl = document.getElementById("comp-rail-excerpts-count");
+    const exListEl = document.getElementById("comp-rail-excerpts-list");
+    if (exCountEl) {
+      exCountEl.innerText = `${excerptCount} pinned`;
+    }
+    if (exListEl) {
+      if (excerptCount === 0) {
+        exListEl.innerHTML = `<div style="font-size:11px; color:var(--text-muted); padding:4px 0;">Toggle ✏️ Ink ➔ ✂️ Excerpt and drag a rectangle over any PDF or sheet formula to pin visual crops here.</div>`;
+      } else {
+        exListEl.innerHTML = activeSheetMarginExcerpts.map(ex => {
+          const pageBadge = ex.pageNum
+            ? `<span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; font-size:9px; cursor:pointer;" onclick="CGL_OS.jumpCompPdfToPage(${ex.pageNum})">Page ${ex.pageNum} \u2794</span>`
+            : "";
+          return `
+            <div class="excerpt-rail-item">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:5px;">
+                <div style="display:flex; align-items:center; gap:5px; font-size:10px; font-weight:700; color:var(--accent-cyan);">
+                  <span>\u2702\uFE0F ${ex.label || "Excerpt"}</span>
+                  ${pageBadge}
+                </div>
+                <div style="display:flex; gap:4px;">
+                  <button class="btn btn-purple" style="padding:1px 6px; font-size:9.5px;" onclick="CGL_OS.sendMarginExcerptToQuestionCreator('${ex.id}')" title="Send cropped image to Question Creator">\u2795 Q</button>
+                  <button class="btn btn-secondary" style="padding:1px 6px; font-size:9.5px; color:#fb7185;" onclick="CGL_OS.deleteCompMarginExcerpt('${ex.id}')" title="Delete excerpt">\u2715</button>
+                </div>
+              </div>
+              <img src="${ex.dataUrl}" alt="Excerpt">
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    const listEl = document.getElementById("comp-rail-annotations-list") || document.getElementById("comp-margin-annotations-list");
+    const maskHlCount = activeSheetCustomMasks.length + activeSheetHighlights.length;
+    safeSetText("comp-rail-ann-count", `${maskHlCount} item${maskHlCount === 1 ? "" : "s"}`);
     if (!listEl) return;
 
-    if (totalCount === 0) {
-      listEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">Slide your finger/stylus across words in 🖌️ Mask or 🖍️ Highlight mode, or use ✂️ Excerpt in Ink mode to pin visual crops here.</span>`;
+    if (maskHlCount === 0) {
+      listEl.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">Slide your finger/stylus across words in 🖌️ Mask or 🖍️ Highlight mode to record recall targets here.</span>`;
       return;
     }
 
     const chips = [];
-
-    // Render pinned LiquidText Visual Excerpt cards at top of Margin Rail
-    if (excerptCount > 0) {
-      activeSheetMarginExcerpts.forEach(ex => {
-        const pageBadge = ex.pageNum ? `<span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; font-size:9px; cursor:pointer;" onclick="CGL_OS.jumpCompPdfToPage(${ex.pageNum})">Page ${ex.pageNum} \u2794</span>` : "";
-        chips.push(`
-          <div class="comp-margin-excerpt-card" style="width:100%;">
-            <img src="${ex.dataUrl}" alt="Excerpt">
-            <div class="comp-margin-excerpt-meta">
-              <div style="display:flex; align-items:center; gap:5px;">
-                <span>\u2702\uFE0F Excerpt</span>
-                ${pageBadge}
-              </div>
-              <div style="display:flex; gap:4px;">
-                <button class="btn btn-purple" style="padding:1px 6px; font-size:9.5px;" onclick="CGL_OS.sendMarginExcerptToQuestionCreator('${ex.id}')" title="Send cropped image to Question Creator">\u2795 Q</button>
-                <button class="btn btn-secondary" style="padding:1px 6px; font-size:9.5px; color:#fb7185;" onclick="CGL_OS.deleteCompMarginExcerpt('${ex.id}')" title="Delete excerpt">\u2715</button>
-              </div>
-            </div>
-          </div>
-        `);
-      });
-    }
 
     activeSheetCustomMasks.forEach((m, idx) => {
       const parsed = parseMaskOrHighlightKey(m);
@@ -13466,7 +14629,7 @@ Explanation: ${parentQ.explanation}`;
     rootContainer.innerHTML = "";
 
     const allQs = await getAllRecords("store_questions");
-    const allConcepts = await ConceptService.getAll();
+    const allConcepts = [...(await ConceptService.getAll()), ...(await loadPdfLibraryIndex())];
     const taxonomy = await TaxonomyService.getTaxonomy();
 
     const breadcrumb = document.createElement("div");
@@ -15803,7 +16966,14 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     cancelStagedExcerptSelection: cancelActiveExcerptCrop,
     triggerPdfUploadPrompt,
     handlePdfDocumentUpload,
+    renderPdfPage,
+    renderActiveCompPdfPage: renderPdfPage,
     renderActiveCompPdfDocument,
+    toggleCompPdfScrollMode,
+    enableCompPdfPanMode,
+    promptMoveActivePdfChapter,
+    scrollCompendiumBy,
+    scrollCompendiumToTop,
     navCompPdfPage,
     jumpCompPdfToPage,
     jumpToCompPdfPage: jumpCompPdfToPage,
@@ -15817,6 +16987,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     setCompPdfThumbFilter: setCompPdfThumbnailFilter,
     insertBlankPageIntoActivePdf,
     flattenAndSaveActivePdf,
+    deleteCompPdfById,
     deleteActiveCompPdfDocument,
     rateCurrentSheetRecall,
     launchFailedSheetQuestionsDojo,
