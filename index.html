@@ -22,7 +22,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js" crossorigin="anonymous"></script>
 
-  <!-- PDF.js & pdf-lib from Cloudflare CDN for Local Multi-Page PDF Studio & Vector Flattening -->
+  <!-- PDF.js & pdf-lib from Cloudflare CDN for GoodNotes / LiquidText PDF Studio -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
   <script>
     if (window.pdfjsLib) {
@@ -35,9 +35,6 @@
   <link rel="stylesheet" href="./style.css?v=9.0">
 </head>
 <body>
-  <!-- NON-BLOCKING FLOATING GLASS TOAST HUD -->
-  <div id="cgl-toast-container" class="cgl-toast-container" aria-live="polite"></div>
-
   <!-- MOBILE ON-SCREEN DEBUGGER (Auto-hides on clean boot) -->
   <div id="phone-debug-banner" style="background:#ef4444; color:#fff; padding:12px; font-family:monospace; font-size:12px; z-index:99999; position:relative; word-break:break-word;">
     ⏳ Waiting for app.js to load...
@@ -62,6 +59,9 @@
       }
     });
   </script>
+
+  <!-- ==================== NON-BLOCKING FLOATING GLASS TOAST HUD ==================== -->
+  <div id="cgl-toast-container" class="cgl-toast-container"></div>
 
   <!-- ==================== FLOATING TEXT-SELECTION ACTION POPOVER ==================== -->
   <div id="selection-action-popover">
@@ -915,7 +915,7 @@
       </div>
       <div id="dojo-concept-pills-wrap"></div>
       <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-        <button class="btn btn-emerald" id="btn-dojo-save-mutant" style="display:none; padding:2px 9px; font-size:10.5px; font-weight:800;" onclick="CGL_OS.saveCurrentDojoMutantToBank()" title="Permanently save this AI-generated mutant question to your Master Question Bank">📥 Save Mutant to Bank</button>
+        <button class="btn btn-emerald" id="btn-dojo-promote-mutant" style="display:none; padding:3px 9px; font-size:10.5px;" onclick="CGL_OS.promoteActiveMutantToBank()" title="Save this AI Mutant Question permanently to your Master Question Bank">📥 Save Mutant to Bank</button>
         <button class="star-flag-btn" id="btn-dojo-star" onclick="CGL_OS.toggleCurrentDojoQuestionStar()">☆ Star</button>
         <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.adjustReaderFontScale(-0.08)">A-</button>
         <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.adjustReaderFontScale(0.08)">A+</button>
@@ -978,9 +978,9 @@
     <div class="palette-scroll-body" id="dojo-palette-scroll-body"></div>
   </div>
 
-  <!-- 3. LIVING KNOWLEDGE STUDIO FULLSCREEN VIEW (GOODNOTES / LIQUIDTEXT ACADEMIC FOLIO & PDF STUDIO) -->
+  <!-- 3. LIVING KNOWLEDGE STUDIO FULLSCREEN VIEW (GOODNOTES / APPLE NOTES ACADEMIC FOLIO STUDIO) -->
   <div id="compendium-fullscreen-view" class="folio-preset-obsidian">
-    <!-- Hidden File Inputs for 1-Tap Sheet Image Upload & Local PDF Import -->
+    <!-- Hidden File Inputs for 1-Tap Sheet Image Upload & Local PDF Document Upload -->
     <input type="file" id="comp-media-file-input" accept="image/*" style="display:none;" onchange="CGL_OS.handleCompSheetMediaFileUpload(this)">
     <input type="file" id="comp-pdf-file-input" accept="application/pdf" style="display:none;" onchange="CGL_OS.handlePdfDocumentUpload(this)">
 
@@ -996,7 +996,7 @@
             <span style="font-size:10px; color:var(--accent-cyan); flex-shrink:0;">▾</span>
           </div>
           <div style="display:flex; align-items:center; gap:6px; min-width:0;">
-            <span style="font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="comp-studio-header-sub">Slide to Highlight/Mask • GoodNotes &amp; LiquidText Studio</span>
+            <span style="font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" id="comp-studio-header-sub">Slide to Highlight/Mask • Page-Anchored Stylus Ink</span>
             <span id="comp-zen-last-opened-badge" class="badge" style="font-size:9px; padding:1px 6px; flex-shrink:0;"></span>
           </div>
         </div>
@@ -1010,11 +1010,11 @@
           <button class="surface-preset-btn" id="btn-surface-sepia" onclick="CGL_OS.setCompendiumReadingSurface('sepia')" title="Warm Sepia Paper (Daytime Zero-Halation)">📜</button>
         </div>
 
-        <button class="btn btn-secondary" style="padding:5px 9px; font-size:11px; color:var(--accent-cyan);" onclick="CGL_OS.openAllSheetsIndexModal()" title="Browse All Sheets, PDFs & Filter Neglected Topics">
+        <button class="btn btn-secondary" style="padding:5px 9px; font-size:11px; color:var(--accent-cyan);" onclick="CGL_OS.openAllSheetsIndexModal()" title="Browse All Sheets, Imported PDFs & Filter Neglected Topics">
           📑 Index
         </button>
-        <button class="hud-icon-btn" style="width:36px; height:36px;" id="btn-comp-folio-ink" onclick="CGL_OS.toggleCompendiumFolioInkMode()" title="Write Directly on Sheet / PDF (Pen, Marker, Recall Tape, Lasso, Excerpt)">✏️</button>
-        <button class="hud-icon-btn" style="width:36px; height:36px;" id="btn-comp-more-menu" onclick="CGL_OS.toggleCompMorePopover(event)" title="Studio Tools, PDF Import, Typography Zoom, Media & AI Architect">•••</button>
+        <button class="hud-icon-btn" style="width:36px; height:36px;" id="btn-comp-folio-ink" onclick="CGL_OS.toggleCompendiumFolioInkMode()" title="Write Directly on Sheet Paper or PDF (Scrolls with Page)">✏️</button>
+        <button class="hud-icon-btn" style="width:36px; height:36px;" id="btn-comp-more-menu" onclick="CGL_OS.toggleCompMorePopover(event)" title="Studio Tools, Typography Zoom, Media, PDF Import & AI Architect">•••</button>
 
         <!-- Studio Overflow Menu Popover -->
         <div id="comp-more-popover" class="comp-overflow-popover">
@@ -1027,7 +1027,7 @@
 
           <div style="font-size:9.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:6px;">Interactive Canvas, PDF &amp; Media</div>
           <div style="display:flex; flex-direction:column; gap:5px; margin-bottom:10px;">
-            <button class="btn btn-purple" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.triggerPdfUploadPrompt()">📄 + Import PDF Document</button>
+            <button class="btn btn-amber" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.triggerPdfUploadPrompt()">📄 + Import PDF to Studio</button>
             <button class="btn btn-cyan" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.triggerCompSheetImageUpload()">🖼️ Insert / Upload Image Card</button>
             <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.pasteClipboardImageToSheet()">📋 Paste Image from Clipboard</button>
             <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.addFloatingStickyNoteCard()">📌 Add Movable Sticky Callout</button>
@@ -1040,7 +1040,7 @@
             <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.openOmniSearchModal()">🔍 Omni-Search Sheets</button>
             <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.openConceptEditorModal(false)">✎ Edit Sheet Markdown</button>
             <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.openConceptEditorModal(true)">+ Author New Sheet</button>
-            <button class="btn btn-danger" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.deleteCurrentCompendiumSheet()">🗑 Delete Current Sheet / PDF</button>
+            <button class="btn btn-danger" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.deleteCurrentCompendiumSheet()">🗑 Delete Current Sheet</button>
           </div>
         </div>
       </div>
@@ -1054,7 +1054,7 @@
           <select id="comp-studio-chapter-select" class="form-control" style="padding:6px; font-size:12px;" onchange="CGL_OS.handleCompStudioChapterChange(this.value)"></select>
           <button class="btn btn-secondary" style="padding:6px 8px; font-size:11px;" onclick="CGL_OS.promptCreateNewChapter()" title="Add New Chapter Tag">+</button>
         </div>
-        <button class="btn btn-purple" style="padding:6px 10px; font-size:11px; white-space:nowrap;" onclick="CGL_OS.triggerPdfUploadPrompt()" title="Import local PDF textbook or coaching notes into this Chapter">📄 + Import PDF</button>
+        <button class="btn btn-amber" style="padding:6px 10px; font-size:11px; white-space:nowrap;" onclick="CGL_OS.triggerPdfUploadPrompt()" title="Import Local PDF Document into Studio">📄 + Import PDF</button>
         <button class="btn" style="padding:6px 10px; font-size:11px; white-space:nowrap;" onclick="CGL_OS.openConceptEditorModal(true)">+ New Sheet</button>
       </div>
       <!-- Sheet & PDF Tabs Bar -->
@@ -1073,12 +1073,11 @@
     <!-- Page-Anchored Stylus Ink Floating Toolbar (Visible when ✏️ Sheet Ink Mode is ON) -->
     <div id="comp-folio-ink-toolbar" class="comp-folio-ink-toolbar" style="display:none;">
       <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-pan" onclick="CGL_OS.setCompendiumFolioInkTool('PAN')" title="Pan & Scroll Page with 1 Finger or Mouse Drag">✋ Pan / Move</button>
-        <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-folio-pen" onclick="CGL_OS.setCompendiumFolioInkTool('PEN')" title="Fine Precision Pen (Hold 350ms at stroke end to snap geometric shapes)">🖊️ Pen</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-marker" onclick="CGL_OS.setCompendiumFolioInkTool('MARKER')" title="Chisel Marker Highlighter (Hold 350ms at stroke end to snap shapes)">🖍️ Marker</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-tape" onclick="CGL_OS.setCompendiumFolioInkTool('TAPE')" title="GoodNotes Recall Tape: Draw opaque occlusion ribbon over formulas/diagrams; tap to reveal/hide">🩹 Tape</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-lasso" onclick="CGL_OS.setCompendiumFolioInkTool('LASSO')" title="GoodNotes Lasso: Circle strokes to select and drag-move them across the page">🪢 Lasso</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-excerpt" onclick="CGL_OS.setCompendiumFolioInkTool('EXCERPT')" title="LiquidText Excerpt Cropper: Drag rectangle over any PDF/Sheet region to pin to Margin Rail or send to Question Creator">✂️ Excerpt</button>
+        <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-folio-pen" onclick="CGL_OS.setCompendiumFolioInkTool('PEN')" title="Fine Precision Pen (Hold 350ms at end of stroke to snap to geometric shape!)">🖊️ Pen</button>
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-marker" onclick="CGL_OS.setCompendiumFolioInkTool('MARKER')" title="Chisel Marker Highlighter (Hold 350ms to snap to straight line/shape)">🖍️ Marker</button>
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-tape" onclick="CGL_OS.setCompendiumFolioInkTool('TAPE')" title="GoodNotes Active Recall Tape — Draw over formulas or PDF diagrams; tap to reveal/hide!">🩹 Tape</button>
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-lasso" onclick="CGL_OS.setCompendiumFolioInkTool('LASSO')" title="GoodNotes Freehand Lasso — Circle ink strokes to select & drag them across the page">🪢 Lasso</button>
+        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-excerpt" onclick="CGL_OS.setCompendiumFolioInkTool('EXCERPT')" title="LiquidText Crop Excerpt — Drag rectangle to pin clip to Margin Rail or send to Question Creator">✂️ Excerpt</button>
         <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-stroke-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('STROKE_ERASER')" title="Tap or swipe across any specific Marker, Tape, or Pen stroke to remove it">🧽 Stroke Eraser</button>
         <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('ERASER')" title="Wide Area Pixel Eraser">🧼 Area Eraser</button>
 
@@ -1095,10 +1094,10 @@
           <button class="folio-ink-swatch" data-inkcolor="#34d399" style="background:#34d399;" onclick="CGL_OS.setCompendiumFolioInkColor('#34d399', this)" title="Emerald Ink"></button>
           <button class="folio-ink-swatch" data-inkcolor="#fb7185" style="background:#fb7185;" onclick="CGL_OS.setCompendiumFolioInkColor('#fb7185', this)" title="Crimson Rose Ink"></button>
           <button class="folio-ink-swatch" data-inkcolor="#c084fc" style="background:#c084fc;" onclick="CGL_OS.setCompendiumFolioInkColor('#c084fc', this)" title="Purple Ink"></button>
-          <button class="folio-ink-swatch" data-inkcolor="#1e293b" style="background:#1e293b; border-color:#94a3b8;" onclick="CGL_OS.setCompendiumFolioInkColor('#1e293b', this)" title="Espresso Dark Ink (For Sepia Paper / PDF)"></button>
+          <button class="folio-ink-swatch" data-inkcolor="#1e293b" style="background:#1e293b; border-color:#94a3b8;" onclick="CGL_OS.setCompendiumFolioInkColor('#1e293b', this)" title="Espresso Dark Ink (For Sepia Paper)"></button>
         </div>
 
-        <button class="btn btn-emerald" id="btn-folio-ink-finger-toggle" style="padding:4px 9px; font-size:10.5px;" onclick="CGL_OS.toggleCompendiumFolioInkFingerMode()" title="Switch between Stylus-Only (1-Finger Scrolls) and Finger-Draw Mode (2-Finger Scrolls)">
+        <button class="btn btn-emerald" id="btn-folio-ink-finger-toggle" style="padding:4px 9px; font-size:10.5px;" onclick="CGL_OS.toggleCompendiumFolioInkFingerMode()" title="Switch between Stylus-Only (1-Finger Scrolls) and Finger-Draw Mode">
           ✍️ Finger &amp; Stylus: Write
         </button>
 
@@ -1134,76 +1133,46 @@
           <!-- Bi-Directional Past Exam Vulnerability Banner (Auto-shows when linked questions have errors/traps) -->
           <div id="comp-sheet-trap-banner" class="comp-trap-alert-banner" style="display:none;"></div>
 
-          <!-- ==================== EMBEDDED GOODNOTES / LIQUIDTEXT PDF STUDIO BAR & VIEWPORT ==================== -->
-          <div id="comp-pdf-studio-bar" class="comp-pdf-studio-bar" style="display:none;">
-            <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-              <div id="comp-pdf-active-name-pill" style="display:inline-flex; align-items:center; gap:5px; background:rgba(168,85,247,0.16); border:1px solid rgba(168,85,247,0.42); border-radius:6px; padding:3px 7px; font-size:11px; font-weight:700; color:#e9d5ff; max-width:210px;">
-                <span id="comp-pdf-active-name-text" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 PDF</span>
-                <button type="button" onclick="CGL_OS.deleteActiveCompPdfDocument()" title="Delete this PDF" style="background:rgba(244,63,94,0.22); border:1px solid rgba(244,63,94,0.45); color:#fda4af; border-radius:4px; padding:0 5px; font-size:10.5px; font-weight:900; line-height:1.35; cursor:pointer; flex-shrink:0;">✕</button>
-              </div>
-              <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navCompPdfPage(-1)" title="Previous PDF Page (ArrowLeft / PageUp)">◀ Prev</button>
-              <div class="pdf-page-jump-pill">
+          <!-- GoodNotes / LiquidText PDF Studio Action & Page Navigation Bar (Visible when a PDF is active) -->
+          <div id="comp-pdf-studio-bar" class="comp-pdf-studio-bar" style="display:none; position:relative; z-index:48;">
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navActivePdfPage(-1)">◀ Prev Page</button>
+              <div style="display:inline-flex; align-items:center; gap:4px; font-family:var(--font-mono); font-size:11.5px; color:#fff; background:rgba(0,0,0,0.28); padding:3px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.1);">
                 <span>Page</span>
-                <input type="number" id="comp-pdf-page-input" min="1" value="1" onchange="CGL_OS.jumpToCompPdfPage(this.value)">
-                <span>of <b id="comp-pdf-page-total">1</b></span>
+                <input type="number" id="comp-pdf-page-input" min="1" value="1" style="width:46px; background:transparent; border:1px solid rgba(56,189,248,0.4); border-radius:4px; color:var(--accent-cyan); font-family:var(--font-mono); font-size:11.5px; font-weight:800; text-align:center; padding:1px 3px;" onchange="CGL_OS.jumpToActivePdfPage(this.value)">
+                <span>of <b id="comp-pdf-total-pages">1</b></span>
               </div>
-              <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navCompPdfPage(1)" title="Next PDF Page (ArrowRight / PageDown)">Next ▶</button>
-              <div style="display:inline-flex; align-items:center; gap:3px; padding:0 4px; border-left:1px solid rgba(255,255,255,0.14); border-right:1px solid rgba(255,255,255,0.14);">
-                <button class="btn btn-secondary" style="padding:3px 7px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(-0.15)" title="Zoom Out PDF">🔍-</button>
-                <button class="btn btn-secondary" id="comp-pdf-zoom-btn" style="padding:3px 7px; font-size:10.5px; font-family:var(--font-mono);" onclick="CGL_OS.resetCompendiumZoom()" title="Reset PDF Zoom to 100%">100%</button>
-                <button class="btn btn-secondary" style="padding:3px 7px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(0.15)" title="Zoom In PDF">🔍+</button>
-              </div>
-              <button class="btn btn-cyan active" id="btn-comp-pdf-scroll-mode" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleCompPdfScrollMode()" title="Switch between Continuous Vertical Scroll (all pages) and Single Page view">📜 Continuous Scroll</button>
-              <button class="btn btn-emerald" id="btn-comp-pdf-pan" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.enableCompPdfPanMode()" title="Enable 1-Finger & Mouse Drag Pan/Scroll on PDF">✋ Move / Scroll</button>
-              <button class="btn btn-secondary" id="btn-comp-pdf-thumbs" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleCompPdfThumbnailScrubber()" title="Toggle Multi-Page Thumbnail Scrubber">🗂️ Pages</button>
-              <button class="btn btn-secondary" id="btn-comp-pdf-bookmark" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleActivePdfPageBookmark()" title="Bookmark this PDF Page">☆ Bookmark</button>
-              <button class="btn btn-secondary" id="btn-comp-pdf-invert" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleActivePdfDarkInvert()" title="Toggle Dark Comfort Invert Filter on PDF Page">🌗 Invert</button>
-            </div>
-            <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-              <button class="btn btn-secondary" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.promptMoveActivePdfChapter()" title="Move or reassign this PDF to another Subject or Chapter">📁 Move Chapter</button>
-              <button class="btn btn-purple" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.insertBlankPageIntoActivePdf()" title="Splice a clean A4 page right after this page for handwritten derivations">📄 + Blank Page</button>
-              <button class="btn btn-cyan" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(false)" title="Bake all vector ink, Recall Tapes & sticky notes into the stored PDF binary while keeping editable vectors">💾 Bake &amp; Save</button>
-              <button class="btn btn-emerald" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(true)" title="Flatten annotations and download portable PDF file">📥 Download</button>
-            </div>
-          </div>
-
-          <!-- Horizontal Multi-Page Thumbnail Scrubber Strip -->
-          <div id="comp-pdf-thumb-scrubber" class="comp-pdf-thumb-scrubber" style="display:none;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
-              <div style="display:flex; gap:5px; align-items:center;">
-                <span style="font-size:10px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase;">Page Filter:</span>
-                <button class="anchor-pill active" id="pdf-thumb-filter-ALL" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.setCompPdfThumbFilter('ALL')">All Pages</button>
-                <button class="anchor-pill" id="pdf-thumb-filter-ANNOTATED" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.setCompPdfThumbFilter('ANNOTATED')">✏️ Annotated</button>
-                <button class="anchor-pill" id="pdf-thumb-filter-BOOKMARKED" style="padding:2px 8px; font-size:10px;" onclick="CGL_OS.setCompPdfThumbFilter('BOOKMARKED')">⭐ Bookmarked</button>
-              </div>
-              <button class="btn btn-secondary" style="padding:2px 7px; font-size:10px;" onclick="CGL_OS.toggleCompPdfThumbnailScrubber(false)">✕ Hide Strip</button>
-            </div>
-            <div id="comp-pdf-thumb-strip" class="comp-pdf-thumb-strip"></div>
-          </div>
-
-          <!-- High-DPI PDF Page Render Surface (Supports both Continuous Vertical Scroll & Single-Page Mode) -->
-          <div id="comp-pdf-canvas-wrap" class="comp-pdf-canvas-wrap" style="display:none;" title="Scroll naturally or drag to pan PDF pages">
-            <div id="comp-pdf-single-stage" class="comp-pdf-page-stage" style="position:relative; margin:0 auto; display:none;">
-              <canvas id="comp-pdf-render-canvas" class="comp-pdf-render-canvas"></canvas>
-            </div>
-            <div id="comp-pdf-continuous-container" class="comp-pdf-continuous-container"></div>
-          </div>
-
-          <!-- Bottom PDF Page & Document Navigation Bar (Visible in PDF Studio Mode) -->
-          <div id="comp-pdf-bottom-nav" class="comp-pdf-bottom-nav" style="display:none;">
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-              <button class="btn btn-secondary" style="padding:6px 12px; font-size:11.5px;" onclick="CGL_OS.navCompPdfPage(-1)">◀ Prev Page</button>
-              <span id="comp-pdf-bottom-page-info" style="font-size:12px; font-weight:800; color:var(--accent-cyan); font-family:var(--font-mono);">Page 1 of 1</span>
-              <button class="btn btn-cyan" style="padding:6px 14px; font-size:11.5px; font-weight:800;" onclick="CGL_OS.navCompPdfPage(1)">Next Page ▶</button>
+              <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.navActivePdfPage(1)">Next Page ▶</button>
+              <button class="btn btn-secondary" id="btn-pdf-bookmark-page" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleActivePdfPageBookmark()" title="Bookmark this PDF page">☆ Page</button>
+              <button class="btn btn-secondary" id="btn-pdf-thumbnails-toggle" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.togglePdfThumbnailScrubber()" title="Toggle Multi-Page Thumbnail Scrubber Strip">🗂️ Thumbnails</button>
             </div>
             <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-              <button class="btn btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.scrollCompendiumToTop()">↑ Top of Page</button>
-              <button class="btn btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.navCompStudioSheet(-1)">[ ← ] Prev Doc</button>
-              <button class="btn btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.navCompStudioSheet(1)">Next Doc [ → ]</button>
+              <button class="btn btn-purple" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.insertBlankPageIntoActivePdf()" title="Insert a Blank Scratch Page right after the current PDF page (GoodNotes style)">📄 + Blank Page</button>
+              <button class="btn btn-emerald" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(false)" title="Bake & flatten all drawn ink annotations into the stored PDF binary">💾 Bake &amp; Save PDF</button>
+              <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.flattenAndSaveActivePdf(true)" title="Bake annotations into PDF and download annotated file">📥 Download Annotated PDF</button>
+              <button class="btn btn-danger" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.deleteActivePdfDocument()" title="Delete this imported PDF from local storage">🗑</button>
             </div>
           </div>
 
-          <!-- Rendered Academic Folio Content (Visible in Markdown Sheet Mode) -->
+          <!-- Collapsible PDF Thumbnail Scrubber & Filter Strip -->
+          <div id="comp-pdf-thumbnail-strip" class="comp-pdf-thumbnail-strip" style="display:none; position:relative; z-index:47;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+              <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                <button class="anchor-pill active" id="pdf-thumb-filter-ALL" style="padding:2px 8px; font-size:10.5px;" onclick="CGL_OS.setPdfThumbnailFilter('ALL')">All Pages</button>
+                <button class="anchor-pill" id="pdf-thumb-filter-ANNOTATED" style="padding:2px 8px; font-size:10.5px;" onclick="CGL_OS.setPdfThumbnailFilter('ANNOTATED')">✏️ Annotated Pages</button>
+                <button class="anchor-pill" id="pdf-thumb-filter-BOOKMARKED" style="padding:2px 8px; font-size:10.5px;" onclick="CGL_OS.setPdfThumbnailFilter('BOOKMARKED')">⭐ Bookmarked Pages</button>
+              </div>
+              <span style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono);" id="comp-pdf-thumb-status">Tap any page thumbnail to jump</span>
+            </div>
+            <div id="comp-pdf-thumbnails-row" class="comp-pdf-thumbnails-row"></div>
+          </div>
+
+          <!-- High-Resolution PDF Page Render Canvas (Active when viewing an imported PDF) -->
+          <div id="comp-pdf-canvas-wrap" class="comp-pdf-canvas-wrap" style="display:none;">
+            <canvas id="comp-pdf-render-canvas" class="comp-pdf-render-canvas"></canvas>
+          </div>
+
+          <!-- Rendered Academic Folio Content (Active when viewing a Markdown Sheet) -->
           <div id="comp-studio-doc-content"></div>
 
           <!-- Inline Snapped Interactive Media & Visual Blocks Container -->
@@ -1212,20 +1181,28 @@
           <!-- Free-Floating Movable & Resizable Cards Layer (GoodNotes / Apple Notes Style) -->
           <div id="comp-floating-media-layer" class="comp-floating-media-layer"></div>
 
-          <!-- Page-Anchored Direct Stylus Ink Canvas (Scrolls Locked to the Sheet Paper / PDF Page) -->
+          <!-- Page-Anchored Direct Stylus Ink Canvas (Scrolls Locked to the Sheet Paper or PDF Page) -->
           <canvas id="comp-folio-ink-canvas" class="comp-folio-ink-canvas"></canvas>
 
-          <!-- LiquidText Excerpt Floating Action Bar (Appears after dragging a ✂️ Excerpt crop marquee) -->
-          <div id="comp-excerpt-action-bar" class="comp-excerpt-action-bar" style="display:none;">
-            <span style="font-size:11px; font-weight:800; color:var(--accent-cyan);">✂️ Excerpt Captured</span>
-            <button class="btn btn-purple" style="padding:4px 10px; font-size:11px;" onclick="CGL_OS.pinStagedExcerptToMarginRail()">📌 Pin Excerpt to Margin Rail</button>
-            <button class="btn btn-cyan" style="padding:4px 10px; font-size:11px;" onclick="CGL_OS.extractStagedExcerptToQuestionCreator()">⚡ Extract to Question Creator</button>
-            <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.cancelStagedExcerptSelection()">✕</button>
+          <!-- LiquidText Crop Excerpt Floating Action Popover -->
+          <div id="comp-excerpt-action-popover" class="comp-excerpt-action-popover" style="display:none;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+              <img id="comp-excerpt-preview-img" src="" alt="Cropped Excerpt" style="max-height:58px; max-width:96px; border-radius:6px; border:1px solid var(--accent-cyan); object-fit:contain; background:#050811;">
+              <div>
+                <div style="font-size:11.5px; font-weight:800; color:var(--accent-cyan);">✂️ Excerpt Captured</div>
+                <div style="font-size:10px; color:var(--text-muted);" id="comp-excerpt-source-label">Ready to pin or extract</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button class="btn btn-purple" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.pinStagedExcerptToMarginRail()">📌 Pin Excerpt to Margin Rail</button>
+              <button class="btn btn-emerald" style="padding:5px 10px; font-size:11px;" onclick="CGL_OS.extractStagedExcerptToQuestionCreator()">⚡ Extract to Question Creator</button>
+              <button class="btn btn-secondary" style="padding:5px 8px; font-size:11px;" onclick="CGL_OS.cancelStagedExcerpt()">✕</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Tablet Landscape Side-by-Side Margin Notes, Highlights, Excerpts & Linked Questions Rail -->
+      <!-- Tablet Landscape Side-by-Side Margin Notes, Highlights, Pinned Excerpts & Linked Questions Rail -->
       <aside class="comp-margin-rail" id="comp-margin-rail">
         <!-- 1. Linked Questions & Exam Vulnerability Box -->
         <div class="comp-rail-card">
@@ -1240,22 +1217,22 @@
           </div>
         </div>
 
-        <!-- 2. Pinned LiquidText Excerpts & Visual Snippets -->
-        <div class="comp-rail-card" id="comp-rail-excerpts-card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span style="font-size:10.5px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:0.6px;">✂️ Pinned Excerpts &amp; Snippets</span>
-            <span style="font-size:10px; color:var(--accent-cyan); font-family:var(--font-mono);" id="comp-rail-excerpts-count">0 pinned</span>
-          </div>
-          <div id="comp-rail-excerpts-list" style="max-height:220px; overflow-y:auto; font-size:11.5px;"></div>
-        </div>
-
-        <!-- 3. Personal Sheet Revision Cue / Margin Scratchpad -->
+        <!-- 2. Personal Sheet Revision Cue / Margin Scratchpad -->
         <div class="comp-rail-card">
           <label style="font-size:10.5px; font-weight:800; color:var(--accent-purple-light); text-transform:uppercase; letter-spacing:0.6px; display:flex; justify-content:space-between; align-items:center;">
             <span>📌 Margin Notes &amp; Revision Cue</span>
             <span id="comp-scratchpad-status" style="color:var(--status-green); font-size:10px; display:none;">✓ Saved</span>
           </label>
           <textarea id="comp-studio-scratchpad" class="form-control" style="height:88px; margin-top:6px; font-size:12px;" placeholder="Personal formula synthesis, mnemonic, or exam trap reminder..." oninput="CGL_OS.autoSaveCompScratchpad(this.value)"></textarea>
+        </div>
+
+        <!-- 3. LiquidText Pinned Excerpts & Visual Clips -->
+        <div class="comp-rail-card" id="comp-rail-excerpts-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:10.5px; font-weight:800; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:0.6px;">✂️ Pinned Excerpts &amp; Clips</span>
+            <span style="font-size:10px; color:var(--accent-cyan); font-family:var(--font-mono);" id="comp-rail-excerpt-count">0 clips</span>
+          </div>
+          <div id="comp-rail-excerpts-list" style="max-height:230px; overflow-y:auto; font-size:11.5px; display:flex; flex-direction:column; gap:8px;"></div>
         </div>
 
         <!-- 4. Active Sheet Masks & 4-Color Highlights Ledger -->
@@ -1294,7 +1271,10 @@
       <button class="dock-pill-btn" id="btn-dock-folio-ink" onclick="CGL_OS.toggleCompendiumFolioInkMode()" title="Write Directly on Sheet Paper with Stylus or Finger">
         <span>✏️</span><span id="lbl-dock-folio-ink">Ink</span>
       </button>
-      <button class="dock-pill-btn" id="btn-dock-add-media" onclick="CGL_OS.openAddSheetMediaPrompt()" title="Insert or Paste Movable/Inline Image or Sticky Card">
+      <button class="dock-pill-btn" id="btn-dock-add-sticky" onclick="CGL_OS.addCompSheetStickyNote()" title="Add Movable / Resizable Sticky Callout Note">
+        <span>📌</span><span>Sticky</span>
+      </button>
+      <button class="dock-pill-btn" id="btn-dock-add-media" onclick="CGL_OS.openAddSheetMediaPrompt()" title="Insert or Paste Movable/Inline Image Card">
         <span>🖼️</span><span>Media</span>
       </button>
       <button class="dock-pill-btn dock-pill-emerald" onclick="CGL_OS.launchCurrentSheetQuestionsDrill(true)" title="Practice Linked Sheet Questions in Dojo">
@@ -1347,10 +1327,10 @@
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border-color); padding-bottom:8px; flex-wrap:wrap; gap:8px;">
         <div>
           <h3 style="font-size:16px; font-weight:800; color:var(--accent-purple-light);">📑 Master Knowledge Sheets &amp; PDF Index</h3>
-          <span style="font-size:11px; color:var(--text-muted);" id="all-sheets-index-sub">Auto-tracks neglected sheets, full-body formula search &amp; local PDFs across all subjects</span>
+          <span style="font-size:11px; color:var(--text-muted);" id="all-sheets-index-sub">Auto-tracks neglected sheets, imported PDFs &amp; full-text formula search across all subjects</span>
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
-          <button class="btn btn-purple" style="padding:4px 10px; font-size:11px;" onclick="CGL_OS.triggerPdfUploadPrompt()">📄 + Import PDF</button>
+          <button class="btn btn-amber" style="padding:4px 10px; font-size:11px;" onclick="CGL_OS.triggerPdfUploadPrompt()">📄 + Import PDF</button>
           <button class="btn btn-secondary" style="padding:4px 8px;" onclick="document.getElementById('modal-all-sheets-index').classList.remove('active')">✕</button>
         </div>
       </div>
@@ -1360,7 +1340,7 @@
           <option value="ALL">All Subjects</option>
         </select>
         <select id="sheets-index-filter-srs" class="form-control" style="padding:7px; font-size:12px;" onchange="CGL_OS.renderAllSheetsIndexList()">
-          <option value="ALL">All Sheets &amp; PDFs</option>
+          <option value="ALL">All Items (Neglected First)</option>
           <option value="PDF_ONLY">📄 Imported PDFs Only</option>
           <option value="NEGLECTED_7D">⏳ Neglected (7+ Days / Unread)</option>
           <option value="NEGLECTED_3D">🕒 Neglected (3+ Days)</option>
@@ -1368,7 +1348,7 @@
           <option value="MISTAKE_DEBT">⚠️ Has Mistake Questions</option>
           <option value="RECENTLY_READ">🟢 Recently Read</option>
         </select>
-        <input type="text" id="sheets-index-search" class="form-control" style="padding:7px 12px; font-size:12px;" placeholder="🔎 Search titles, chapters, full sheet body text, formulas, or PDFs..." oninput="CGL_OS.renderAllSheetsIndexList()">
+        <input type="text" id="sheets-index-search" class="form-control" style="padding:7px 12px; font-size:12px;" placeholder="🔎 Search sheet titles, full Markdown body text, formulas, traps, or PDF names..." oninput="CGL_OS.renderAllSheetsIndexList()">
       </div>
 
       <div id="all-sheets-index-list" style="flex:1; overflow-y:auto; padding-right:4px;"></div>
