@@ -828,21 +828,18 @@ body {
   touch-action: auto !important;
 }
 .scratchpad-toolbar {
-  position: fixed;
-  top: 64px;
-  right: 14px;
+  position: fixed !important;
+  bottom: 74px !important;
+  right: 18px !important;
+  left: auto !important;
+  top: auto !important;
+  transform: none !important;
   pointer-events: auto !important;
-  background: rgba(9, 14, 24, 0.96);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(56, 189, 248, 0.55);
-  border-radius: 12px;
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  z-index: 2260;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.8);
+  z-index: 2265 !important;
+}
+.scratchpad-toolbar.is-expanded-card {
+  right: 16px !important;
+  bottom: 72px !important;
 }
 .stylo-badge {
   font-family: var(--font-mono);
@@ -1896,22 +1893,170 @@ mark.user-hl-purple {
   z-index: 60;
 }
 .comp-folio-ink-toolbar {
+  position: fixed !important;
+  bottom: 70px !important;
+  right: 18px !important;
+  left: auto !important;
+  top: auto !important;
+  transform: none !important;
+  z-index: 2245 !important;
+  pointer-events: auto !important;
+}
+.ink-floating-pill-shell {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.ink-floating-pill-shell.is-collapsed-orb .ink-expanded-studio-card {
+  display: none !important;
+}
+.ink-floating-pill-shell.is-expanded-card .ink-circular-orb-btn {
+  display: none !important;
+}
+.ink-circular-orb-btn {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 50% !important;
+  background: radial-gradient(circle at 30% 28%, rgba(18, 29, 53, 0.98), rgba(6, 10, 21, 0.98));
+  border: 2px solid rgba(56, 189, 248, 0.72);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.82), 0 0 18px rgba(56, 189, 248, 0.34);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  user-select: none;
+  touch-action: manipulation;
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.ink-circular-orb-btn:hover {
+  transform: scale(1.07);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.88), 0 0 22px rgba(56, 189, 248, 0.5);
+}
+.ink-circular-orb-btn:active {
+  transform: scale(0.95);
+}
+.ink-orb-color-ring {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 2.5px solid #38bdf8;
+  opacity: 0.92;
+  pointer-events: none;
+}
+.ink-orb-tool-icon {
+  font-size: 20px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.65));
+  pointer-events: none;
+}
+.ink-orb-mini-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #38bdf8;
+  border: 2px solid #060a15;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+.ink-expanded-studio-card {
+  width: min(410px, calc(100vw - 20px));
+  background: rgba(8, 13, 26, 0.97) !important;
+  border: 1.5px solid rgba(56, 189, 248, 0.55) !important;
+  border-radius: 18px !important;
+  padding: 12px 13px !important;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.86), 0 0 24px rgba(56, 189, 248, 0.24) !important;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: inkCardPopIn 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes inkCardPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.ink-studio-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: 8px;
-  padding: 6px 14px;
-  background: rgba(10, 16, 30, 0.96);
-  border-bottom: 1px solid rgba(56, 189, 248, 0.45);
-  flex-shrink: 0;
-  z-index: 2145;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
-#compendium-fullscreen-view.folio-preset-sepia .comp-folio-ink-toolbar {
-  background: rgba(238, 226, 205, 0.97);
-  border-bottom-color: rgba(120, 102, 78, 0.35);
+.ink-studio-card-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: 0.3px;
+}
+.ink-shape-status-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.ink-studio-section {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 7px 8px;
+}
+.ink-studio-section-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94a3b8;
+  margin-bottom: 5px;
+}
+.ink-studio-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.ink-grid-btn {
+  padding: 5px 4px !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  text-align: center;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ink-custom-color-input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+#compendium-fullscreen-view.folio-preset-sepia .ink-expanded-studio-card {
+  background: rgba(24, 20, 15, 0.96) !important;
+  border-color: rgba(180, 145, 95, 0.55) !important;
 }
 .ink-tool-group {
   display: inline-flex;
@@ -3305,25 +3450,31 @@ mark.user-hl-purple {
 
 /* 3. Compact Floating PDF HUD Pill (#comp-pdf-floating-hud-pill) */
 .comp-pdf-floating-hud-pill {
-  position: fixed;
-  top: 60px;
-  right: 16px;
-  z-index: 2180;
+  position: fixed !important;
+  top: 60px !important;
+  right: 16px !important;
+  left: auto !important;
+  width: max-content !important;
+  max-width: calc(100vw - 24px) !important;
+  height: 38px !important;
+  z-index: 2250 !important;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  background: rgba(8, 13, 26, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  border-radius: 999px;
-  padding: 4px 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.72), 0 0 14px rgba(56, 189, 248, 0.18);
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+  gap: 6px;
+  background: rgba(8, 13, 26, 0.94) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1.5px solid rgba(56, 189, 248, 0.5) !important;
+  border-radius: 999px !important;
+  padding: 4px 12px !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.78), 0 0 16px rgba(56, 189, 248, 0.22) !important;
   transition: opacity 0.22s ease, transform 0.18s ease;
   opacity: 1;
 }
 .comp-pdf-floating-hud-pill.hud-pill-faded {
-  opacity: 0.45;
+  opacity: 0.52;
 }
 .comp-pdf-floating-hud-pill:hover,
 .comp-pdf-floating-hud-pill:focus-within {
@@ -3331,10 +3482,10 @@ mark.user-hl-purple {
 }
 .pdf-hud-pill-btn {
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   color: #f8fafc;
   border-radius: 999px;
-  padding: 3px 8px;
+  padding: 3px 9px;
   font-size: 10.5px;
   font-weight: 800;
   cursor: pointer;
@@ -3358,11 +3509,11 @@ mark.user-hl-purple {
   font-size: 11px;
 }
 .pdf-hud-pill-tools-btn {
-  background: rgba(56, 189, 248, 0.16);
-  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.18);
+  border: 1px solid rgba(56, 189, 248, 0.48);
   color: #f8fafc;
   border-radius: 999px;
-  padding: 3px 10px;
+  padding: 4px 11px;
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
@@ -3370,27 +3521,31 @@ mark.user-hl-purple {
 }
 .pdf-hud-pill-tools-btn.active,
 .pdf-hud-pill-tools-btn:hover {
-  background: rgba(37, 99, 235, 0.45);
+  background: rgba(37, 99, 235, 0.52);
   border-color: var(--accent-cyan);
   color: #ffffff;
 }
 
-/* 4. Dynamic 3-Row PDF Command & Page Surgery Popover (#comp-pdf-tools-drawer) */
+/* 4. Dynamic Structured Floating PDF Command & Page Surgery Popover (#comp-pdf-tools-drawer) */
 .comp-pdf-tools-drawer {
-  position: fixed;
-  top: 102px;
-  right: 16px;
-  z-index: 2195;
-  width: min(560px, calc(100vw - 24px));
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
-  background: rgba(9, 14, 28, 0.97);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1.5px solid rgba(56, 189, 248, 0.48);
-  border-radius: 14px;
-  padding: 12px 14px;
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.88), 0 0 22px rgba(56, 189, 248, 0.2);
+  position: fixed !important;
+  top: 104px !important;
+  right: 16px !important;
+  left: auto !important;
+  z-index: 2260 !important;
+  width: min(420px, calc(100vw - 24px)) !important;
+  max-height: calc(100vh - 180px) !important;
+  overflow-y: auto !important;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(9, 14, 28, 0.97) !important;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1.5px solid rgba(56, 189, 248, 0.52) !important;
+  border-radius: 16px !important;
+  padding: 14px !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9), 0 0 24px rgba(56, 189, 248, 0.24) !important;
 }
 .pdf-tools-drawer-header {
   display: flex;
@@ -3398,37 +3553,75 @@ mark.user-hl-purple {
   align-items: center;
   gap: 8px;
   padding-bottom: 8px;
-  margin-bottom: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
+.pdf-tools-quick-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+.pdf-zoom-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pdf-tools-section,
 .pdf-tools-row {
-  padding-bottom: 9px;
-  margin-bottom: 9px;
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .pdf-tools-row-label {
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 800;
-  color: var(--text-muted);
+  color: var(--accent-cyan);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   margin-bottom: 6px;
 }
-.pdf-tools-row-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+.pdf-tools-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+}
+.pdf-tools-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.pdf-grid-btn {
+  height: 34px;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Per-Page Mini Surgery Action Buttons on Continuous Slots & Thumbnails */
+.comp-pdf-slot-surgery-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
 .pdf-slot-mini-btn {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   color: #cbd5e1;
-  border-radius: 5px;
-  padding: 2px 6px;
+  border-radius: 999px;
+  padding: 3px 8px;
   font-size: 10px;
   font-weight: 700;
   cursor: pointer;
@@ -3437,12 +3630,12 @@ mark.user-hl-purple {
 .pdf-slot-mini-btn:hover {
   border-color: var(--accent-cyan);
   color: #ffffff;
-  background: rgba(56, 189, 248, 0.18);
+  background: rgba(56, 189, 248, 0.2);
 }
 .pdf-slot-mini-btn.danger:hover {
   border-color: var(--status-red);
   color: #fda4af;
-  background: rgba(244, 63, 94, 0.22);
+  background: rgba(244, 63, 94, 0.24);
 }
 
 /* Embedded PDF Studio Bar (Legacy fallback) & Multi-Page Scrubber */
@@ -3592,8 +3785,12 @@ mark.user-hl-purple {
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 12px 6px 12px;
+  gap: 8px;
+  padding: 5px 14px;
+  margin-bottom: 6px;
+  background: rgba(10, 16, 30, 0.86);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
@@ -3602,6 +3799,7 @@ mark.user-hl-purple {
 
 .comp-pdf-page-slot.active-pdf-page-slot .comp-pdf-page-slot-bar {
   color: var(--accent-cyan);
+  border-color: rgba(56, 189, 248, 0.48);
 }
 
 .comp-pdf-page-stage {

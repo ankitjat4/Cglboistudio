@@ -31,8 +31,8 @@
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js" crossorigin="anonymous"></script>
 
-  <!-- External Stylesheet with Cache-Buster v9.0 -->
-  <link rel="stylesheet" href="./style.css?v=9.0">
+  <!-- External Stylesheet with Cache-Buster v9.4 -->
+  <link rel="stylesheet" href="./style.css?v=9.4">
 </head>
 <body>
   <!-- NON-BLOCKING FLOATING GLASS TOAST HUD -->
@@ -54,7 +54,7 @@
       var box = document.getElementById("phone-debug-banner");
       if (window.CGL_OS && typeof window.CGL_OS.switchTab === "function") {
         box.style.background = "#10b981";
-        box.innerHTML = "✅ CGL_OS V9.0 loaded successfully! All systems active.";
+        box.innerHTML = "✅ CGL_OS V9.3 loaded successfully! All systems active.";
         setTimeout(function() { box.style.display = "none"; }, 2200);
       } else if (box && box.innerHTML.indexOf("JS ERROR") === -1) {
         box.style.background = "#d97706";
@@ -161,6 +161,9 @@
             </button>
             <button class="btn btn-purple" style="padding:8px 12px; font-size:11.5px; font-weight:800;" onclick="CGL_OS.openCompendiumStudio()">
               📖 Knowledge Studio
+            </button>
+            <button class="btn btn-secondary" id="btn-dash-scratchpad" style="padding:8px 10px; font-size:11.5px;" onclick="CGL_OS.toggleScratchpadCanvas()" title="Toggle Unified Screen Scratchpad & Ink">
+              ✏️
             </button>
             <button class="btn btn-secondary" style="padding:8px 10px; font-size:11.5px;" onclick="CGL_OS.openGlobalSearchModal()" title="Global Omni-Search">
               🔍
@@ -341,6 +344,9 @@
                 🗂️ Compact Cards
               </button>
             </div>
+            <button class="btn btn-secondary" id="btn-lab-scratchpad" style="padding:7px 10px; font-size:11.5px;" onclick="CGL_OS.toggleScratchpadCanvas()" title="Toggle Unified Screen Scratchpad & Ink">
+              ✏️ Ink
+            </button>
             <button class="btn btn-purple" style="padding:7px 11px; font-size:11.5px;" onclick="CGL_OS.openSheetsForPracticeFilter()" title="Open Living Knowledge Sheets for Active Filter">
               📖 Sheets
             </button>
@@ -721,28 +727,85 @@
   <!-- GLOBAL SCROLL-SYNCHRONIZED ONEPLUS STYLO 2 / TABLET INK ENGINE -->
   <div id="scratchpad-overlay" class="scratchpad-canvas-overlay">
     <canvas id="scratchpad-canvas" class="scratchpad-canvas-el"></canvas>
-    <div class="scratchpad-toolbar" id="scratchpad-toolbar-pill">
-      <span class="stylo-badge" title="OnePlus Stylo 2 / Active Pen Ready: Write with Stylus, Scroll with 1 Finger!">✒️ Stylo 2</span>
-      <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-scratch-pen" onclick="CGL_OS.setScratchpadMode('PEN')">🖊️ Pen</button>
-      <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" id="btn-scratch-laser" onclick="CGL_OS.toggleScratchpadLaserMode()" title="3-Second Auto-Fade Laser Ink for temporary rough calculations">✨ Laser (3s)</button>
-      <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" id="btn-scratch-eraser" onclick="CGL_OS.setScratchpadMode('ERASER')">🧽 Eraser</button>
-
-      <!-- Ink Color Swatches -->
-      <div style="display:inline-flex; align-items:center; gap:4px; padding:0 4px; border-left:1px solid var(--border-color); border-right:1px solid var(--border-color);">
-        <button class="ink-color-dot active" data-color="#38bdf8" style="background:#38bdf8;" onclick="CGL_OS.setScratchpadColor('#38bdf8', this)" title="Cyan Ink"></button>
-        <button class="ink-color-dot" data-color="#facc15" style="background:#facc15;" onclick="CGL_OS.setScratchpadColor('#facc15', this)" title="Gold Ink"></button>
-        <button class="ink-color-dot" data-color="#4ade80" style="background:#4ade80;" onclick="CGL_OS.setScratchpadColor('#4ade80', this)" title="Emerald Ink"></button>
-        <button class="ink-color-dot" data-color="#fb7185" style="background:#fb7185;" onclick="CGL_OS.setScratchpadColor('#fb7185', this)" title="Crimson Ink"></button>
-      </div>
-
-      <!-- Optional Finger-Draw Toggle for Phone Users without Stylus -->
-      <button class="btn btn-emerald" id="btn-scratch-finger-mode" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleScratchpadFingerDraw()" title="Default: 1-Finger Scrolls & Taps Options while Stylus Draws. Tap to switch 1-Finger to Draw Mode on Phone.">
-        👆 Finger: Scroll / ✒️ Stylus: Draw
+    <div class="scratchpad-toolbar ink-floating-pill-shell is-collapsed-orb" id="scratchpad-toolbar-pill">
+      <!-- COLLAPSED CIRCULAR FLOATING PILL (ORB) -->
+      <button type="button" class="ink-circular-orb-btn" id="scratch-orb-trigger-btn" onclick="CGL_OS.setScratchpadPillExpanded(true, event)" title="Tap to expand Ink Studio Tools • Auto-collapses into circular pill while drawing">
+        <span class="ink-orb-color-ring" id="scratch-orb-color-ring" style="border-color:#38bdf8;"></span>
+        <span class="ink-orb-tool-icon" id="scratch-orb-tool-icon">🖊️</span>
+        <span class="ink-orb-mini-dot" id="scratch-orb-mini-dot" style="background:#38bdf8;"></span>
       </button>
 
-      <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.undoScratchpadStroke()">↩ Undo</button>
-      <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px; color:var(--status-red);" onclick="CGL_OS.clearScratchpadCanvas()">🗑 Clear</button>
-      <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.toggleScratchpadCanvas(false)">✕</button>
+      <!-- EXPANDED FLOATING INK STUDIO POPOVER CARD -->
+      <div class="ink-expanded-studio-card" id="scratch-expanded-studio-card" onclick="event.stopPropagation()">
+        <div class="ink-studio-card-header">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="ink-studio-card-title">✏️ Ink &amp; Geometry Studio</span>
+            <span id="scratch-active-shape-badge" class="ink-shape-status-badge">Auto-Snap Ready</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.undoScratchpadStroke()" title="Undo Last Stroke">↩ Undo</button>
+            <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.redoScratchpadStroke()" title="Redo Stroke">↪ Redo</button>
+            <button type="button" class="btn btn-cyan" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.setScratchpadPillExpanded(false, event)" title="Collapse into Circular Floating Pill">🗕 Orb</button>
+            <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.toggleScratchpadCanvas(false)" title="Turn Off Ink">✓ Done</button>
+          </div>
+        </div>
+
+        <!-- Section 1: Pens, Brushes & Erasers -->
+        <div class="ink-studio-section">
+          <div class="ink-studio-section-label">Pens, Brushes &amp; Erasers</div>
+          <div class="ink-studio-grid-4">
+            <button type="button" class="btn btn-cyan ink-grid-btn" id="btn-scratch-pen" onclick="CGL_OS.setScratchpadMode('PEN')" title="Fine Precision Pen">🖊️ Pen</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-fountain" onclick="CGL_OS.setScratchpadMode('FOUNTAIN')" title="Calligraphy / Velocity Fountain Pen">🖋️ Fountain</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-marker" onclick="CGL_OS.setScratchpadMode('MARKER')" title="Chisel Marker Highlighter">🖍️ Marker</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-dashed" onclick="CGL_OS.setScratchpadMode('DASHED')" title="Dashed Construction Line Pen for Geometry">➖ Dashed</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-laser" onclick="CGL_OS.toggleScratchpadLaserMode()" title="3-Second Auto-Fade Laser Pointer Ink">✨ Laser 3s</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-eraser" onclick="CGL_OS.setScratchpadMode('ERASER')" title="Eraser">🧽 Eraser</button>
+            <button type="button" class="btn btn-emerald ink-grid-btn" id="btn-scratch-finger-mode" onclick="CGL_OS.toggleScratchpadFingerDraw()" title="Toggle 1-Finger Scroll vs 1-Finger Draw">✍️ Draw ON</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" style="color:var(--status-red);" onclick="CGL_OS.clearScratchpadCanvas()" title="Clear All Ink">🗑 Clear</button>
+          </div>
+        </div>
+
+        <!-- Section 2: Direct Geometry Figures & Hold-to-Snap -->
+        <div class="ink-studio-section">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+            <span class="ink-studio-section-label" style="margin-bottom:0;">Geometry Figures (1-Stroke Drag or Hold 320ms)</span>
+            <button type="button" class="btn btn-emerald" id="btn-scratch-autosnap-toggle" style="padding:2px 7px; font-size:9.5px; border-radius:999px;" onclick="CGL_OS.toggleInkAutoShapeSnap()" title="Automatically snap hand-drawn squares, circles, triangles, arrows, and polygons when holding still at end of stroke">📐 Auto-Snap: ON</button>
+          </div>
+          <div class="ink-studio-grid-4">
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-line" onclick="CGL_OS.setScratchpadMode('SHAPE_LINE')" title="Draw Straight Line">📏 Line</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-arrow" onclick="CGL_OS.setScratchpadMode('SHAPE_ARROW')" title="Draw Vector Arrow">➡️ Arrow</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-rect" onclick="CGL_OS.setScratchpadMode('SHAPE_RECT')" title="Draw Crisp Square / Rectangle">⬜ Square</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-circle" onclick="CGL_OS.setScratchpadMode('SHAPE_CIRCLE')" title="Draw Circle / Ellipse">⭕ Circle</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-triangle" onclick="CGL_OS.setScratchpadMode('SHAPE_TRIANGLE')" title="Draw Triangle">🔺 Triangle</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-rtriangle" onclick="CGL_OS.setScratchpadMode('SHAPE_RIGHT_TRIANGLE')" title="Draw Right-Angled Triangle (Pythagoras / Trig)">📐 Right △</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-rhombus" onclick="CGL_OS.setScratchpadMode('SHAPE_RHOMBUS')" title="Draw Rhombus / Diamond">◇ Rhombus</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-shape-axes" onclick="CGL_OS.setScratchpadMode('SHAPE_AXES')" title="Draw L-Shaped Coordinate Axes / Right Angle">∟ Axes</button>
+          </div>
+        </div>
+
+        <!-- Section 3: Stroke Thickness & Color Swatches -->
+        <div class="ink-studio-section" style="margin-bottom:0;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <div style="display:inline-flex; align-items:center; gap:3px;" title="Stroke Size">
+              <button type="button" class="btn btn-secondary scratch-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setScratchpadSize(1.4, this)">XS</button>
+              <button type="button" class="btn btn-secondary scratch-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setScratchpadSize(2.2, this)">S</button>
+              <button type="button" class="btn btn-cyan scratch-size-btn active" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setScratchpadSize(3.2, this)">M</button>
+              <button type="button" class="btn btn-secondary scratch-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setScratchpadSize(5.2, this)">L</button>
+              <button type="button" class="btn btn-secondary scratch-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setScratchpadSize(8.5, this)">XL</button>
+            </div>
+            <div style="display:inline-flex; align-items:center; gap:5px;">
+              <button type="button" class="ink-color-dot active" data-color="#38bdf8" style="background:#38bdf8;" onclick="CGL_OS.setScratchpadColor('#38bdf8', this)" title="Cyan Ink"></button>
+              <button type="button" class="ink-color-dot" data-color="#facc15" style="background:#facc15;" onclick="CGL_OS.setScratchpadColor('#facc15', this)" title="Gold Ink"></button>
+              <button type="button" class="ink-color-dot" data-color="#4ade80" style="background:#4ade80;" onclick="CGL_OS.setScratchpadColor('#4ade80', this)" title="Emerald Ink"></button>
+              <button type="button" class="ink-color-dot" data-color="#fb7185" style="background:#fb7185;" onclick="CGL_OS.setScratchpadColor('#fb7185', this)" title="Crimson Ink"></button>
+              <button type="button" class="ink-color-dot" data-color="#c084fc" style="background:#c084fc;" onclick="CGL_OS.setScratchpadColor('#c084fc', this)" title="Purple Ink"></button>
+              <button type="button" class="ink-color-dot" data-color="#fb923c" style="background:#fb923c;" onclick="CGL_OS.setScratchpadColor('#fb923c', this)" title="Orange Ink"></button>
+              <button type="button" class="ink-color-dot" data-color="#ffffff" style="background:#ffffff;" onclick="CGL_OS.setScratchpadColor('#ffffff', this)" title="White Chalk Ink"></button>
+              <input type="color" value="#38bdf8" class="ink-custom-color-input" onchange="CGL_OS.setScratchpadColor(this.value, null)" title="Custom Ink Color">
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1031,7 +1094,6 @@
             <button class="btn btn-cyan" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.triggerCompSheetImageUpload()">🖼️ Insert / Upload Image Card</button>
             <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.pasteClipboardImageToSheet()">📋 Paste Image from Clipboard</button>
             <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.addFloatingStickyNoteCard()">📌 Add Movable Sticky Callout</button>
-            <button class="btn btn-secondary" style="justify-content:flex-start; padding:6px 10px; font-size:11.5px;" onclick="CGL_OS.closeCompMorePopover(); CGL_OS.toggleScratchpadCanvas()">🪟 Global Screen Scratchpad</button>
           </div>
 
           <div style="font-size:9.5px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:6px;">Sheet Studio Actions</div>
@@ -1070,47 +1132,166 @@
       </div>
     </div>
 
-    <!-- Page-Anchored Stylus Ink Floating Toolbar (Visible when ✏️ Sheet Ink Mode is ON) -->
-    <div id="comp-folio-ink-toolbar" class="comp-folio-ink-toolbar" style="display:none;">
-      <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-pan" onclick="CGL_OS.setCompendiumFolioInkTool('PAN')" title="Pan & Scroll Page with 1 Finger or Mouse Drag">✋ Pan / Move</button>
-        <button class="btn btn-cyan" style="padding:4px 9px; font-size:11px;" id="btn-folio-pen" onclick="CGL_OS.setCompendiumFolioInkTool('PEN')" title="Fine Precision Pen (Hold 350ms at stroke end to snap geometric shapes)">🖊️ Pen</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-marker" onclick="CGL_OS.setCompendiumFolioInkTool('MARKER')" title="Chisel Marker Highlighter (Hold 350ms at stroke end to snap shapes)">🖍️ Marker</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-tape" onclick="CGL_OS.setCompendiumFolioInkTool('TAPE')" title="GoodNotes Recall Tape: Draw opaque occlusion ribbon over formulas/diagrams; tap to reveal/hide">🩹 Tape</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-lasso" onclick="CGL_OS.setCompendiumFolioInkTool('LASSO')" title="GoodNotes Lasso: Circle strokes to select and drag-move them across the page">🪢 Lasso</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-excerpt" onclick="CGL_OS.setCompendiumFolioInkTool('EXCERPT')" title="LiquidText Excerpt Cropper: Drag rectangle over any PDF/Sheet region to pin to Margin Rail or send to Question Creator">✂️ Excerpt</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-stroke-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('STROKE_ERASER')" title="Tap or swipe across any specific Marker, Tape, or Pen stroke to remove it">🧽 Stroke Eraser</button>
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" id="btn-folio-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('ERASER')" title="Wide Area Pixel Eraser">🧼 Area Eraser</button>
+    <!-- Unified Floating Ink / Scratchpad Circular Pill & Expanded Studio Card -->
+    <div id="comp-folio-ink-toolbar" class="comp-folio-ink-toolbar ink-floating-pill-shell is-collapsed-orb" style="display:none; z-index:2245;">
+      <!-- COLLAPSED CIRCULAR FLOATING PILL (ORB) -->
+      <button type="button" class="ink-circular-orb-btn" id="folio-ink-orb-trigger-btn" onclick="CGL_OS.setInkStudioPillExpanded(true, event)" title="Tap to expand Ink &amp; Geometry Studio • Auto-collapses into circular pill while drawing">
+        <span class="ink-orb-color-ring" id="folio-orb-color-ring" style="border-color:#38bdf8;"></span>
+        <span class="ink-orb-tool-icon" id="folio-orb-tool-icon">🖊️</span>
+        <span class="ink-orb-mini-dot" id="folio-orb-mini-dot" style="background:#38bdf8;"></span>
+      </button>
 
-        <div style="display:inline-flex; align-items:center; gap:3px; padding:0 5px; border-left:1px solid rgba(255,255,255,0.12);" title="Stroke / Eraser Size (S / M / L / XL)">
-          <button class="btn btn-secondary ink-size-btn" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(1.8, this)">S</button>
-          <button class="btn btn-cyan ink-size-btn active" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(3.0, this)">M</button>
-          <button class="btn btn-secondary ink-size-btn" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(5.0, this)">L</button>
-          <button class="btn btn-secondary ink-size-btn" style="padding:3px 7px; font-size:10px;" onclick="CGL_OS.setCompSheetInkSize(8.0, this)">XL</button>
+      <!-- EXPANDED FLOATING INK STUDIO POPOVER CARD -->
+      <div class="ink-expanded-studio-card" id="folio-ink-expanded-card" onclick="event.stopPropagation()">
+        <div class="ink-studio-card-header">
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <span class="ink-studio-card-title">✏️ Ink &amp; Geometry Studio</span>
+            <span id="folio-active-shape-badge" class="ink-shape-status-badge">Auto-Snap Ready</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.undoCompendiumFolioInkStroke()" title="Undo Last Stroke">↩ Undo</button>
+            <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.redoCompendiumFolioInkStroke()" title="Redo Stroke">↪ Redo</button>
+            <button type="button" class="btn btn-cyan" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.setInkStudioPillExpanded(false, event)" title="Collapse into Circular Floating Pill">🗕 Orb</button>
+            <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.toggleCompendiumFolioInkMode(false)" title="Close Ink Mode">✓ Done</button>
+          </div>
         </div>
 
-        <div style="display:inline-flex; align-items:center; gap:4px; padding:0 6px; border-left:1px solid rgba(255,255,255,0.12); border-right:1px solid rgba(255,255,255,0.12);">
-          <button class="folio-ink-swatch active" data-inkcolor="#38bdf8" style="background:#38bdf8;" onclick="CGL_OS.setCompendiumFolioInkColor('#38bdf8', this)" title="Sky Cyan Ink"></button>
-          <button class="folio-ink-swatch" data-inkcolor="#facc15" style="background:#facc15;" onclick="CGL_OS.setCompendiumFolioInkColor('#facc15', this)" title="Amber Gold Ink"></button>
-          <button class="folio-ink-swatch" data-inkcolor="#34d399" style="background:#34d399;" onclick="CGL_OS.setCompendiumFolioInkColor('#34d399', this)" title="Emerald Ink"></button>
-          <button class="folio-ink-swatch" data-inkcolor="#fb7185" style="background:#fb7185;" onclick="CGL_OS.setCompendiumFolioInkColor('#fb7185', this)" title="Crimson Rose Ink"></button>
-          <button class="folio-ink-swatch" data-inkcolor="#c084fc" style="background:#c084fc;" onclick="CGL_OS.setCompendiumFolioInkColor('#c084fc', this)" title="Purple Ink"></button>
-          <button class="folio-ink-swatch" data-inkcolor="#1e293b" style="background:#1e293b; border-color:#94a3b8;" onclick="CGL_OS.setCompendiumFolioInkColor('#1e293b', this)" title="Espresso Dark Ink (For Sepia Paper / PDF)"></button>
+        <!-- Section 1: Pens, Smart Brushes & Studio Tools -->
+        <div class="ink-studio-section">
+          <div class="ink-studio-section-label">Pens, Brushes &amp; Smart Selection</div>
+          <div class="ink-studio-grid-4">
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-pan" onclick="CGL_OS.setCompendiumFolioInkTool('PAN')" title="Pan &amp; Scroll Page">✋ Pan</button>
+            <button type="button" class="btn btn-cyan ink-grid-btn" id="btn-folio-pen" onclick="CGL_OS.setCompendiumFolioInkTool('PEN')" title="Fine Precision Pen (Hold 320ms at stroke end to snap shapes)">🖊️ Pen</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-fountain" onclick="CGL_OS.setCompendiumFolioInkTool('FOUNTAIN')" title="Calligraphy / Velocity Fountain Pen">🖋️ Fountain</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-marker" onclick="CGL_OS.setCompendiumFolioInkTool('MARKER')" title="Chisel Marker Highlighter">🖍️ Marker</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-dashed" onclick="CGL_OS.setCompendiumFolioInkTool('DASHED')" title="Dashed Construction Line Pen for Geometry">➖ Dashed</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-laser" onclick="CGL_OS.setCompendiumFolioInkTool('LASER')" title="3-Second Auto-Fade Laser Ink">✨ Laser 3s</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-tape" onclick="CGL_OS.setCompendiumFolioInkTool('TAPE')" title="GoodNotes Recall Tape: Draw opaque occlusion ribbon; tap to reveal/hide">🩹 Tape</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-lasso" onclick="CGL_OS.setCompendiumFolioInkTool('LASSO')" title="GoodNotes Lasso: Circle strokes to select and move them">🪢 Lasso</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-excerpt" onclick="CGL_OS.setCompendiumFolioInkTool('EXCERPT')" title="LiquidText Excerpt Cropper: Drag rectangle to pin or send to Question Creator">✂️ Excerpt</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-stroke-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('STROKE_ERASER')" title="Swipe across any stroke to delete the entire stroke">🧽 Stroke</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-eraser" onclick="CGL_OS.setCompendiumFolioInkTool('ERASER')" title="Wide Area Pixel Eraser">🧼 Area</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" style="color:var(--status-red);" onclick="CGL_OS.clearCompendiumFolioInk()" title="Clear All Sheet Ink">🗑 Clear</button>
+          </div>
         </div>
 
-        <button class="btn btn-emerald" id="btn-folio-ink-finger-toggle" style="padding:4px 9px; font-size:10.5px;" onclick="CGL_OS.toggleCompendiumFolioInkFingerMode()" title="Switch between Stylus-Only (1-Finger Scrolls) and Finger-Draw Mode (2-Finger Scrolls)">
-          ✍️ Finger &amp; Stylus: Write
-        </button>
-
-        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="CGL_OS.undoCompendiumFolioInkStroke()" title="Undo Last Stroke, Erased Item, or Restore Cleared Ink">↩ Undo</button>
-        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px; color:var(--status-red);" onclick="CGL_OS.clearCompendiumFolioInk()" title="Clear All Sheet Ink">🗑 Clear</button>
-
-        <div style="display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,0.12);" title="Switch Sheets Directly from Ink Toolbar">
-          <button class="btn btn-secondary" style="padding:4px 7px; font-size:10.5px;" onclick="CGL_OS.navCompStudioSheet(-1)" title="Previous Sheet">◀ Prev</button>
-          <button class="btn btn-secondary" style="padding:4px 7px; font-size:10.5px;" onclick="CGL_OS.navCompStudioSheet(1)" title="Next Sheet">Next ▶</button>
+        <!-- Section 2: Direct Geometry Figures & Hold-to-Snap -->
+        <div class="ink-studio-section">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+            <span class="ink-studio-section-label" style="margin-bottom:0;">Geometry Figures (1-Stroke Drag or Hold 320ms)</span>
+            <button type="button" class="btn btn-emerald" id="btn-folio-autosnap-toggle" style="padding:2px 7px; font-size:9.5px; border-radius:999px;" onclick="CGL_OS.toggleInkAutoShapeSnap()" title="Automatically snap hand-drawn squares, rectangles, circles, triangles, rhombuses, pentagons, hexagons, and arrows when holding still at end of stroke">📐 Auto-Snap: ON</button>
+          </div>
+          <div class="ink-studio-grid-4">
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-line" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_LINE')" title="Drag 1 stroke to draw a crisp straight line (snaps to 0°/45°/90°)">📏 Line</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-arrow" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_ARROW')" title="Drag 1 stroke to draw a vector arrow">➡️ Arrow</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-rect" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_RECT')" title="Drag 1 stroke to draw a crisp Square or Rectangle">⬜ Square</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-circle" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_CIRCLE')" title="Drag 1 stroke to draw a Circle or Ellipse">⭕ Circle</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-triangle" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_TRIANGLE')" title="Drag 1 stroke to draw an Isosceles / Equilateral Triangle">🔺 Triangle</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-rtriangle" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_RIGHT_TRIANGLE')" title="Drag 1 stroke to draw a Right-Angled Triangle with 90° corner">📐 Right △</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-rhombus" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_RHOMBUS')" title="Drag 1 stroke to draw a Rhombus / Diamond">◇ Rhombus</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-folio-shape-axes" onclick="CGL_OS.setCompendiumFolioInkTool('SHAPE_AXES')" title="Drag 1 stroke to draw L-Shaped Coordinate Axes">∟ Axes</button>
+          </div>
         </div>
 
-        <button class="btn btn-secondary" style="padding:4px 9px; font-size:11px;" onclick="CGL_OS.toggleCompendiumFolioInkMode(false)">✓ Done</button>
+        <!-- Section 3: Stroke Size, Color Swatches & Input Mode -->
+        <div class="ink-studio-section" style="margin-bottom:0;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+            <div style="display:inline-flex; align-items:center; gap:3px;" title="Stroke / Eraser Size">
+              <button type="button" class="btn btn-secondary ink-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setCompSheetInkSize(1.2, this)">XS</button>
+              <button type="button" class="btn btn-secondary ink-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setCompSheetInkSize(1.8, this)">S</button>
+              <button type="button" class="btn btn-cyan ink-size-btn active" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setCompSheetInkSize(3.0, this)">M</button>
+              <button type="button" class="btn btn-secondary ink-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setCompSheetInkSize(5.0, this)">L</button>
+              <button type="button" class="btn btn-secondary ink-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setCompSheetInkSize(8.0, this)">XL</button>
+            </div>
+            <div style="display:inline-flex; align-items:center; gap:5px;">
+              <button type="button" class="folio-ink-swatch active" data-inkcolor="#38bdf8" style="background:#38bdf8;" onclick="CGL_OS.setCompendiumFolioInkColor('#38bdf8', this)" title="Sky Cyan Ink"></button>
+              <button type="button" class="folio-ink-swatch" data-inkcolor="#facc15" style="background:#facc15;" onclick="CGL_OS.setCompendiumFolioInkColor('#facc15', this)" title="Amber Gold Ink"></button>
+              <button type="button" class="folio-ink-swatch" data-inkcolor="#34d399" style="background:#34d399;" onclick="CGL_OS.setCompendiumFolioInkColor('#34d399', this)" title="Emerald Ink"></button>
+              <button type="button" class="folio-ink-swatch" data-inkcolor="#fb7185" style="background:#fb7185;" onclick="CGL_OS.setCompendiumFolioInkColor('#fb7185', this)" title="Crimson Rose Ink"></button>
+              <button type="button" class="folio-ink-swatch" data-inkcolor="#c084fc" style="background:#c084fc;" onclick="CGL_OS.setCompendiumFolioInkColor('#c084fc', this)" title="Purple Ink"></button>
+              <button type="button" class="folio-ink-swatch" data-inkcolor="#fb923c" style="background:#fb923c;" onclick="CGL_OS.setCompendiumFolioInkColor('#fb923c', this)" title="Orange Ink"></button>
+              <button type="button" class="folio-ink-swatch" data-inkcolor="#1e293b" style="background:#1e293b; border-color:#94a3b8;" onclick="CGL_OS.setCompendiumFolioInkColor('#1e293b', this)" title="Espresso Dark Ink (For Sepia / PDF)"></button>
+              <button type="button" class="folio-ink-swatch" data-inkcolor="#ffffff" style="background:#ffffff;" onclick="CGL_OS.setCompendiumFolioInkColor('#ffffff', this)" title="White Ink"></button>
+              <input type="color" value="#38bdf8" class="ink-custom-color-input" onchange="CGL_OS.setCompendiumFolioInkColor(this.value, null)" title="Custom Ink Color">
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+            <button type="button" class="btn btn-emerald" id="btn-folio-ink-finger-toggle" style="flex:1; padding:4px 9px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.toggleCompendiumFolioInkFingerMode()" title="Switch between Stylus-Only (1-Finger Scrolls) and Finger-Draw Mode (2-Finger Scrolls)">
+              ✍️ Finger &amp; Stylus: Write
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== COMPACT FLOATING PDF HUD PILL & STRUCTURED PDF TOOLS POPOVER (ROOT LEVEL) ==================== -->
+    <div id="comp-pdf-floating-hud-pill" class="comp-pdf-floating-hud-pill" style="display:none; position:fixed; top:60px; right:16px; left:auto; width:max-content; z-index:2250; border-radius:999px;" onpointerenter="CGL_OS.wakeCompPdfHudPill()" ontouchstart="CGL_OS.wakeCompPdfHudPill()">
+      <button type="button" class="pdf-hud-pill-btn" onclick="CGL_OS.navCompPdfPage(-1)" title="Previous Page (ArrowLeft)">◀</button>
+      <span id="comp-pdf-pill-page-label" class="pdf-hud-pill-page" onclick="CGL_OS.toggleCompPdfToolsDrawer(event)" title="Tap to open PDF Tools & Page Surgery">Page 1 / 1</span>
+      <button type="button" class="pdf-hud-pill-btn" onclick="CGL_OS.navCompPdfPage(1)" title="Next Page (ArrowRight)">▶</button>
+      <span class="pdf-hud-pill-sep">|</span>
+      <button type="button" class="pdf-hud-pill-tools-btn" id="btn-comp-pdf-tools-toggle" onclick="CGL_OS.toggleCompPdfToolsDrawer(event)" title="Open Structured PDF View, Single-Page Surgery & Export Tools">⚙️ PDF Tools ▾</button>
+    </div>
+
+    <!-- Dynamic Structured Floating PDF Tools & Page Surgery Popover (#comp-pdf-tools-drawer) -->
+    <div id="comp-pdf-tools-drawer" class="comp-pdf-tools-drawer" style="display:none; position:fixed; top:104px; right:16px; left:auto; width:min(420px, calc(100vw - 24px)); z-index:2260;" onclick="event.stopPropagation()">
+      <div class="pdf-tools-drawer-header">
+        <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+          <span id="comp-pdf-active-name-text" style="font-size:12px; font-weight:800; color:#e9d5ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 PDF Document</span>
+        </div>
+        <button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.toggleCompPdfToolsDrawer(false)">✕ Close</button>
+      </div>
+
+      <!-- Quick Page Jump & Zoom Strip -->
+      <div class="pdf-tools-quick-strip">
+        <div class="pdf-page-jump-pill">
+          <span>Page</span>
+          <input type="number" id="comp-pdf-page-input" min="1" value="1" onchange="CGL_OS.jumpToCompPdfPage(this.value)">
+          <span>of <b id="comp-pdf-page-total">1</b></span>
+        </div>
+        <div class="pdf-zoom-control-group">
+          <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(-0.15)" title="Zoom Out PDF">🔍-</button>
+          <button type="button" class="btn btn-secondary" id="comp-pdf-zoom-btn" style="padding:3px 8px; font-size:10.5px; font-family:var(--font-mono);" onclick="CGL_OS.resetCompendiumZoom()" title="Reset PDF Zoom to 100%">100%</button>
+          <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(0.15)" title="Zoom In PDF">🔍+</button>
+        </div>
+      </div>
+
+      <!-- SECTION 1: View & Display (Structured 3x2 Grid) -->
+      <div class="pdf-tools-section">
+        <div class="pdf-tools-row-label">1 • View &amp; Navigation</div>
+        <div class="pdf-tools-grid-3">
+          <button type="button" class="btn btn-cyan active pdf-grid-btn" id="btn-comp-pdf-scroll-mode" onclick="CGL_OS.toggleCompPdfScrollMode()" title="Switch between Continuous Vertical Scroll and Single Page view">📜 Continuous</button>
+          <button type="button" class="btn btn-emerald pdf-grid-btn" id="btn-comp-pdf-pan" onclick="CGL_OS.enableCompPdfPanMode()" title="Enable 1-Finger & Mouse Drag Pan/Scroll">✋ Pan Mode</button>
+          <button type="button" class="btn btn-secondary pdf-grid-btn" id="btn-comp-pdf-thumbs" onclick="CGL_OS.toggleCompPdfThumbnailScrubber()" title="Toggle Multi-Page Thumbnail Grid">🗂️ Pages</button>
+          <button type="button" class="btn btn-secondary pdf-grid-btn" id="btn-comp-pdf-invert" onclick="CGL_OS.toggleActivePdfDarkInvert()" title="Toggle Dark Comfort Invert Filter">🌗 Invert</button>
+          <button type="button" class="btn btn-secondary pdf-grid-btn" id="btn-comp-pdf-bookmark" onclick="CGL_OS.toggleActivePdfPageBookmark()" title="Bookmark this PDF Page">☆ Bookmark</button>
+          <button type="button" class="btn btn-purple pdf-grid-btn" id="btn-pdf-tools-margin-drawer" onclick="CGL_OS.toggleCompMarginDrawer()" title="Slide over Pinned Excerpts & Margin Notes Drawer">📌 Margin</button>
+        </div>
+      </div>
+
+      <!-- SECTION 2: Single-Page PDF Surgery (Structured 3x2 Grid + Delete) -->
+      <div class="pdf-tools-section">
+        <div class="pdf-tools-row-label">2 • Page Surgery (Current Page)</div>
+        <div class="pdf-tools-grid-3">
+          <button type="button" class="btn btn-secondary pdf-grid-btn" onclick="CGL_OS.rotateActivePdfPage(90)" title="Rotate current page 90° clockwise">🔄 Rotate 90°</button>
+          <button type="button" class="btn btn-purple pdf-grid-btn" onclick="CGL_OS.insertBlankPageIntoActivePdf()" title="Insert blank A4 derivation page after current page">📄 + Blank</button>
+          <button type="button" class="btn btn-secondary pdf-grid-btn" onclick="CGL_OS.duplicateActivePdfPage()" title="Duplicate current page along with its annotations">📑 Duplicate</button>
+          <button type="button" class="btn btn-secondary pdf-grid-btn" onclick="CGL_OS.reorderActivePdfPage(-1)" title="Move current page earlier (Up/Left)">⬆️ Move Up</button>
+          <button type="button" class="btn btn-secondary pdf-grid-btn" onclick="CGL_OS.reorderActivePdfPage(1)" title="Move current page later (Down/Right)">⬇️ Move Down</button>
+          <button type="button" class="btn btn-cyan pdf-grid-btn" onclick="CGL_OS.extractActivePdfSinglePage()" title="Extract current page with baked annotations as standalone PDF">📤 Extract</button>
+        </div>
+        <button type="button" class="btn btn-danger pdf-grid-btn" style="width:100%; margin-top:6px;" onclick="CGL_OS.deleteActivePdfSinglePage()" title="Delete only this page from the PDF">🗑️ Delete Current Page</button>
+      </div>
+
+      <!-- SECTION 3: Document Save & Library (Structured 2x2 Grid) -->
+      <div class="pdf-tools-section" style="border-bottom:none; padding-bottom:0; margin-bottom:0;">
+        <div class="pdf-tools-row-label">3 • Document Save &amp; Export</div>
+        <div class="pdf-tools-grid-2">
+          <button type="button" class="btn btn-cyan pdf-grid-btn" onclick="CGL_OS.flattenAndSaveActivePdf(false)" title="Bake vector ink & Recall Tapes into stored PDF binary">💾 Bake to PDF</button>
+          <button type="button" class="btn btn-emerald pdf-grid-btn" onclick="CGL_OS.flattenAndSaveActivePdf(true)" title="Flatten annotations and download portable PDF">📥 Download PDF</button>
+          <button type="button" class="btn btn-secondary pdf-grid-btn" onclick="CGL_OS.promptMoveActivePdfChapter()" title="Reassign this PDF to another Subject or Chapter">📁 Move Chapter</button>
+          <button type="button" class="btn btn-danger pdf-grid-btn" onclick="CGL_OS.deleteActiveCompPdfDocument()" title="Permanently delete this entire PDF">🗑️ Delete Full PDF</button>
+        </div>
       </div>
     </div>
 
@@ -1133,73 +1314,6 @@
 
           <!-- Bi-Directional Past Exam Vulnerability Banner (Auto-shows when linked questions have errors/traps) -->
           <div id="comp-sheet-trap-banner" class="comp-trap-alert-banner" style="display:none;"></div>
-
-          <!-- ==================== COMPACT FLOATING PDF HUD PILL & 3-ROW PAGE SURGERY DRAWER (V9.2) ==================== -->
-          <div id="comp-pdf-floating-hud-pill" class="comp-pdf-floating-hud-pill" style="display:none;" onpointerenter="CGL_OS.wakeCompPdfHudPill()" ontouchstart="CGL_OS.wakeCompPdfHudPill()">
-            <button type="button" class="pdf-hud-pill-btn" onclick="CGL_OS.navCompPdfPage(-1)" title="Previous Page (ArrowLeft)">◀</button>
-            <span id="comp-pdf-pill-page-label" class="pdf-hud-pill-page" onclick="CGL_OS.toggleCompPdfToolsDrawer(event)" title="Tap to open PDF Tools & Page Surgery">Page 1 / 1</span>
-            <button type="button" class="pdf-hud-pill-btn" onclick="CGL_OS.navCompPdfPage(1)" title="Next Page (ArrowRight)">▶</button>
-            <span class="pdf-hud-pill-sep">|</span>
-            <button type="button" class="pdf-hud-pill-tools-btn" id="btn-comp-pdf-tools-toggle" onclick="CGL_OS.toggleCompPdfToolsDrawer(event)" title="Open PDF View, Single-Page Surgery & Export Tools">⚙️ PDF Tools ▾</button>
-          </div>
-
-          <!-- Dynamic Collapsible PDF Command & Page Surgery Popover (#comp-pdf-tools-drawer) -->
-          <div id="comp-pdf-tools-drawer" class="comp-pdf-tools-drawer" style="display:none;" onclick="event.stopPropagation()">
-            <div class="pdf-tools-drawer-header">
-              <div style="display:flex; align-items:center; gap:6px; min-width:0;">
-                <span id="comp-pdf-active-name-text" style="font-size:11.5px; font-weight:800; color:#e9d5ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 PDF Document</span>
-              </div>
-              <button type="button" class="btn btn-secondary" style="padding:2px 8px; font-size:10.5px;" onclick="CGL_OS.toggleCompPdfToolsDrawer(false)">✕ Close</button>
-            </div>
-
-            <!-- ROW 1: View & Navigation -->
-            <div class="pdf-tools-row">
-              <div class="pdf-tools-row-label">Row 1 • View &amp; Navigation</div>
-              <div class="pdf-tools-row-controls">
-                <div class="pdf-page-jump-pill">
-                  <span>Page</span>
-                  <input type="number" id="comp-pdf-page-input" min="1" value="1" onchange="CGL_OS.jumpToCompPdfPage(this.value)">
-                  <span>of <b id="comp-pdf-page-total">1</b></span>
-                </div>
-                <div style="display:inline-flex; align-items:center; gap:3px; background:rgba(15,23,42,0.75); padding:2px 5px; border-radius:7px; border:1px solid rgba(255,255,255,0.12);">
-                  <button type="button" class="btn btn-secondary" style="padding:3px 7px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(-0.15)" title="Zoom Out PDF">🔍-</button>
-                  <button type="button" class="btn btn-secondary" id="comp-pdf-zoom-btn" style="padding:3px 7px; font-size:10.5px; font-family:var(--font-mono);" onclick="CGL_OS.resetCompendiumZoom()" title="Reset PDF Zoom to 100%">100%</button>
-                  <button type="button" class="btn btn-secondary" style="padding:3px 7px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(0.15)" title="Zoom In PDF">🔍+</button>
-                </div>
-                <button type="button" class="btn btn-cyan active" id="btn-comp-pdf-scroll-mode" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleCompPdfScrollMode()" title="Switch between Continuous Vertical Scroll and Single Page view">📜 Continuous</button>
-                <button type="button" class="btn btn-emerald" id="btn-comp-pdf-pan" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.enableCompPdfPanMode()" title="Enable 1-Finger & Mouse Drag Pan/Scroll">✋ Pan</button>
-                <button type="button" class="btn btn-secondary" id="btn-comp-pdf-thumbs" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleCompPdfThumbnailScrubber()" title="Toggle Multi-Page Thumbnail Grid">🗂️ Pages</button>
-                <button type="button" class="btn btn-secondary" id="btn-comp-pdf-invert" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleActivePdfDarkInvert()" title="Toggle Dark Comfort Invert Filter">🌗 Invert</button>
-                <button type="button" class="btn btn-secondary" id="btn-comp-pdf-bookmark" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleActivePdfPageBookmark()" title="Bookmark this PDF Page">☆ Bookmark</button>
-                <button type="button" class="btn btn-purple" id="btn-pdf-tools-margin-drawer" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.toggleCompMarginDrawer()" title="Slide over Pinned Excerpts & Margin Notes Drawer">📌 Margin Drawer</button>
-              </div>
-            </div>
-
-            <!-- ROW 2: Single-Page PDF Surgery (Powered by PDFLib.PDFDocument) -->
-            <div class="pdf-tools-row">
-              <div class="pdf-tools-row-label">Row 2 • Single-Page PDF Surgery (Current Page)</div>
-              <div class="pdf-tools-row-controls">
-                <button type="button" class="btn btn-secondary" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.rotateActivePdfPage(90)" title="Rotate current page 90° clockwise">🔄 Rotate 90°</button>
-                <button type="button" class="btn btn-purple" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.insertBlankPageIntoActivePdf()" title="Insert blank A4 derivation page after current page">📄 + Blank Page After</button>
-                <button type="button" class="btn btn-secondary" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.duplicateActivePdfPage()" title="Duplicate current page along with its annotations">📑 Duplicate Page</button>
-                <button type="button" class="btn btn-secondary" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.reorderActivePdfPage(-1)" title="Move current page earlier (Up/Left)">⬆️ Move Up</button>
-                <button type="button" class="btn btn-secondary" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.reorderActivePdfPage(1)" title="Move current page later (Down/Right)">⬇️ Move Down</button>
-                <button type="button" class="btn btn-cyan" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.extractActivePdfSinglePage()" title="Extract current page with baked annotations as standalone PDF">📤 Extract Page PDF</button>
-                <button type="button" class="btn btn-danger" style="padding:4px 8px; font-size:10.5px;" onclick="CGL_OS.deleteActivePdfSinglePage()" title="Delete only this page from the PDF">🗑️ Delete Current Page</button>
-              </div>
-            </div>
-
-            <!-- ROW 3: Document Save & Management -->
-            <div class="pdf-tools-row" style="border-bottom:none; padding-bottom:0; margin-bottom:0;">
-              <div class="pdf-tools-row-label">Row 3 • Document Save &amp; Management</div>
-              <div class="pdf-tools-row-controls">
-                <button type="button" class="btn btn-cyan" style="padding:4px 9px; font-size:10.5px;" onclick="CGL_OS.flattenAndSaveActivePdf(false)" title="Bake vector ink & Recall Tapes into stored PDF binary">💾 Bake Annotations into PDF</button>
-                <button type="button" class="btn btn-emerald" style="padding:4px 9px; font-size:10.5px;" onclick="CGL_OS.flattenAndSaveActivePdf(true)" title="Flatten annotations and download portable PDF">📥 Download Annotated PDF</button>
-                <button type="button" class="btn btn-secondary" style="padding:4px 9px; font-size:10.5px;" onclick="CGL_OS.promptMoveActivePdfChapter()" title="Reassign this PDF to another Subject or Chapter">📁 Move Chapter</button>
-                <button type="button" class="btn btn-danger" style="padding:4px 9px; font-size:10.5px;" onclick="CGL_OS.deleteActiveCompPdfDocument()" title="Permanently delete this entire PDF">🗑️ Delete Entire PDF</button>
-              </div>
-            </div>
-          </div>
 
           <!-- Legacy hidden bar ref for compatibility -->
           <div id="comp-pdf-studio-bar" style="display:none !important;"></div>
@@ -2548,7 +2662,7 @@
   <!-- ==================== PUBLISHING-GRADE TYPESET PRINT ROOT ==================== -->
   <div id="print-sheet-root" style="display:none;" class="print-page"></div>
 
-  <!-- Master JavaScript Controller with Cache-Buster Parameter v9.0 -->
-  <script src="./app.js?v=9.0"></script>
+  <!-- Master JavaScript Controller with Cache-Buster Parameter v9.4 -->
+  <script src="./app.js?v=9.4"></script>
 </body>
 </html>

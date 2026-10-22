@@ -1751,6 +1751,10 @@ const CGL_OS = (() => {
       return await getRecord("store_questions", id);
     },
 
+    async getAll() {
+      return await getAllRecords("store_questions");
+    },
+
     async getByPassageId(parentPassageId) {
       if (!parentPassageId) return [];
       const all = await getAllRecords("store_questions");
@@ -5802,9 +5806,235 @@ Explanation: ${parentQ.explanation}`;
    * - 350ms Hold-to-Snap Geometric Shape Recognizer (Line, Circle, Rect, Triangle)
    * - World-space coordinates (clientY + scrollContainer.scrollTop)
    * ========================================================================== */
-  function snapWorldStrokeToGeometricShape(stroke) {
-    if (!Array.isArray(stroke) || stroke.length < 6) return null;
-    const baseMeta = stroke[0];
+  let inkAutoShapeSnapEnabled = true;
+  let scratchpadSize = 3.2;
+  let scratchpadRedoStack = [];
+  let sheetInkRedoStack = [];
+
+  const INK_TOOL_ORB_ICONS = {
+    pan: "✋",
+    pen: "🖊️",
+    fountain: "🖋️",
+    marker: "🖍️",
+    dashed: "➖",
+    laser: "✨",
+    tape: "🩹",
+    lasso: "🪢",
+    excerpt: "✂️",
+    stroke_eraser: "🧽",
+    eraser: "🧼",
+    shape_line: "📏",
+    shape_arrow: "➡️",
+    shape_rect: "⬜",
+    shape_circle: "⭕",
+    shape_triangle: "🔺",
+    shape_right_triangle: "📐",
+    shape_rhombus: "◇",
+    shape_axes: "∟"
+  };
+
+  function updateDetectedShapeBadge(shapeLabel) {
+    const text = shapeLabel ? `Snapped: ${shapeLabel}` : (inkAutoShapeSnapEnabled ? "Auto-Snap Ready" : "Freehand Mode");
+    ["folio-active-shape-badge", "scratch-active-shape-badge"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerText = text;
+    });
+  }
+
+  function syncInkCircularOrbVisuals() {
+    // Folio Ink Orb
+    const folioIcon = document.getElementById("folio-orb-tool-icon");
+    const folioRing = document.getElementById("folio-orb-color-ring");
+    const folioDot = document.getElementById("folio-orb-mini-dot");
+    const tKey = String(compSheetInkTool || "pen").toLowerCase();
+    if (folioIcon) folioIcon.innerText = INK_TOOL_ORB_ICONS[tKey] || "🖊️";
+    if (folioRing) folioRing.style.borderColor = compSheetInkColor || "#38bdf8";
+    if (folioDot) folioDot.style.background = compSheetInkColor || "#38bdf8";
+
+    // Scratchpad Ink Orb
+    const scratchIcon = document.getElementById("scratch-orb-tool-icon");
+    const scratchRing = document.getElementById("scratch-orb-color-ring");
+    const scratchDot = document.getElementById("scratch-orb-mini-dot");
+    const sKey = scratchpadLaserMode ? "laser" : String(scratchpadMode || "pen").toLowerCase();
+    if (scratchIcon) scratchIcon.innerText = INK_TOOL_ORB_ICONS[sKey] || "🖊️";
+    if (scratchRing) scratchRing.style.borderColor = scratchpadColor || "#38bdf8";
+    if (scratchDot) scratchDot.style.background = scratchpadColor || "#38bdf8";
+  }
+
+  function setInkStudioPillExpanded(expanded = false, evt = null) {
+    if (evt && typeof evt.stopPropagation === "function") evt.stopPropagation();
+    const toolbarEl = document.getElementById("comp-folio-ink-toolbar");
+    if (!toolbarEl) return;
+    const isExp = Boolean(expanded);
+    toolbarEl.classList.toggle("is-expanded-card", isExp);
+    toolbarEl.classList.toggle("is-collapsed-orb", !isExp);
+    syncInkCircularOrbVisuals();
+  }
+
+  function setScratchpadPillExpanded(expanded = false, evt = null) {
+    if (evt && typeof evt.stopPropagation === "function") evt.stopPropagation();
+    const toolbarEl = document.getElementById("scratchpad-toolbar-pill");
+    if (!toolbarEl) return;
+    const isExp = Boolean(expanded);
+    toolbarEl.classList.toggle("is-expanded-card", isExp);
+    toolbarEl.classList.toggle("is-collapsed-orb", !isExp);
+    syncInkCircularOrbVisuals();
+  }
+
+  function toggleInkAutoShapeSnap(forceState = null) {
+    inkAutoShapeSnapEnabled = typeof forceState === "boolean" ? forceState : !inkAutoShapeSnapEnabled;
+    ["btn-folio-autosnap-toggle", "btn-scratch-autosnap-toggle"].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) {
+        btn.className = inkAutoShapeSnapEnabled ? "btn btn-emerald" : "btn btn-secondary";
+        btn.innerText = inkAutoShapeSnapEnabled ? "📐 Auto-Snap: ON" : "📐 Auto-Snap: OFF";
+      }
+    });
+    updateDetectedShapeBadge(null);
+  }
+
+  /**
+   * Generates a crisp geometric figure directly from a 2-point drag bounding box
+   * for direct geometry shape tools (SHAPE_LINE, SHAPE_ARROW, SHAPE_RECT, SHAPE_CIRCLE,
+   * SHAPE_TRIANGLE, SHAPE_RIGHT_TRIANGLE, SHAPE_RHOMBUS, SHAPE_AXES).
+   */
+  function buildDirectDragGeometricPoints(pStart, pEnd, shapeMode, baseMeta = {}) {
+    const mode = String(shapeMode || "").toLowerCase();
+    const x1 = pStart.x, y1 = pStart.y;
+    const x2 = pEnd.x, y2 = pEnd.y;
+    const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+    const w = maxX - minX, h = maxY - minY;
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const wrap = (x, y) => ({ ...baseMeta, x, y });
+
+    if (mode === "shape_line") {
+      let tx = x2, ty = y2;
+      const dx = x2 - x1, dy = y2 - y1;
+      const len = Math.hypot(dx, dy);
+      if (len > 8) {
+        const ang = Math.atan2(dy, dx);
+        const snapAngles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, -Math.PI, -(3 * Math.PI) / 4, -Math.PI / 2, -Math.PI / 4];
+        for (const sa of snapAngles) {
+          if (Math.abs(ang - sa) < 0.11) {
+            tx = x1 + Math.cos(sa) * len;
+            ty = y1 + Math.sin(sa) * len;
+            break;
+          }
+        }
+      }
+      return [wrap(x1, y1), wrap(tx, ty)];
+    }
+
+    if (mode === "shape_arrow") {
+      const dx = x2 - x1, dy = y2 - y1;
+      const len = Math.max(Math.hypot(dx, dy), 1);
+      const headLen = Math.min(26, Math.max(12, len * 0.22));
+      const ang = Math.atan2(dy, dx);
+      const wing1X = x2 - headLen * Math.cos(ang - Math.PI / 6);
+      const wing1Y = y2 - headLen * Math.sin(ang - Math.PI / 6);
+      const wing2X = x2 - headLen * Math.cos(ang + Math.PI / 6);
+      const wing2Y = y2 - headLen * Math.sin(ang + Math.PI / 6);
+      return [
+        wrap(x1, y1),
+        wrap(x2, y2),
+        wrap(wing1X, wing1Y),
+        wrap(x2, y2),
+        wrap(wing2X, wing2Y)
+      ];
+    }
+
+    if (mode === "shape_rect") {
+      // Snap to exact square if aspect ratio is within 18%
+      const maxDim = Math.max(w, h, 1);
+      if (Math.abs(w - h) / maxDim < 0.18) {
+        const s = (w + h) / 2;
+        const sx = x2 >= x1 ? x1 + s : x1 - s;
+        const sy = y2 >= y1 ? y1 + s : y1 - s;
+        return [
+          wrap(x1, y1),
+          wrap(sx, y1),
+          wrap(sx, sy),
+          wrap(x1, sy),
+          wrap(x1, y1)
+        ];
+      }
+      return [
+        wrap(minX, minY),
+        wrap(maxX, minY),
+        wrap(maxX, maxY),
+        wrap(minX, maxY),
+        wrap(minX, minY)
+      ];
+    }
+
+    if (mode === "shape_circle") {
+      const maxDim = Math.max(w, h, 1);
+      const isPerfectCircle = Math.abs(w - h) / maxDim < 0.22;
+      const rx = isPerfectCircle ? (w + h) / 4 : Math.max(w / 2, 2);
+      const ry = isPerfectCircle ? (w + h) / 4 : Math.max(h / 2, 2);
+      const pts = [];
+      const steps = 48;
+      for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        pts.push(wrap(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry));
+      }
+      return pts;
+    }
+
+    if (mode === "shape_triangle") {
+      return [
+        wrap(cx, minY),
+        wrap(maxX, maxY),
+        wrap(minX, maxY),
+        wrap(cx, minY)
+      ];
+    }
+
+    if (mode === "shape_right_triangle") {
+      return [
+        wrap(minX, minY),
+        wrap(minX, maxY),
+        wrap(maxX, maxY),
+        wrap(minX, minY)
+      ];
+    }
+
+    if (mode === "shape_rhombus") {
+      return [
+        wrap(cx, minY),
+        wrap(maxX, cy),
+        wrap(cx, maxY),
+        wrap(minX, cy),
+        wrap(cx, minY)
+      ];
+    }
+
+    if (mode === "shape_axes") {
+      return [
+        wrap(minX, minY),
+        wrap(minX, maxY),
+        wrap(maxX, maxY)
+      ];
+    }
+
+    return [wrap(x1, y1), wrap(x2, y2)];
+  }
+
+  /**
+   * HIGH-PRECISION MULTI-FIGURE GEOMETRIC RECOGNIZER (V9.4)
+   * Accurately distinguishes:
+   *  - Open figures: Straight Line (0°/45°/90° snap), Vector Arrow, Right-Angle L-Axes (∟), Angle (∠), Smooth Arc
+   *  - Closed figures:
+   *      • Triangles (3 corners): Right-Angled Triangle (📐), Equilateral Triangle, Isosceles Triangle, Scalene Triangle
+   *      • Quadrilaterals (4 corners): Perfect Square (⬜), Rectangle (▭), Rhombus / Diamond (◇), Parallelogram, Trapezium
+   *      • Polygons (5–6 corners): Pentagon (⬠), Hexagon (⬡)
+   *      • Curved loops: Perfect Circle (⭕) and Ellipse (⬭) — never confuses a 4-corner Square with a Circle!
+   */
+  function recognizeAndSnapGeometricFigure(stroke) {
+    if (!inkAutoShapeSnapEnabled) return null;
+    if (!Array.isArray(stroke) || stroke.length < 5) return null;
+    const baseMeta = stroke[0] || {};
     if (baseMeta.mode === "ERASER") return null;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -5822,90 +6052,432 @@ Explanation: ${parentQ.explanation}`;
     const w = maxX - minX;
     const h = maxY - minY;
     const diag = Math.hypot(w, h);
-    if (diag < 24 || pathLen < 24) return null;
+    if (diag < 20 || pathLen < 20) return null;
 
+    const wrap = (x, y) => ({ ...baseMeta, x, y });
     const pStart = stroke[0];
     const pEnd = stroke[stroke.length - 1];
     const endDist = Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y);
 
-    // 1. Straight Line Detection
-    if (endDist / pathLen >= 0.84) {
-      return [
-        { ...baseMeta, x: pStart.x, y: pStart.y },
-        { ...baseMeta, x: pEnd.x, y: pEnd.y }
-      ];
+    // Helper: Ramer-Douglas-Peucker polyline simplification
+    const rdp = (pts, eps) => {
+      if (pts.length < 3) return pts;
+      let maxD = 0, idx = 0;
+      const first = pts[0], last = pts[pts.length - 1];
+      const l2 = Math.hypot(last.x - first.x, last.y - first.y);
+      for (let i = 1; i < pts.length - 1; i++) {
+        const d = l2 < 1e-6
+          ? Math.hypot(pts[i].x - first.x, pts[i].y - first.y)
+          : Math.abs((last.y - first.y) * pts[i].x - (last.x - first.x) * pts[i].y + last.x * first.y - last.y * first.x) / l2;
+        if (d > maxD) {
+          maxD = d;
+          idx = i;
+        }
+      }
+      if (maxD > eps) {
+        const left = rdp(pts.slice(0, idx + 1), eps);
+        const right = rdp(pts.slice(idx), eps);
+        return left.slice(0, -1).concat(right);
+      }
+      return [first, last];
+    };
+
+    // Helper: distance from point (px,py) to segment (x1,y1)-(x2,y2)
+    const ptSegDist = (px, py, x1, y1, x2, y2) => {
+      const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+      if (l2 === 0) return Math.hypot(px - x1, py - y1);
+      let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+    };
+
+    // -------------------------------------------------------------------------
+    // 1. STRAIGHT LINE (with automatic 0° / 45° / 90° axis snap when within 6.5°)
+    // -------------------------------------------------------------------------
+    if (endDist / pathLen >= 0.855) {
+      let tx = pEnd.x, ty = pEnd.y;
+      const dx = pEnd.x - pStart.x, dy = pEnd.y - pStart.y;
+      const ang = Math.atan2(dy, dx);
+      const snapAngles = [0, Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4, Math.PI, -Math.PI, -(3 * Math.PI) / 4, -Math.PI / 2, -Math.PI / 4];
+      for (const sa of snapAngles) {
+        if (Math.abs(ang - sa) < 0.115) {
+          tx = pStart.x + Math.cos(sa) * endDist;
+          ty = pStart.y + Math.sin(sa) * endDist;
+          break;
+        }
+      }
+      updateDetectedShapeBadge("📏 Line");
+      return [wrap(pStart.x, pStart.y), wrap(tx, ty)];
     }
 
-    // 2. Closed Shape Detection (Circle/Ellipse, Rectangle, Triangle)
-    if (endDist < Math.max(48, diag * 0.36)) {
+    // -------------------------------------------------------------------------
+    // 2. CLOSED FIGURES (endDist is small relative to bounding diagonal/pathLen)
+    // -------------------------------------------------------------------------
+    const isClosedLoop = endDist < Math.max(54, diag * 0.42) && pathLen > diag * 1.45;
+    if (isClosedLoop) {
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;
-      const rx = Math.max(w / 2, 10);
-      const ry = Math.max(h / 2, 10);
+      const rx = Math.max(w / 2, 8);
+      const ry = Math.max(h / 2, 8);
 
-      let normRadErrSum = 0;
-      stroke.forEach(p => {
+      // Rotate closed stroke so index 0 is the point furthest from centroid (cx, cy).
+      // The point furthest from the centroid is mathematically guaranteed to be a true corner!
+      let furthestIdx = 0;
+      let maxDistFromCenter = -1;
+      let minNormR = Infinity, maxNormR = 0, normRadErrSum = 0;
+      for (let i = 0; i < stroke.length; i++) {
+        const p = stroke[i];
+        const dc = Math.hypot(p.x - cx, p.y - cy);
+        if (dc > maxDistFromCenter) {
+          maxDistFromCenter = dc;
+          furthestIdx = i;
+        }
         const nr = Math.hypot((p.x - cx) / rx, (p.y - cy) / ry);
+        if (nr < minNormR) minNormR = nr;
+        if (nr > maxNormR) maxNormR = nr;
         normRadErrSum += Math.abs(nr - 1);
-      });
+      }
       const avgRadErr = normRadErrSum / stroke.length;
+      const cornerSpikeRatio = maxNormR / Math.max(minNormR, 0.25);
 
-      // Circle / Ellipse
-      if (avgRadErr < 0.22) {
+      const rotatedLoop = [
+        ...stroke.slice(furthestIdx),
+        ...stroke.slice(0, furthestIdx),
+        stroke[furthestIdx]
+      ];
+
+      // Extract candidate polygon corners via RDP
+      let rawPoly = rdp(rotatedLoop, diag * 0.068);
+      // Drop closing duplicate vertex for cyclic corner cleaning
+      let verts = rawPoly.slice(0, -1);
+
+      // Remove micro-edges (< 11% of diag)
+      if (verts.length > 3) {
+        const filtered = [verts[0]];
+        for (let i = 1; i < verts.length; i++) {
+          if (Math.hypot(verts[i].x - filtered[filtered.length - 1].x, verts[i].y - filtered[filtered.length - 1].y) >= diag * 0.11) {
+            filtered.push(verts[i]);
+          }
+        }
+        if (filtered.length > 2 && Math.hypot(filtered[0].x - filtered[filtered.length - 1].x, filtered[0].y - filtered[filtered.length - 1].y) < diag * 0.11) {
+          filtered.pop();
+        }
+        verts = filtered;
+      }
+
+      // Remove nearly-collinear vertices (turn angle < 28°, i.e., interior angle > 152°)
+      let changed = true;
+      while (changed && verts.length > 3) {
+        changed = false;
+        for (let i = 0; i < verts.length; i++) {
+          const prev = verts[(i - 1 + verts.length) % verts.length];
+          const curr = verts[i];
+          const next = verts[(i + 1) % verts.length];
+          const v1x = curr.x - prev.x, v1y = curr.y - prev.y;
+          const v2x = next.x - curr.x, v2y = next.y - curr.y;
+          const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+          if (m1 < 1e-4 || m2 < 1e-4) {
+            verts.splice(i, 1);
+            changed = true;
+            break;
+          }
+          const cosTurn = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (m1 * m2)));
+          const turnDeg = (Math.acos(cosTurn) * 180) / Math.PI;
+          if (turnDeg < 28) {
+            verts.splice(i, 1);
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      // Compute average distance of all stroke points to the extracted polygon edges
+      let polyErrSum = 0;
+      if (verts.length >= 3) {
+        for (let i = 0; i < stroke.length; i++) {
+          const p = stroke[i];
+          let minEdgeD = Infinity;
+          for (let j = 0; j < verts.length; j++) {
+            const a = verts[j];
+            const b = verts[(j + 1) % verts.length];
+            const d = ptSegDist(p.x, p.y, a.x, a.y, b.x, b.y);
+            if (d < minEdgeD) minEdgeD = d;
+          }
+          polyErrSum += minEdgeD;
+        }
+      }
+      const normPolyErr = verts.length >= 3 ? (polyErrSum / stroke.length) / diag : 1;
+
+      // Check if it is genuinely a Circle / Ellipse:
+      // Must have low radial error AND NOT be a sharp-cornered 3-gon or 4-gon with a much tighter polygon fit!
+      const isSharpPolygon = (verts.length === 3 || verts.length === 4) && (normPolyErr < 0.042 || cornerSpikeRatio > 1.24);
+      if (!isSharpPolygon && (avgRadErr < 0.085 || (verts.length >= 6 && avgRadErr < 0.135) || (avgRadErr < 0.115 && normPolyErr > 0.048))) {
+        const aspectDiff = Math.abs(w - h) / Math.max(w, h, 1);
+        const isCircle = aspectDiff <= 0.20;
+        const radX = isCircle ? (rx + ry) / 2 : rx;
+        const radY = isCircle ? (rx + ry) / 2 : ry;
         const pts = [];
-        const steps = 40;
+        const steps = 48;
         for (let i = 0; i <= steps; i++) {
           const ang = (i / steps) * Math.PI * 2;
-          pts.push({
-            ...baseMeta,
-            x: cx + Math.cos(ang) * rx,
-            y: cy + Math.sin(ang) * ry
-          });
+          pts.push(wrap(cx + Math.cos(ang) * radX, cy + Math.sin(ang) * radY));
         }
+        updateDetectedShapeBadge(isCircle ? "⭕ Circle" : "⬭ Ellipse");
         return pts;
       }
 
-      // Check Triangle vs Rectangle via Ramer-Douglas-Peucker simplification
-      const rdp = (pts, eps) => {
-        if (pts.length < 3) return pts;
-        let maxD = 0, idx = 0;
-        const first = pts[0], last = pts[pts.length - 1];
-        const l2 = Math.hypot(last.x - first.x, last.y - first.y);
-        for (let i = 1; i < pts.length - 1; i++) {
-          const d = l2 === 0
-            ? Math.hypot(pts[i].x - first.x, pts[i].y - first.y)
-            : Math.abs((last.y - first.y) * pts[i].x - (last.x - first.x) * pts[i].y + last.x * first.y - last.y * first.x) / l2;
-          if (d > maxD) { maxD = d; idx = i; }
-        }
-        if (maxD > eps) {
-          const left = rdp(pts.slice(0, idx + 1), eps);
-          const right = rdp(pts.slice(idx), eps);
-          return left.slice(0, -1).concat(right);
-        }
-        return [first, last];
-      };
+      // -----------------------------------------------------------------------
+      // 2A. TRIANGLES (verts.length === 3)
+      // -----------------------------------------------------------------------
+      if (verts.length === 3) {
+        let [A, B, C] = verts;
+        const dAB = Math.hypot(B.x - A.x, B.y - A.y);
+        const dBC = Math.hypot(C.x - B.x, C.y - B.y);
+        const dCA = Math.hypot(A.x - C.x, A.y - C.y);
 
-      const simplified = rdp(stroke, diag * 0.11);
-      if (simplified.length === 4) {
+        // Compute interior angles at A, B, C
+        const angleAt = (P, Q, R) => {
+          const ux = Q.x - P.x, uy = Q.y - P.y;
+          const vx = R.x - P.x, vy = R.y - P.y;
+          const dot = ux * vx + uy * vy;
+          const m = Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1;
+          return (Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180) / Math.PI;
+        };
+        const angA = angleAt(A, B, C);
+        const angB = angleAt(B, A, C);
+        const angC = angleAt(C, A, B);
+
+        // 1. Check Right-Angled Triangle (any interior angle between 77° and 103°)
+        const rightCandidates = [
+          { ang: angA, P: A, Q: B, R: C },
+          { ang: angB, P: B, Q: A, R: C },
+          { ang: angC, P: C, Q: A, R: B }
+        ].sort((x, y) => Math.abs(x.ang - 90) - Math.abs(y.ang - 90));
+
+        if (Math.abs(rightCandidates[0].ang - 90) <= 13) {
+          const { P, Q, R } = rightCandidates[0];
+          // Snap legs PQ and PR to horizontal/vertical if close, or exact 90° orthogonal
+          const angPQ = Math.atan2(Q.y - P.y, Q.x - P.x);
+          const lenPQ = Math.hypot(Q.x - P.x, Q.y - P.y);
+          const lenPR = Math.hypot(R.x - P.x, R.y - P.y);
+          let snappedAnglePQ = angPQ;
+          const cardinal = [0, Math.PI / 2, Math.PI, -Math.PI, -Math.PI / 2];
+          for (const ca of cardinal) {
+            if (Math.abs(angPQ - ca) < 0.26) {
+              snappedAnglePQ = ca;
+              break;
+            }
+          }
+          const cross = (Q.x - P.x) * (R.y - P.y) - (Q.y - P.y) * (R.x - P.x);
+          const orthoAngle = snappedAnglePQ + (cross >= 0 ? Math.PI / 2 : -Math.PI / 2);
+          const nQ = { x: P.x + Math.cos(snappedAnglePQ) * lenPQ, y: P.y + Math.sin(snappedAnglePQ) * lenPQ };
+          const nR = { x: P.x + Math.cos(orthoAngle) * lenPR, y: P.y + Math.sin(orthoAngle) * lenPR };
+          updateDetectedShapeBadge("📐 Right Triangle");
+          return [wrap(P.x, P.y), wrap(nQ.x, nQ.y), wrap(nR.x, nR.y), wrap(P.x, P.y)];
+        }
+
+        // 2. Check Equilateral Triangle (all 3 sides within 16%)
+        const maxSide = Math.max(dAB, dBC, dCA, 1);
+        const minSide = Math.min(dAB, dBC, dCA);
+        if ((maxSide - minSide) / maxSide <= 0.16) {
+          const triCenterX = (A.x + B.x + C.x) / 3;
+          const triCenterY = (A.y + B.y + C.y) / 3;
+          const avgR = (Math.hypot(A.x - triCenterX, A.y - triCenterY) + Math.hypot(B.x - triCenterX, B.y - triCenterY) + Math.hypot(C.x - triCenterX, C.y - triCenterY)) / 3;
+          // Align apex to top or bottom if close
+          let baseAng = Math.atan2(A.y - triCenterY, A.x - triCenterX);
+          if (Math.abs(baseAng + Math.PI / 2) < 0.25) baseAng = -Math.PI / 2;
+          const eqPts = [];
+          for (let k = 0; k <= 3; k++) {
+            const a = baseAng + (k * 2 * Math.PI) / 3;
+            eqPts.push(wrap(triCenterX + Math.cos(a) * avgR, triCenterY + Math.sin(a) * avgR));
+          }
+          updateDetectedShapeBadge("🔺 Equilateral △");
+          return eqPts;
+        }
+
+        // 3. Crisp 3-Point Triangle (Snap horizontal base if one edge is within 10° of horizontal)
+        const edges = [
+          [A, B, C],
+          [B, C, A],
+          [C, A, B]
+        ];
+        for (const [E1, E2, Apex] of edges) {
+          const eAng = Math.atan2(E2.y - E1.y, E2.x - E1.x);
+          if (Math.abs(eAng) < 0.17 || Math.abs(Math.abs(eAng) - Math.PI) < 0.17) {
+            const avgY = (E1.y + E2.y) / 2;
+            E1.y = avgY;
+            E2.y = avgY;
+            // If nearly symmetric isosceles, center apex X
+            const d1 = Math.hypot(Apex.x - E1.x, Apex.y - E1.y);
+            const d2 = Math.hypot(Apex.x - E2.x, Apex.y - E2.y);
+            if (Math.abs(d1 - d2) / Math.max(d1, d2, 1) < 0.16) {
+              Apex.x = (E1.x + E2.x) / 2;
+              updateDetectedShapeBadge("🔺 Isosceles △");
+            } else {
+              updateDetectedShapeBadge("△ Triangle");
+            }
+            return [wrap(E1.x, E1.y), wrap(E2.x, E2.y), wrap(Apex.x, Apex.y), wrap(E1.x, E1.y)];
+          }
+        }
+
+        updateDetectedShapeBadge("△ Triangle");
+        return [wrap(A.x, A.y), wrap(B.x, B.y), wrap(C.x, C.y), wrap(A.x, A.y)];
+      }
+
+      // -----------------------------------------------------------------------
+      // 2B. QUADRILATERALS (verts.length === 4: Square, Rectangle, Rhombus, Parallelogram, Trapezium)
+      // -----------------------------------------------------------------------
+      if (verts.length === 4) {
+        // Compute edge lengths and angles
+        const edgeLens = [];
+        const edgeAngles = [];
+        let axisAlignedEdges = 0;
+        let diagonal45Edges = 0;
+        for (let i = 0; i < 4; i++) {
+          const p1 = verts[i];
+          const p2 = verts[(i + 1) % 4];
+          const dx = p2.x - p1.x, dy = p2.y - p1.y;
+          edgeLens.push(Math.hypot(dx, dy));
+          const ang = Math.atan2(dy, dx);
+          edgeAngles.push(ang);
+          const deg = Math.abs((ang * 180) / Math.PI);
+          if (deg <= 20 || Math.abs(deg - 90) <= 20 || Math.abs(deg - 180) <= 20) {
+            axisAlignedEdges++;
+          }
+          if (Math.abs(deg - 45) <= 22 || Math.abs(deg - 135) <= 22) {
+            diagonal45Edges++;
+          }
+        }
+
+        // Check if it is an axis-aligned Square or Rectangle
+        if (axisAlignedEdges >= 3) {
+          const aspectDiff = Math.abs(w - h) / Math.max(w, h, 1);
+          if (aspectDiff <= 0.22) {
+            const side = (w + h) / 2;
+            const half = side / 2;
+            updateDetectedShapeBadge("⬜ Square");
+            return [
+              wrap(cx - half, cy - half),
+              wrap(cx + half, cy - half),
+              wrap(cx + half, cy + half),
+              wrap(cx - half, cy + half),
+              wrap(cx - half, cy - half)
+            ];
+          }
+          updateDetectedShapeBadge("▭ Rectangle");
+          return [
+            wrap(minX, minY),
+            wrap(maxX, minY),
+            wrap(maxX, maxY),
+            wrap(minX, maxY),
+            wrap(minX, minY)
+          ];
+        }
+
+        // Check if it is a Rhombus / Diamond (4 diagonal edges or all 4 sides nearly equal and rotated)
+        const maxE = Math.max(...edgeLens, 1);
+        const minE = Math.min(...edgeLens);
+        if (diagonal45Edges >= 3 || (maxE - minE) / maxE <= 0.20) {
+          updateDetectedShapeBadge("◇ Rhombus");
+          return [
+            wrap(cx, minY),
+            wrap(maxX, cy),
+            wrap(cx, maxY),
+            wrap(minX, cy),
+            wrap(cx, minY)
+          ];
+        }
+
+        // Otherwise return crisp 4-corner polygon (Parallelogram / Trapezium / General Quad)
+        updateDetectedShapeBadge("▱ Quadrilateral");
         return [
-          { ...baseMeta, x: simplified[0].x, y: simplified[0].y },
-          { ...baseMeta, x: simplified[1].x, y: simplified[1].y },
-          { ...baseMeta, x: simplified[2].x, y: simplified[2].y },
-          { ...baseMeta, x: simplified[0].x, y: simplified[0].y }
+          wrap(verts[0].x, verts[0].y),
+          wrap(verts[1].x, verts[1].y),
+          wrap(verts[2].x, verts[2].y),
+          wrap(verts[3].x, verts[3].y),
+          wrap(verts[0].x, verts[0].y)
         ];
       }
 
-      // Default closed polygon -> crisp axis-aligned Rectangle
+      // -----------------------------------------------------------------------
+      // 2C. PENTAGON (verts.length === 5) & HEXAGON (verts.length === 6)
+      // -----------------------------------------------------------------------
+      if (verts.length === 5 || verts.length === 6) {
+        const nSides = verts.length;
+        updateDetectedShapeBadge(nSides === 5 ? "⬠ Pentagon" : "⬡ Hexagon");
+        const closedPoly = verts.map(v => wrap(v.x, v.y));
+        closedPoly.push(wrap(verts[0].x, verts[0].y));
+        return closedPoly;
+      }
+
+      // Fallback for closed loop with 4-corner bounding structure -> Square or Rectangle
+      const aspectDiff = Math.abs(w - h) / Math.max(w, h, 1);
+      if (aspectDiff <= 0.22) {
+        const half = (w + h) / 4;
+        updateDetectedShapeBadge("⬜ Square");
+        return [
+          wrap(cx - half, cy - half),
+          wrap(cx + half, cy - half),
+          wrap(cx + half, cy + half),
+          wrap(cx - half, cy + half),
+          wrap(cx - half, cy - half)
+        ];
+      }
+      updateDetectedShapeBadge("▭ Rectangle");
       return [
-        { ...baseMeta, x: minX, y: minY },
-        { ...baseMeta, x: maxX, y: minY },
-        { ...baseMeta, x: maxX, y: maxY },
-        { ...baseMeta, x: minX, y: maxY },
-        { ...baseMeta, x: minX, y: minY }
+        wrap(minX, minY),
+        wrap(maxX, minY),
+        wrap(maxX, maxY),
+        wrap(minX, maxY),
+        wrap(minX, minY)
       ];
     }
 
+    // -------------------------------------------------------------------------
+    // 3. OPEN MULTI-SEGMENT GEOMETRY FIGURES (L-Axes ∟, Angle ∠, Single-Stroke Arrow)
+    // -------------------------------------------------------------------------
+    const openSimple = rdp(stroke, diag * 0.075);
+    if (openSimple.length === 3) {
+      const [P0, P1, P2] = openSimple;
+      const d1 = Math.hypot(P1.x - P0.x, P1.y - P0.y);
+      const d2 = Math.hypot(P2.x - P1.x, P2.y - P1.y);
+      if (d1 > diag * 0.25 && d2 > diag * 0.25) {
+        const ux = P0.x - P1.x, uy = P0.y - P1.y;
+        const vx = P2.x - P1.x, vy = P2.y - P1.y;
+        const cornerDeg = (Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (d1 * d2)))) * 180) / Math.PI;
+        if (Math.abs(cornerDeg - 90) <= 16) {
+          // Snap to crisp orthogonal Right-Angle L-Axes if near horizontal/vertical
+          const a1 = Math.atan2(uy, ux);
+          let snapA1 = a1;
+          for (const ca of [0, Math.PI / 2, Math.PI, -Math.PI, -Math.PI / 2]) {
+            if (Math.abs(a1 - ca) < 0.25) {
+              snapA1 = ca;
+              break;
+            }
+          }
+          const cross = ux * vy - uy * vx;
+          const snapA2 = snapA1 + (cross >= 0 ? Math.PI / 2 : -Math.PI / 2);
+          updateDetectedShapeBadge("∟ Right-Angle Axes");
+          return [
+            wrap(P1.x + Math.cos(snapA1) * d1, P1.y + Math.sin(snapA1) * d1),
+            wrap(P1.x, P1.y),
+            wrap(P1.x + Math.cos(snapA2) * d2, P1.y + Math.sin(snapA2) * d2)
+          ];
+        }
+        updateDetectedShapeBadge("∠ Angle");
+        return [wrap(P0.x, P0.y), wrap(P1.x, P1.y), wrap(P2.x, P2.y)];
+      }
+    }
+
     return null;
+  }
+
+  function snapWorldStrokeToGeometricShape(stroke) {
+    return recognizeAndSnapGeometricFigure(stroke);
+  }
+
+  function snapStrokeToGeometricShape(pxPts) {
+    return recognizeAndSnapGeometricFigure(pxPts);
   }
 
   function getActiveScrollContainerForInk() {
@@ -5961,10 +6533,10 @@ Explanation: ${parentQ.explanation}`;
     if (btn) {
       if (isScrollMode) {
         btn.className = "btn btn-emerald";
-        btn.innerText = "\uD83D\uDC46 Scroll ON (Tap to Draw)";
+        btn.innerText = "\u270B Scroll ON";
       } else {
         btn.className = "btn btn-amber";
-        btn.innerText = "\u270D\uFE0F Draw ON (Tap to Scroll)";
+        btn.innerText = "\u270D\uFE0F Draw ON";
       }
     }
   }
@@ -6076,6 +6648,8 @@ Explanation: ${parentQ.explanation}`;
 
     const startStrokeFromEvent = (e) => {
       if (twoFingerScrolling) return;
+      // Auto-collapse expanded Ink Studio card back into small circular floating pill when drawing starts
+      setScratchpadPillExpanded(false);
       const isHardwareEraser = (e.pointerType === "pen" && (e.buttons === 32 || e.button === 5));
       const effectiveMode = isHardwareEraser ? "ERASER" : scratchpadMode;
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
@@ -6087,8 +6661,11 @@ Explanation: ${parentQ.explanation}`;
       currentStroke = [{
         x: pos.x,
         y: pos.y,
+        startOriginX: pos.x,
+        startOriginY: pos.y,
         mode: effectiveMode,
         color: scratchpadColor,
+        size: scratchpadSize,
         pressure: pressure
       }];
       redrawScratchpad();
@@ -6096,14 +6673,41 @@ Explanation: ${parentQ.explanation}`;
 
     const moveStrokeFromEvent = (e) => {
       if (!scratchpadDrawing || !scratchpadActive || twoFingerScrolling) return;
-      if (scratchStrokeSnapped) return;
       const activeMode = currentStroke[0] ? currentStroke[0].mode : scratchpadMode;
       const activeCol = currentStroke[0] ? currentStroke[0].color : scratchpadColor;
+      const activeSz = currentStroke[0] ? currentStroke[0].size : scratchpadSize;
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
-
       const pos = getWorldPos(e);
+
+      // Direct 1-Stroke Geometry Figure Tools
+      if (String(activeMode).startsWith("SHAPE_")) {
+        const origin = {
+          x: currentStroke[0].startOriginX ?? currentStroke[0].x,
+          y: currentStroke[0].startOriginY ?? currentStroke[0].y
+        };
+        const baseMeta = {
+          mode: activeMode,
+          color: activeCol,
+          size: activeSz,
+          pressure: pressure,
+          startOriginX: origin.x,
+          startOriginY: origin.y
+        };
+        currentStroke = buildDirectDragGeometricPoints(origin, pos, activeMode, baseMeta);
+        redrawScratchpad();
+        return;
+      }
+
+      if (scratchStrokeSnapped) {
+        if (currentStroke.length === 2) {
+          currentStroke[1] = { ...currentStroke[0], x: pos.x, y: pos.y };
+          redrawScratchpad();
+        }
+        return;
+      }
+
       const lastPt = currentStroke[currentStroke.length - 1];
-      if (lastPt && Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y) > 4.5) {
+      if (lastPt && Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y) > 4.2) {
         scheduleScratchHoldSnap();
       }
       currentStroke.push({
@@ -6111,6 +6715,7 @@ Explanation: ${parentQ.explanation}`;
         y: pos.y,
         mode: activeMode,
         color: activeCol,
+        size: activeSz,
         pressure: pressure
       });
       redrawScratchpad();
@@ -6125,6 +6730,7 @@ Explanation: ${parentQ.explanation}`;
       if (currentStroke.length > 0) {
         const committedStroke = [...currentStroke];
         scratchpadStrokes.push(committedStroke);
+        scratchpadRedoStack = [];
         inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
         currentStroke = [];
 
@@ -6214,14 +6820,25 @@ Explanation: ${parentQ.explanation}`;
       if (!stroke || stroke.length === 0) return;
       ctx.save();
       ctx.beginPath();
-      const isEraser = stroke[0].mode === "ERASER";
+      const sMode = String(stroke[0].mode || "PEN").toUpperCase();
+      const isEraser = sMode === "ERASER";
+      const isMarker = sMode === "MARKER";
+      const isFountain = sMode === "FOUNTAIN";
+      const isDashed = sMode === "DASHED";
       const strokeCol = stroke[0].color || "#38bdf8";
+      const baseSz = Number(stroke[0].size) || 3.2;
       const avgPressure = stroke[0].pressure || 0.5;
       ctx.globalCompositeOperation = isEraser ? "destination-out" : "source-over";
+      ctx.globalAlpha = isMarker ? 0.36 : 1.0;
       ctx.strokeStyle = strokeCol;
-      ctx.lineWidth = isEraser ? 28 : Math.max(1.8, Math.min(4.8, 2.0 + avgPressure * 2.2));
-      ctx.lineCap = "round";
+      ctx.lineWidth = isEraser
+        ? Math.max(24, baseSz * 9)
+        : (isMarker ? Math.max(16, baseSz * 6) : (isFountain ? baseSz * (0.75 + avgPressure * 0.9) : baseSz));
+      ctx.lineCap = isMarker ? "square" : "round";
       ctx.lineJoin = "round";
+      if (isDashed) {
+        ctx.setLineDash([baseSz * 2.6, baseSz * 1.8]);
+      }
 
       if (scratchpadLaserMode && !isEraser) {
         ctx.shadowColor = strokeCol;
@@ -6239,15 +6856,26 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function toggleScratchpadCanvas(forceState = null) {
+    if (forceState && typeof forceState === "object") forceState = null;
+    const compView = document.getElementById("compendium-fullscreen-view");
+    // Unify with Compendium / PDF Studio Ink when Knowledge Studio is active (unless explicitly closing overlay)
+    if (compView && compView.style.display === "flex" && forceState !== false) {
+      const overlay = document.getElementById("scratchpad-overlay");
+      if (overlay) overlay.classList.remove("active", "finger-draw-enabled", "scroll-passthrough", "pen-active-stroke");
+      scratchpadActive = false;
+      toggleCompSheetInkMode(forceState);
+      return;
+    }
+
     const overlay = document.getElementById("scratchpad-overlay");
     if (!overlay) return;
-    scratchpadActive = forceState !== null ? forceState : !scratchpadActive;
+    scratchpadActive = typeof forceState === "boolean" ? forceState : !scratchpadActive;
     overlay.classList.toggle("active", scratchpadActive);
 
     if (scratchpadActive) {
-      // Preserve OnePlus Stylo 2 / Tablet natural workflow:
-      // Default scratchpadFingerDraw = false (1-finger scrolls & taps options naturally, while Stylo 2 pen draws immediately on contact!)
+      setScratchpadPillExpanded(false);
       syncScratchpadModeUI();
+      syncInkCircularOrbVisuals();
       initScratchpadCanvasListeners();
       setTimeout(resizeScratchpadCanvas, 20);
     } else {
@@ -6255,19 +6883,26 @@ Explanation: ${parentQ.explanation}`;
       overlay.classList.remove("finger-draw-enabled", "scroll-passthrough", "pen-active-stroke");
     }
 
-    const btn = document.getElementById("btn-arena-scratchpad");
-    if (btn) btn.classList.toggle("active", scratchpadActive);
-    const dojoBtn = document.getElementById("btn-dojo-scratchpad");
-    if (dojoBtn) dojoBtn.classList.toggle("active", scratchpadActive);
+    ["btn-arena-scratchpad", "btn-dojo-scratchpad", "btn-dash-scratchpad", "btn-lab-scratchpad"].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) {
+        b.classList.toggle("active", scratchpadActive);
+        if (id === "btn-dash-scratchpad" || id === "btn-lab-scratchpad") {
+          b.classList.toggle("btn-cyan", scratchpadActive);
+          b.classList.toggle("btn-secondary", !scratchpadActive);
+        }
+      }
+    });
   }
 
   function toggleScratchpadLaserMode(forceState = null) {
     scratchpadLaserMode = typeof forceState === "boolean" ? forceState : !scratchpadLaserMode;
     const btn = document.getElementById("btn-scratch-laser");
     if (btn) {
-      btn.className = scratchpadLaserMode ? "btn btn-purple" : "btn btn-secondary";
-      btn.innerText = scratchpadLaserMode ? "\u2728 Laser ON (3s)" : "\u2728 Laser (3s)";
+      btn.className = scratchpadLaserMode ? "btn btn-purple ink-grid-btn" : "btn btn-secondary ink-grid-btn";
+      btn.innerText = scratchpadLaserMode ? "\u2728 Laser ON" : "\u2728 Laser 3s";
     }
+    syncInkCircularOrbVisuals();
   }
 
   function toggleScratchpadFingerDraw(forceDrawState = null) {
@@ -6277,6 +6912,16 @@ Explanation: ${parentQ.explanation}`;
 
   function toggleScratchpadScrollMode() {
     toggleScratchpadFingerDraw();
+  }
+
+  function setScratchpadSize(sizeVal = 3.2, btnEl = null) {
+    scratchpadSize = Number(sizeVal) || 3.2;
+    document.querySelectorAll(".scratch-size-btn").forEach(btn => {
+      const isMatch = btn === btnEl;
+      btn.classList.toggle("active", isMatch);
+      btn.classList.toggle("btn-cyan", isMatch);
+      btn.classList.toggle("btn-secondary", !isMatch);
+    });
   }
 
   function setScratchpadColor(colorHex, btnEl) {
@@ -6290,31 +6935,61 @@ Explanation: ${parentQ.explanation}`;
     document.querySelectorAll(".ink-color-dot").forEach(dot => {
       dot.classList.toggle("active", dot === btnEl || dot.dataset.color === scratchpadColor);
     });
+    syncInkCircularOrbVisuals();
   }
 
   function setScratchpadMode(mode) {
-    scratchpadMode = mode === "ERASER" ? "ERASER" : "PEN";
+    const norm = String(mode || "PEN").toUpperCase();
+    scratchpadMode = norm;
     if (!scratchpadFingerDraw) {
       toggleScratchpadFingerDraw(true);
     }
-    const penBtn = document.getElementById("btn-scratch-pen");
-    const erBtn = document.getElementById("btn-scratch-eraser");
-    if (penBtn) {
-      penBtn.className = scratchpadMode === "PEN" ? "btn btn-cyan" : "btn btn-secondary";
-    }
-    if (erBtn) {
-      erBtn.className = scratchpadMode === "ERASER" ? "btn btn-cyan" : "btn btn-secondary";
-    }
+    const modeBtnMap = {
+      PEN: "btn-scratch-pen",
+      FOUNTAIN: "btn-scratch-fountain",
+      MARKER: "btn-scratch-marker",
+      DASHED: "btn-scratch-dashed",
+      ERASER: "btn-scratch-eraser",
+      SHAPE_LINE: "btn-scratch-shape-line",
+      SHAPE_ARROW: "btn-scratch-shape-arrow",
+      SHAPE_RECT: "btn-scratch-shape-rect",
+      SHAPE_CIRCLE: "btn-scratch-shape-circle",
+      SHAPE_TRIANGLE: "btn-scratch-shape-triangle",
+      SHAPE_RIGHT_TRIANGLE: "btn-scratch-shape-rtriangle",
+      SHAPE_RHOMBUS: "btn-scratch-shape-rhombus",
+      SHAPE_AXES: "btn-scratch-shape-axes"
+    };
+    Object.keys(modeBtnMap).forEach(k => {
+      const b = document.getElementById(modeBtnMap[k]);
+      if (b) {
+        b.classList.toggle("btn-cyan", scratchpadMode === k);
+        b.classList.toggle("btn-secondary", scratchpadMode !== k);
+      }
+    });
+    syncInkCircularOrbVisuals();
   }
 
   function undoScratchpadStroke() {
-    scratchpadStrokes.pop();
+    if (scratchpadStrokes.length === 0) return;
+    const popped = scratchpadStrokes.pop();
+    if (popped) scratchpadRedoStack.push(popped);
     inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
     redrawScratchpad();
   }
 
+  function redoScratchpadStroke() {
+    if (scratchpadRedoStack.length === 0) return;
+    const restored = scratchpadRedoStack.pop();
+    if (restored) {
+      scratchpadStrokes.push(restored);
+      inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
+      redrawScratchpad();
+    }
+  }
+
   function clearScratchpadCanvas() {
     scratchpadStrokes = [];
+    scratchpadRedoStack = [];
     currentStroke = [];
     inkMemoryByContextKey[activeInkContextKey] = [];
     redrawScratchpad();
@@ -9343,7 +10018,7 @@ Explanation: ${parentQ.explanation}`;
       document.getElementById("btn-dock-margin-drawer")?.classList.remove("active");
     } else {
       if (hudPill) {
-        hudPill.style.display = "flex";
+        hudPill.style.display = "inline-flex";
         hudPill.classList.remove("hud-pill-faded");
       }
     }
@@ -9371,7 +10046,7 @@ Explanation: ${parentQ.explanation}`;
       forceState = null;
     }
     const drawer = document.getElementById("comp-pdf-tools-drawer");
-    const toggleBtn = document.getElementById("btn-pdf-tools-drawer-toggle");
+    const toggleBtn = document.getElementById("btn-comp-pdf-tools-toggle") || document.getElementById("btn-pdf-tools-drawer-toggle");
     if (!drawer) return;
     const isCurrentlyOpen = drawer.classList.contains("open") || drawer.style.display === "flex";
     const nextState = typeof forceState === "boolean" ? forceState : !isCurrentlyOpen;
@@ -9393,7 +10068,7 @@ Explanation: ${parentQ.explanation}`;
     }
     const rail = document.getElementById("comp-margin-rail");
     const dockBtn = document.getElementById("btn-dock-margin-drawer");
-    const pdfBtn = document.getElementById("btn-pdf-margin-drawer");
+    const pdfBtn = document.getElementById("btn-pdf-tools-margin-drawer") || document.getElementById("btn-pdf-margin-drawer");
     if (!rail) return;
 
     if (!isCompPdfActive()) {
@@ -9941,9 +10616,29 @@ Explanation: ${parentQ.explanation}`;
       ctx.lineWidth = 22;
     } else if (toolType === "marker") {
       ctx.globalCompositeOperation = "source-over";
+      ctx.lineCap = "square";
       ctx.globalAlpha = 0.36;
       ctx.strokeStyle = stroke.color || "#facc15";
       ctx.lineWidth = Math.max(16, (stroke.size || 3.0) * 6.8);
+    } else if (toolType === "fountain") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = stroke.color || "#38bdf8";
+      ctx.lineWidth = Math.max(1.4, (stroke.size || 3.0) * 1.25);
+    } else if (toolType === "dashed") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = stroke.color || "#38bdf8";
+      const lw = stroke.size || 3.0;
+      ctx.lineWidth = lw;
+      ctx.setLineDash([lw * 2.6, lw * 1.8]);
+    } else if (toolType === "laser") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = stroke.color || "#38bdf8";
+      ctx.lineWidth = Math.max(2.6, (stroke.size || 3.0) * 1.15);
+      ctx.shadowColor = stroke.color || "#38bdf8";
+      ctx.shadowBlur = 12;
     } else {
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1.0;
@@ -10356,11 +11051,18 @@ Explanation: ${parentQ.explanation}`;
 
     if (pageEl) pageEl.classList.toggle("sheet-ink-mode-active", compSheetInkMode);
     syncSheetInkPointerPassthrough();
-    if (toolbarEl) toolbarEl.style.display = compSheetInkMode ? "flex" : "none";
+    if (toolbarEl) {
+      toolbarEl.style.display = compSheetInkMode ? "inline-flex" : "none";
+      if (compSheetInkMode) {
+        // Start as compact circular floating pill orb; user taps orb to expand full Studio card
+        setInkStudioPillExpanded(false);
+      }
+    }
     if (dockBtn) dockBtn.classList.toggle("active", compSheetInkMode);
     if (dockLbl) dockLbl.innerText = compSheetInkMode ? "Ink ON" : "Ink";
     if (zenBtn) zenBtn.classList.toggle("active", compSheetInkMode);
 
+    syncInkCircularOrbVisuals();
     syncSheetInkCanvasGeometry();
   }
 
@@ -10370,13 +11072,14 @@ Explanation: ${parentQ.explanation}`;
 
   function setCompSheetInkTool(tool = "pen") {
     const norm = String(tool || "pen").toLowerCase();
-    if (norm === "pan" || norm === "move" || norm === "scroll") compSheetInkTool = "pan";
-    else if (norm === "stroke_eraser") compSheetInkTool = "stroke_eraser";
-    else if (norm === "eraser") compSheetInkTool = "eraser";
-    else if (norm === "marker") compSheetInkTool = "marker";
-    else if (norm === "tape") compSheetInkTool = "tape";
-    else if (norm === "lasso") compSheetInkTool = "lasso";
-    else if (norm === "excerpt") compSheetInkTool = "excerpt";
+    const validTools = [
+      "pan", "pen", "fountain", "marker", "dashed", "laser",
+      "tape", "lasso", "excerpt", "stroke_eraser", "eraser",
+      "shape_line", "shape_arrow", "shape_rect", "shape_circle",
+      "shape_triangle", "shape_right_triangle", "shape_rhombus", "shape_axes"
+    ];
+    if (norm === "move" || norm === "scroll") compSheetInkTool = "pan";
+    else if (validTools.includes(norm)) compSheetInkTool = norm;
     else compSheetInkTool = "pen";
 
     lassoPolygonPoints = [];
@@ -10390,12 +11093,23 @@ Explanation: ${parentQ.explanation}`;
     const btnMap = {
       pan: document.getElementById("btn-folio-pan"),
       pen: document.getElementById("btn-folio-pen") || document.getElementById("ink-tool-pen"),
+      fountain: document.getElementById("btn-folio-fountain"),
       marker: document.getElementById("btn-folio-marker"),
+      dashed: document.getElementById("btn-folio-dashed"),
+      laser: document.getElementById("btn-folio-laser"),
       tape: document.getElementById("btn-folio-tape"),
       lasso: document.getElementById("btn-folio-lasso"),
       excerpt: document.getElementById("btn-folio-excerpt"),
       stroke_eraser: document.getElementById("btn-folio-stroke-eraser"),
-      eraser: document.getElementById("btn-folio-eraser") || document.getElementById("ink-tool-eraser")
+      eraser: document.getElementById("btn-folio-eraser") || document.getElementById("ink-tool-eraser"),
+      shape_line: document.getElementById("btn-folio-shape-line"),
+      shape_arrow: document.getElementById("btn-folio-shape-arrow"),
+      shape_rect: document.getElementById("btn-folio-shape-rect"),
+      shape_circle: document.getElementById("btn-folio-shape-circle"),
+      shape_triangle: document.getElementById("btn-folio-shape-triangle"),
+      shape_right_triangle: document.getElementById("btn-folio-shape-rtriangle"),
+      shape_rhombus: document.getElementById("btn-folio-shape-rhombus"),
+      shape_axes: document.getElementById("btn-folio-shape-axes")
     };
 
     Object.keys(btnMap).forEach(k => {
@@ -10406,6 +11120,8 @@ Explanation: ${parentQ.explanation}`;
       btn.classList.toggle("btn-cyan", isActive);
       btn.classList.toggle("btn-secondary", !isActive);
     });
+
+    syncInkCircularOrbVisuals();
   }
 
   function setCompendiumFolioInkTool(tool = "PEN") {
@@ -10421,6 +11137,7 @@ Explanation: ${parentQ.explanation}`;
       const attr = el.getAttribute("data-inkcolor") || el.getAttribute("data-ink-color");
       el.classList.toggle("active", el === btnEl || attr === color);
     });
+    syncInkCircularOrbVisuals();
   }
 
   function setCompendiumFolioInkColor(color = "#38bdf8", btnEl = null) {
@@ -10452,6 +11169,12 @@ Explanation: ${parentQ.explanation}`;
 
   async function undoCompSheetInk() {
     if (sheetInkUndoStack.length > 0) {
+      if (Array.isArray(activeSheetInkStrokes)) {
+        sheetInkRedoStack.push(activeSheetInkStrokes.map(s => ({
+          ...s,
+          points: Array.isArray(s.points) ? s.points.map(p => ({ ...p })) : []
+        })));
+      }
       activeSheetInkStrokes = sheetInkUndoStack.pop();
       redrawSheetInkCanvas();
       await saveActiveSheetInkStrokes();
@@ -10465,9 +11188,21 @@ Explanation: ${parentQ.explanation}`;
       return;
     }
     if (!activeSheetInkStrokes || activeSheetInkStrokes.length === 0) return;
-    activeSheetInkStrokes.pop();
+    const popped = activeSheetInkStrokes.pop();
+    if (popped) sheetInkRedoStack.push([popped]);
     redrawSheetInkCanvas();
     await saveActiveSheetInkStrokes();
+  }
+
+  async function redoCompendiumFolioInkStroke() {
+    if (sheetInkRedoStack.length === 0) return;
+    pushSheetInkUndoSnapshot();
+    const nextState = sheetInkRedoStack.pop();
+    if (Array.isArray(nextState)) {
+      activeSheetInkStrokes = nextState;
+      redrawSheetInkCanvas();
+      await saveActiveSheetInkStrokes();
+    }
   }
 
   async function undoCompendiumFolioInkStroke() {
@@ -10568,12 +11303,13 @@ Explanation: ${parentQ.explanation}`;
 
     const scheduleFolioShapeSnap = () => {
       clearTimeout(folioShapeHoldTimer);
+      if (!inkAutoShapeSnapEnabled) return;
       if (!isDrawingSheetInk || !currentSheetInkStroke || currentSheetInkStroke.shapeSnap) return;
       const t = String(currentSheetInkStroke.tool || "pen").toLowerCase();
-      if (t !== "pen" && t !== "marker") return;
+      if (t !== "pen" && t !== "fountain" && t !== "marker" && t !== "dashed") return;
 
       folioShapeHoldTimer = setTimeout(() => {
-        if (!isDrawingSheetInk || !currentSheetInkStroke || currentSheetInkStroke.points.length < 6) return;
+        if (!isDrawingSheetInk || !currentSheetInkStroke || currentSheetInkStroke.points.length < 5) return;
         const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
         const w = Math.max(inkCanvas.width / dpr, 1);
         const h = Math.max(inkCanvas.height / dpr, 1);
@@ -10588,10 +11324,12 @@ Explanation: ${parentQ.explanation}`;
           if (navigator.vibrate) navigator.vibrate(18);
           redrawSheetInkCanvas();
         }
-      }, 350);
+      }, 320);
     };
 
     const beginInkAtEvent = (e) => {
+      // Auto-collapse expanded Ink Studio card back into small circular floating pill when drawing starts
+      setInkStudioPillExpanded(false);
       if (isCompPdfActive()) {
         fadeCompPdfHudPill();
         toggleCompPdfToolsDrawer(false);
@@ -10652,6 +11390,7 @@ Explanation: ${parentQ.explanation}`;
       }
 
       pushSheetInkUndoSnapshot();
+      sheetInkRedoStack = [];
 
       if (effectiveTool === "eraser") {
         activeEraserCursorPreview = { nx: pt.nx, ny: pt.ny, radiusPx: Math.round(eraserW / 2) };
@@ -10659,8 +11398,12 @@ Explanation: ${parentQ.explanation}`;
         activeEraserCursorPreview = null;
       }
 
+      const isDirectShapeTool = String(effectiveTool).startsWith("shape_");
       currentSheetInkStroke = {
-        tool: effectiveTool,
+        tool: isDirectShapeTool ? "pen" : effectiveTool,
+        directShapeMode: isDirectShapeTool ? effectiveTool : null,
+        originNormPt: pt,
+        shapeSnap: isDirectShapeTool,
         color: compSheetInkColor,
         size: compSheetInkSize,
         eraserWidth: eraserW,
@@ -10720,15 +11463,35 @@ Explanation: ${parentQ.explanation}`;
         activeEraserCursorPreview = { nx: pt.nx, ny: pt.ny, radiusPx: Math.round(eraserW / 2) };
       }
 
-      const prevPt = currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1];
-      if (currentSheetInkStroke.shapeSnap) {
-        currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1] = pt;
+      // Direct 1-Stroke Geometry Figure Live Preview
+      if (currentSheetInkStroke.directShapeMode) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        const w = Math.max(inkCanvas.width / dpr, 1);
+        const h = Math.max(inkCanvas.height / dpr, 1);
+        const orig = currentSheetInkStroke.originNormPt || currentSheetInkStroke.points[0];
+        const pStartPx = { x: orig.nx * w, y: orig.ny * h };
+        const pEndPx = { x: pt.nx * w, y: pt.ny * h };
+        const builtPx = buildDirectDragGeometricPoints(pStartPx, pEndPx, currentSheetInkStroke.directShapeMode, {});
+        currentSheetInkStroke.points = builtPx.map(sp => ({
+          nx: Math.max(0, Math.min(1, sp.x / w)),
+          ny: Math.max(0, Math.min(1, sp.y / h))
+        }));
+        currentSheetInkStroke.shapeSnap = true;
         redrawSheetInkCanvas();
         return;
       }
 
+      const prevPt = currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1];
+      if (currentSheetInkStroke.shapeSnap) {
+        if (currentSheetInkStroke.points.length === 2) {
+          currentSheetInkStroke.points[1] = pt;
+          redrawSheetInkCanvas();
+        }
+        return;
+      }
+
       currentSheetInkStroke.points.push(pt);
-      if (!prevPt || Math.hypot(pt.nx - prevPt.nx, pt.ny - prevPt.ny) > 0.004) {
+      if (!prevPt || Math.hypot(pt.nx - prevPt.nx, pt.ny - prevPt.ny) > 0.0038) {
         scheduleFolioShapeSnap();
       }
       redrawSheetInkCanvas();
@@ -10812,10 +11575,21 @@ Explanation: ${parentQ.explanation}`;
             return;
           }
         }
-        activeSheetInkStrokes.push(currentSheetInkStroke);
+        const committedStroke = currentSheetInkStroke;
+        activeSheetInkStrokes.push(committedStroke);
         currentSheetInkStroke = null;
         redrawSheetInkCanvas();
-        await saveActiveSheetInkStrokes();
+        if (committedStroke.tool === "laser") {
+          setTimeout(() => {
+            const idx = activeSheetInkStrokes.indexOf(committedStroke);
+            if (idx !== -1) {
+              activeSheetInkStrokes.splice(idx, 1);
+              redrawSheetInkCanvas();
+            }
+          }, 2800);
+        } else {
+          await saveActiveSheetInkStrokes();
+        }
       } else {
         currentSheetInkStroke = null;
         redrawSheetInkCanvas();
@@ -12486,6 +13260,7 @@ Explanation: ${parentQ.explanation}`;
     }
     safeSetText("comp-pdf-page-total", String(activeCompPdfTotalPages));
     safeSetText("comp-pdf-total-pages", `/ ${activeCompPdfTotalPages}`);
+    safeSetText("comp-pdf-pill-page-label", `Page ${activeCompPdfPageNum} / ${activeCompPdfTotalPages}`);
     safeSetText("comp-pdf-bottom-page-info", `Page ${activeCompPdfPageNum} of ${activeCompPdfTotalPages}`);
     safeSetText("comp-pdf-zoom-btn", `${Math.round((compendiumZoomScale || 1) * 100)}%`);
 
@@ -12498,7 +13273,8 @@ Explanation: ${parentQ.explanation}`;
       scrollModeBtn.classList.toggle("btn-secondary", !isCont);
     }
 
-    const isBookmarked = Array.isArray(item.bookmarkedPages) && item.bookmarkedPages.includes(activeCompPdfPageNum);
+    const bmSet = new Set(Array.isArray(item.bookmarkedPages) ? item.bookmarkedPages : []);
+    const isBookmarked = bmSet.has(activeCompPdfPageNum);
     const bmBtn = document.getElementById("btn-comp-pdf-bookmark") || document.getElementById("btn-pdf-bookmark-page");
     if (bmBtn) {
       bmBtn.innerText = isBookmarked ? "\u2605 Bookmarked" : "\u2606 Bookmark";
@@ -12513,6 +13289,12 @@ Explanation: ${parentQ.explanation}`;
       if (statusBadge) {
         statusBadge.innerText = p === activeCompPdfPageNum ? `\u25CF Page ${p} (Active)` : `Page ${p}`;
         statusBadge.style.color = p === activeCompPdfPageNum ? "#38bdf8" : "var(--text-muted)";
+      }
+      const slotBm = document.getElementById(`comp-pdf-slot-bm-${p}`);
+      if (slotBm) {
+        const hasBm = bmSet.has(p);
+        slotBm.innerText = hasBm ? "\u2605" : "\u2606";
+        slotBm.style.color = hasBm ? "#fbbf24" : "#cbd5e1";
       }
     });
 
@@ -12583,6 +13365,12 @@ Explanation: ${parentQ.explanation}`;
       pageCanvas.style.height = `${cssH}px`;
       pageCanvas.classList.toggle("pdf-dark-inverted", !!activeCompPdfDarkInvert);
       pageCanvas.classList.toggle("pdf-dark-invert", !!activeCompPdfDarkInvert);
+
+      const slotEl = document.getElementById(`comp-pdf-page-slot-${pNum}`);
+      const slotBar = slotEl ? slotEl.querySelector(".comp-pdf-page-slot-bar") : null;
+      if (slotBar) {
+        slotBar.style.width = `${cssW}px`;
+      }
 
       const stageMediaLayer = document.getElementById(`comp-pdf-stage-media-${pNum}`);
       if (stageMediaLayer) {
@@ -12733,7 +13521,7 @@ Explanation: ${parentQ.explanation}`;
     const singleStage = document.getElementById("comp-pdf-single-stage");
     const contContainer = document.getElementById("comp-pdf-continuous-container");
     const docContent = document.getElementById("comp-studio-doc-content");
-    if (hudPill) hudPill.style.display = "flex";
+    if (hudPill) hudPill.style.display = "inline-flex";
     if (pdfBottomNav) pdfBottomNav.style.display = "flex";
     if (pdfWrap) pdfWrap.style.display = "flex";
     if (docContent) {
@@ -17589,9 +18377,14 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     toggleScratchpadFingerDraw,
     toggleScratchpadScrollMode,
     setScratchpadMode,
+    setScratchpadSize,
     setScratchpadColor,
     undoScratchpadStroke,
+    redoScratchpadStroke,
     clearScratchpadCanvas,
+    setScratchpadPillExpanded,
+    setInkStudioPillExpanded,
+    toggleInkAutoShapeSnap,
 
     openCompendiumStudio,
     closeCompendiumStudio,
@@ -17626,6 +18419,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     setCompSheetInkSize,
     undoCompSheetInk,
     undoCompendiumFolioInkStroke,
+    redoCompendiumFolioInkStroke,
     clearCompSheetInk,
     clearCompendiumFolioInk,
     triggerCompSheetImageUpload,
