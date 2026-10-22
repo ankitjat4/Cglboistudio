@@ -829,17 +829,20 @@ body {
 }
 .scratchpad-toolbar {
   position: fixed !important;
-  bottom: 74px !important;
-  right: 18px !important;
-  left: auto !important;
-  top: auto !important;
+  bottom: 74px;
+  right: 18px;
+  left: auto;
+  top: auto;
   transform: none !important;
   pointer-events: auto !important;
   z-index: 2265 !important;
 }
-.scratchpad-toolbar.is-expanded-card {
-  right: 16px !important;
-  bottom: 72px !important;
+.orb-dragging,
+.orb-dragging .ink-circular-orb-btn,
+.orb-dragging .ink-expanded-studio-card {
+  transition: none !important;
+  animation: none !important;
+  cursor: grabbing !important;
 }
 .stylo-badge {
   font-family: var(--font-mono);
@@ -1894,10 +1897,10 @@ mark.user-hl-purple {
 }
 .comp-folio-ink-toolbar {
   position: fixed !important;
-  bottom: 70px !important;
-  right: 18px !important;
-  left: auto !important;
-  top: auto !important;
+  bottom: 70px;
+  right: 18px;
+  left: auto;
+  top: auto;
   transform: none !important;
   z-index: 2245 !important;
   pointer-events: auto !important;
@@ -1928,11 +1931,14 @@ mark.user-hl-purple {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: grab;
   padding: 0;
   user-select: none;
-  touch-action: manipulation;
+  touch-action: none;
   transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.ink-circular-orb-btn:active {
+  cursor: grabbing;
 }
 .ink-circular-orb-btn:hover {
   transform: scale(1.07);
@@ -1998,6 +2004,13 @@ mark.user-hl-purple {
   gap: 8px;
   padding-bottom: 7px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.ink-studio-card-header:active {
+  cursor: grabbing;
 }
 .ink-studio-card-title {
   font-size: 11.5px;
@@ -2014,6 +2027,12 @@ mark.user-hl-purple {
   border: 1px solid rgba(56, 189, 248, 0.35);
   padding: 2px 7px;
   border-radius: 999px;
+}
+.stylo-hardware-badge {
+  color: #6ee7b7 !important;
+  background: rgba(16, 185, 129, 0.2) !important;
+  border-color: rgba(52, 211, 153, 0.55) !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
 }
 .ink-studio-section {
   background: rgba(15, 23, 42, 0.65);
@@ -3378,24 +3397,29 @@ mark.user-hl-purple {
 
 /* === ZONE 27B: V9.2 FULLSCREEN PDF STUDIO, FLOATING HUD PILL, 3-ROW PAGE SURGERY & SLIDE-OVER MARGIN DRAWER === */
 
-/* 1. True Edge-to-Edge Fullscreen PDF Mode */
+/* 1. True Edge-to-Edge Fullscreen PDF Mode (Unified 2D Scroll Host for Pinch-Zoom & Panning) */
 #compendium-fullscreen-view.pdf-studio-fullscreen .comp-studio-workspace {
   display: block !important;
   width: 100%;
   height: calc(100vh - 52px);
-  overflow-y: auto;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 #compendium-fullscreen-view.pdf-studio-fullscreen .comp-document-canvas {
   padding: 0 !important;
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
   height: auto;
-  overflow: visible;
+  overflow: visible !important;
 }
 #compendium-fullscreen-view.pdf-studio-fullscreen .comp-folio-page,
 .comp-folio-page.pdf-studio-fullscreen {
-  max-width: 100% !important;
-  width: 100% !important;
-  margin: 0 !important;
+  max-width: none !important;
+  min-width: 100% !important;
+  width: max-content !important;
+  margin: 0 auto !important;
   padding: 0 !important;
   border: none !important;
   border-radius: 0 !important;
@@ -3403,13 +3427,16 @@ mark.user-hl-purple {
   background: transparent !important;
 }
 #compendium-fullscreen-view.pdf-studio-fullscreen .comp-pdf-canvas-wrap {
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
   min-height: calc(100vh - 56px);
-  padding: 8px 0 90px 0;
+  margin: 0 auto;
+  padding: 8px 12px 96px 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
+  overflow: visible !important;
   border-radius: 0;
 }
 
@@ -3448,93 +3475,78 @@ mark.user-hl-purple {
   display: flex;
 }
 
-/* 3. Compact Floating PDF HUD Pill (#comp-pdf-floating-hud-pill) */
-.comp-pdf-floating-hud-pill {
+/* 3. Draggable 52px Circular Floating PDF Orb (#comp-pdf-floating-hud-pill) */
+.comp-pdf-floating-hud-pill,
+.comp-pdf-floating-hud-pill.pdf-circular-orb {
   position: fixed !important;
-  top: 60px !important;
-  right: 16px !important;
-  left: auto !important;
-  width: max-content !important;
-  max-width: calc(100vw - 24px) !important;
-  height: 38px !important;
+  top: 64px;
+  right: 16px;
+  left: auto;
+  bottom: auto;
+  width: 52px !important;
+  height: 52px !important;
+  border-radius: 50% !important;
   z-index: 2250 !important;
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  flex-wrap: nowrap !important;
-  white-space: nowrap !important;
-  gap: 6px;
-  background: rgba(8, 13, 26, 0.94) !important;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 !important;
+  background: radial-gradient(circle at 30% 28%, rgba(20, 31, 58, 0.98), rgba(7, 11, 23, 0.98)) !important;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border: 1.5px solid rgba(56, 189, 248, 0.5) !important;
-  border-radius: 999px !important;
-  padding: 4px 12px !important;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.78), 0 0 16px rgba(56, 189, 248, 0.22) !important;
-  transition: opacity 0.22s ease, transform 0.18s ease;
+  border: 2px solid rgba(56, 189, 248, 0.72) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.84), 0 0 18px rgba(56, 189, 248, 0.32) !important;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  transition: opacity 0.22s ease, transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.18s ease, box-shadow 0.18s ease;
   opacity: 1;
 }
+.comp-pdf-floating-hud-pill:active {
+  cursor: grabbing;
+  transform: scale(0.95);
+}
+.comp-pdf-floating-hud-pill.orb-drawer-open {
+  border-color: #a78bfa !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.9), 0 0 22px rgba(167, 139, 250, 0.55) !important;
+}
 .comp-pdf-floating-hud-pill.hud-pill-faded {
-  opacity: 0.52;
+  opacity: 0.62;
 }
 .comp-pdf-floating-hud-pill:hover,
 .comp-pdf-floating-hud-pill:focus-within {
   opacity: 1 !important;
+  transform: scale(1.06);
 }
-.pdf-hud-pill-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: #f8fafc;
-  border-radius: 999px;
-  padding: 3px 9px;
-  font-size: 10.5px;
-  font-weight: 800;
-  cursor: pointer;
-  line-height: 1.2;
+.pdf-orb-icon {
+  font-size: 16px;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.65));
 }
-.pdf-hud-pill-btn:hover {
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-}
-.pdf-hud-pill-page {
+.pdf-orb-page-badge {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 800;
   color: var(--accent-cyan);
-  padding: 0 4px;
-  cursor: pointer;
+  line-height: 1.1;
+  letter-spacing: -0.2px;
+  pointer-events: none;
   white-space: nowrap;
-}
-.pdf-hud-pill-sep {
-  color: rgba(255, 255, 255, 0.22);
-  font-size: 11px;
-}
-.pdf-hud-pill-tools-btn {
-  background: rgba(56, 189, 248, 0.18);
-  border: 1px solid rgba(56, 189, 248, 0.48);
-  color: #f8fafc;
-  border-radius: 999px;
-  padding: 4px 11px;
-  font-size: 11px;
-  font-weight: 800;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.pdf-hud-pill-tools-btn.active,
-.pdf-hud-pill-tools-btn:hover {
-  background: rgba(37, 99, 235, 0.52);
-  border-color: var(--accent-cyan);
-  color: #ffffff;
 }
 
 /* 4. Dynamic Structured Floating PDF Command & Page Surgery Popover (#comp-pdf-tools-drawer) */
 .comp-pdf-tools-drawer {
   position: fixed !important;
-  top: 104px !important;
-  right: 16px !important;
-  left: auto !important;
+  top: 122px;
+  right: 16px;
+  left: auto;
   z-index: 2260 !important;
   width: min(420px, calc(100vw - 24px)) !important;
-  max-height: calc(100vh - 180px) !important;
+  max-height: calc(100vh - 140px) !important;
   overflow-y: auto !important;
   display: flex;
   flex-direction: column;
@@ -3554,16 +3566,41 @@ mark.user-hl-purple {
   gap: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.pdf-tools-drawer-header:active {
+  cursor: grabbing;
 }
 .pdf-tools-quick-strip {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
   background: rgba(15, 23, 42, 0.78);
   border: 1px solid rgba(56, 189, 248, 0.24);
   border-radius: 10px;
   padding: 6px 10px;
+}
+.pdf-tools-search-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 10px;
+  padding: 5px 8px;
+}
+.pdf-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px !important;
+  font-size: 11.5px !important;
+  border-radius: 7px !important;
+  background: rgba(6, 10, 20, 0.85) !important;
 }
 .pdf-zoom-control-group {
   display: inline-flex;
@@ -3727,19 +3764,20 @@ mark.user-hl-purple {
 
 .comp-pdf-canvas-wrap {
   position: relative;
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   background: rgba(4, 7, 14, 0.4);
   border-radius: 10px;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: visible;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y pinch-zoom;
   min-height: 420px;
   cursor: grab;
-  padding: 6px 0;
+  padding: 6px 12px;
 }
 
 .comp-pdf-canvas-wrap.pdf-grabbing {
@@ -3749,7 +3787,8 @@ mark.user-hl-purple {
 }
 
 .comp-pdf-continuous-container {
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3760,9 +3799,10 @@ mark.user-hl-purple {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
   border-radius: 10px;
-  padding: 4px 0 8px 0;
+  padding: 4px 8px 8px 8px;
   border: 1.5px solid rgba(255, 255, 255, 0.05);
   background: rgba(9, 14, 26, 0.45);
   transition: border-color 0.18s ease, box-shadow 0.18s ease;

@@ -31,8 +31,8 @@
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js" crossorigin="anonymous"></script>
 
-  <!-- External Stylesheet with Cache-Buster v9.4 -->
-  <link rel="stylesheet" href="./style.css?v=9.4">
+  <!-- External Stylesheet with Cache-Buster v9.6 -->
+  <link rel="stylesheet" href="./style.css?v=9.6">
 </head>
 <body>
   <!-- NON-BLOCKING FLOATING GLASS TOAST HUD -->
@@ -620,10 +620,14 @@
           <span>Universal Plain Text, Backup &amp; Typeset PDF Exports</span>
           <span class="badge" style="background:#059669;">Publishing &amp; Recovery</span>
         </div>
-        <div style="margin-bottom:10px;">
+        <div style="margin-bottom:10px; display:flex; flex-direction:column; gap:6px;">
           <label style="display:inline-flex; align-items:center; gap:8px; font-size:11.5px; color:var(--text-muted); cursor:pointer;">
             <input type="checkbox" id="backup-include-api-keys" style="width:15px; height:15px;">
             <span>Include API Keys in Full Backup JSON (Keep unchecked when sharing files)</span>
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:8px; font-size:11.5px; color:var(--text-muted); cursor:pointer;">
+            <input type="checkbox" id="backup-include-raw-pdfs" style="width:15px; height:15px;">
+            <span>Include Raw PDF Binary Files in Full Backup JSON (Unchecked = fast lightweight JSON backup)</span>
           </label>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
@@ -738,9 +742,10 @@
       <!-- EXPANDED FLOATING INK STUDIO POPOVER CARD -->
       <div class="ink-expanded-studio-card" id="scratch-expanded-studio-card" onclick="event.stopPropagation()">
         <div class="ink-studio-card-header">
-          <div style="display:flex; align-items:center; gap:6px;">
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             <span class="ink-studio-card-title">✏️ Ink &amp; Geometry Studio</span>
             <span id="scratch-active-shape-badge" class="ink-shape-status-badge">Auto-Snap Ready</span>
+            <span id="scratch-stylo-telemetry-badge" class="ink-shape-status-badge stylo-hardware-badge" style="display:none;">✒️ Stylo 2 Active</span>
           </div>
           <div style="display:flex; align-items:center; gap:4px;">
             <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.undoScratchpadStroke()" title="Undo Last Stroke">↩ Undo</button>
@@ -750,18 +755,21 @@
           </div>
         </div>
 
-        <!-- Section 1: Pens, Brushes & Erasers -->
+        <!-- Section 1: Pens, Brushes, Tape, Lasso & Erasers -->
         <div class="ink-studio-section">
-          <div class="ink-studio-section-label">Pens, Brushes &amp; Erasers</div>
+          <div class="ink-studio-section-label">Pens, Brushes, Tape, Lasso &amp; Erasers</div>
           <div class="ink-studio-grid-4">
-            <button type="button" class="btn btn-cyan ink-grid-btn" id="btn-scratch-pen" onclick="CGL_OS.setScratchpadMode('PEN')" title="Fine Precision Pen">🖊️ Pen</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-pan" onclick="CGL_OS.setScratchpadMode('PAN')" title="1-Finger &amp; Mouse Pan/Scroll Mode">✋ Pan</button>
+            <button type="button" class="btn btn-cyan ink-grid-btn" id="btn-scratch-pen" onclick="CGL_OS.setScratchpadMode('PEN')" title="Fine Precision Ballpoint Pen">🖊️ Pen</button>
             <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-fountain" onclick="CGL_OS.setScratchpadMode('FOUNTAIN')" title="Calligraphy / Velocity Fountain Pen">🖋️ Fountain</button>
             <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-marker" onclick="CGL_OS.setScratchpadMode('MARKER')" title="Chisel Marker Highlighter">🖍️ Marker</button>
             <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-dashed" onclick="CGL_OS.setScratchpadMode('DASHED')" title="Dashed Construction Line Pen for Geometry">➖ Dashed</button>
-            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-laser" onclick="CGL_OS.toggleScratchpadLaserMode()" title="3-Second Auto-Fade Laser Pointer Ink">✨ Laser 3s</button>
-            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-eraser" onclick="CGL_OS.setScratchpadMode('ERASER')" title="Eraser">🧽 Eraser</button>
-            <button type="button" class="btn btn-emerald ink-grid-btn" id="btn-scratch-finger-mode" onclick="CGL_OS.toggleScratchpadFingerDraw()" title="Toggle 1-Finger Scroll vs 1-Finger Draw">✍️ Draw ON</button>
-            <button type="button" class="btn btn-secondary ink-grid-btn" style="color:var(--status-red);" onclick="CGL_OS.clearScratchpadCanvas()" title="Clear All Ink">🗑 Clear</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-laser" onclick="CGL_OS.setScratchpadMode('LASER')" title="3-Second Auto-Fade Laser Pointer Ink">✨ Laser 3s</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-tape" onclick="CGL_OS.setScratchpadMode('TAPE')" title="GoodNotes Recall Tape — Draw over formulas to mask; tap to reveal">🩹 Tape</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-lasso" onclick="CGL_OS.setScratchpadMode('LASSO')" title="Polygon Lasso — Circle strokes to select &amp; drag-move them">🪢 Lasso</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-stroke-eraser" onclick="CGL_OS.setScratchpadMode('STROKE_ERASER')" title="Whole-Stroke Eraser">🧽 Stroke</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" id="btn-scratch-eraser" onclick="CGL_OS.setScratchpadMode('ERASER')" title="Wide Pixel Area Eraser">🧼 Area</button>
+            <button type="button" class="btn btn-secondary ink-grid-btn" style="color:var(--status-red); grid-column:span 2;" onclick="CGL_OS.clearScratchpadCanvas()" title="Clear All Ink">🗑 Clear Ink</button>
           </div>
         </div>
 
@@ -783,9 +791,9 @@
           </div>
         </div>
 
-        <!-- Section 3: Stroke Thickness & Color Swatches -->
+        <!-- Section 3: Stroke Thickness, Color Swatches & Input Mode -->
         <div class="ink-studio-section" style="margin-bottom:0;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
             <div style="display:inline-flex; align-items:center; gap:3px;" title="Stroke Size">
               <button type="button" class="btn btn-secondary scratch-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setScratchpadSize(1.4, this)">XS</button>
               <button type="button" class="btn btn-secondary scratch-size-btn" style="padding:3px 6px; font-size:10px; border-radius:999px;" onclick="CGL_OS.setScratchpadSize(2.2, this)">S</button>
@@ -803,6 +811,11 @@
               <button type="button" class="ink-color-dot" data-color="#ffffff" style="background:#ffffff;" onclick="CGL_OS.setScratchpadColor('#ffffff', this)" title="White Chalk Ink"></button>
               <input type="color" value="#38bdf8" class="ink-custom-color-input" onchange="CGL_OS.setScratchpadColor(this.value, null)" title="Custom Ink Color">
             </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+            <button type="button" class="btn btn-emerald" id="btn-scratch-finger-mode" style="flex:1; padding:4px 9px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.toggleScratchpadFingerDraw()" title="Switch between Finger &amp; Stylus Draw, Stylo 2 Auto (Pen Writes • 1-Finger Scrolls), and Pan Only">
+              ✍️ Finger &amp; Stylus: Write
+            </button>
           </div>
         </div>
       </div>
@@ -1147,6 +1160,7 @@
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             <span class="ink-studio-card-title">✏️ Ink &amp; Geometry Studio</span>
             <span id="folio-active-shape-badge" class="ink-shape-status-badge">Auto-Snap Ready</span>
+            <span id="folio-stylo-telemetry-badge" class="ink-shape-status-badge stylo-hardware-badge" style="display:none;">✒️ Stylo 2 Active</span>
           </div>
           <div style="display:flex; align-items:center; gap:4px;">
             <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.undoCompendiumFolioInkStroke()" title="Undo Last Stroke">↩ Undo</button>
@@ -1224,36 +1238,44 @@
       </div>
     </div>
 
-    <!-- ==================== COMPACT FLOATING PDF HUD PILL & STRUCTURED PDF TOOLS POPOVER (ROOT LEVEL) ==================== -->
-    <div id="comp-pdf-floating-hud-pill" class="comp-pdf-floating-hud-pill" style="display:none; position:fixed; top:60px; right:16px; left:auto; width:max-content; z-index:2250; border-radius:999px;" onpointerenter="CGL_OS.wakeCompPdfHudPill()" ontouchstart="CGL_OS.wakeCompPdfHudPill()">
-      <button type="button" class="pdf-hud-pill-btn" onclick="CGL_OS.navCompPdfPage(-1)" title="Previous Page (ArrowLeft)">◀</button>
-      <span id="comp-pdf-pill-page-label" class="pdf-hud-pill-page" onclick="CGL_OS.toggleCompPdfToolsDrawer(event)" title="Tap to open PDF Tools & Page Surgery">Page 1 / 1</span>
-      <button type="button" class="pdf-hud-pill-btn" onclick="CGL_OS.navCompPdfPage(1)" title="Next Page (ArrowRight)">▶</button>
-      <span class="pdf-hud-pill-sep">|</span>
-      <button type="button" class="pdf-hud-pill-tools-btn" id="btn-comp-pdf-tools-toggle" onclick="CGL_OS.toggleCompPdfToolsDrawer(event)" title="Open Structured PDF View, Single-Page Surgery & Export Tools">⚙️ PDF Tools ▾</button>
+    <!-- ==================== DRAGGABLE CIRCULAR FLOATING PDF ORB & STRUCTURED PDF TOOLS POPOVER (ROOT LEVEL) ==================== -->
+    <div id="comp-pdf-floating-hud-pill" class="comp-pdf-floating-hud-pill pdf-circular-orb" style="display:none;" onclick="CGL_OS.handlePdfOrbClick(event)" onpointerenter="CGL_OS.wakeCompPdfHudPill()" ontouchstart="CGL_OS.wakeCompPdfHudPill()" title="Tap to open PDF Tools &amp; Page Surgery • Drag anywhere on screen">
+      <span class="pdf-orb-icon" id="btn-comp-pdf-tools-toggle">📄</span>
+      <span id="comp-pdf-pill-page-label" class="pdf-orb-page-badge">P.1/1</span>
     </div>
 
     <!-- Dynamic Structured Floating PDF Tools & Page Surgery Popover (#comp-pdf-tools-drawer) -->
-    <div id="comp-pdf-tools-drawer" class="comp-pdf-tools-drawer" style="display:none; position:fixed; top:104px; right:16px; left:auto; width:min(420px, calc(100vw - 24px)); z-index:2260;" onclick="event.stopPropagation()">
-      <div class="pdf-tools-drawer-header">
+    <div id="comp-pdf-tools-drawer" class="comp-pdf-tools-drawer" style="display:none;" onclick="event.stopPropagation()">
+      <div class="pdf-tools-drawer-header" title="Drag header to move PDF Tools Popover anywhere on screen">
         <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+          <span style="opacity:0.65; font-size:11px;">⠿</span>
           <span id="comp-pdf-active-name-text" style="font-size:12px; font-weight:800; color:#e9d5ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 PDF Document</span>
         </div>
         <button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.toggleCompPdfToolsDrawer(false)">✕ Close</button>
       </div>
 
-      <!-- Quick Page Jump & Zoom Strip -->
+      <!-- Quick Page Navigation, Jump & Zoom Strip -->
       <div class="pdf-tools-quick-strip">
-        <div class="pdf-page-jump-pill">
-          <span>Page</span>
-          <input type="number" id="comp-pdf-page-input" min="1" value="1" onchange="CGL_OS.jumpToCompPdfPage(this.value)">
-          <span>of <b id="comp-pdf-page-total">1</b></span>
+        <div style="display:inline-flex; align-items:center; gap:4px;">
+          <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px;" onclick="CGL_OS.navCompPdfPage(-1)" title="Previous Page (ArrowLeft)">◀</button>
+          <div class="pdf-page-jump-pill">
+            <span>P.</span>
+            <input type="number" id="comp-pdf-page-input" min="1" value="1" onchange="CGL_OS.jumpToCompPdfPage(this.value)">
+            <span>/ <b id="comp-pdf-page-total">1</b></span>
+          </div>
+          <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px;" onclick="CGL_OS.navCompPdfPage(1)" title="Next Page (ArrowRight)">▶</button>
         </div>
         <div class="pdf-zoom-control-group">
           <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(-0.15)" title="Zoom Out PDF">🔍-</button>
           <button type="button" class="btn btn-secondary" id="comp-pdf-zoom-btn" style="padding:3px 8px; font-size:10.5px; font-family:var(--font-mono);" onclick="CGL_OS.resetCompendiumZoom()" title="Reset PDF Zoom to 100%">100%</button>
           <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px;" onclick="CGL_OS.adjustCompendiumZoom(0.15)" title="Zoom In PDF">🔍+</button>
         </div>
+      </div>
+
+      <!-- In-PDF Text Search Bar -->
+      <div class="pdf-tools-search-strip">
+        <input type="text" id="comp-pdf-search-input" class="form-control pdf-search-input" placeholder="🔎 Search text inside this PDF..." onkeydown="if(event.key==='Enter'){event.preventDefault();CGL_OS.searchInsideActivePdf(this.value);}">
+        <button type="button" class="btn btn-cyan" style="padding:5px 10px; font-size:11px; white-space:nowrap;" onclick="CGL_OS.searchInsideActivePdf()">Find Next</button>
       </div>
 
       <!-- SECTION 1: View & Display (Structured 3x2 Grid) -->
@@ -2662,7 +2684,7 @@
   <!-- ==================== PUBLISHING-GRADE TYPESET PRINT ROOT ==================== -->
   <div id="print-sheet-root" style="display:none;" class="print-page"></div>
 
-  <!-- Master JavaScript Controller with Cache-Buster Parameter v9.4 -->
-  <script src="./app.js?v=9.4"></script>
+  <!-- Master JavaScript Controller with Cache-Buster Parameter v9.6 -->
+  <script src="./app.js?v=9.6"></script>
 </body>
 </html>

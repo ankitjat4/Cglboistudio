@@ -1344,9 +1344,14 @@ const CGL_OS = (() => {
    * ========================================================================== */
   async function exportFullBackup() {
     const includeKeys = document.getElementById("backup-include-api-keys")?.checked ?? false;
+    const includeRawPdfs = document.getElementById("backup-include-raw-pdfs")?.checked ?? false;
     let configRecords = await getAllRecords("store_config");
     if (!includeKeys) {
       configRecords = configRecords.filter(r => r.key !== "ai_api_key_vault");
+    }
+    let notesRecords = await getAllRecords("store_notes");
+    if (!includeRawPdfs) {
+      notesRecords = notesRecords.filter(r => !r || !String(r.id || "").startsWith("pdf_doc_"));
     }
 
     const envelope = {
@@ -1355,13 +1360,14 @@ const CGL_OS = (() => {
         engine_version: DB_VERSION,
         exported_at: Date.now(),
         exported_ist: formatISTDate(Date.now()),
-        exported_date: new Date().toISOString()
+        exported_date: new Date().toISOString(),
+        includes_raw_pdfs: includeRawPdfs
       },
       stores: {
         store_questions: await getAllRecords("store_questions"),
         store_attempts: await getAllRecords("store_attempts"),
         store_concepts: await getAllRecords("store_concepts"),
-        store_notes: await getAllRecords("store_notes"),
+        store_notes: notesRecords,
         store_saved_mocks: await getAllRecords("store_saved_mocks"),
         store_ai_consultations: await getAllRecords("store_ai_consultations"),
         store_config: configRecords
@@ -4497,12 +4503,16 @@ Return ONLY valid JSON.`;
       lastTimerTickEpoch = now;
 
       activeExam.sectionRemainingSec = Math.max(0, activeExam.sectionRemainingSec - elapsedSec);
-      activeExam.currentQTimeSpentSec += elapsedSec;
+      activeExam.currentVisitTimeSec = (activeExam.currentVisitTimeSec || 0) + elapsedSec;
 
       const curQ = activeExam.questions[activeExam.currentQuestionIndex];
       if (curQ && activeExam.userResponses[curQ.id]) {
-        activeExam.userResponses[curQ.id].timeSpentSec += elapsedSec;
+        activeExam.userResponses[curQ.id].timeSpentSec = (activeExam.userResponses[curQ.id].timeSpentSec || 0) + elapsedSec;
       }
+      const totalQSec = (curQ && activeExam.userResponses[curQ.id])
+        ? (activeExam.userResponses[curQ.id].timeSpentSec || 0)
+        : ((activeExam.currentQTimeSpentSec || 0) + elapsedSec);
+      activeExam.currentQTimeSpentSec = totalQSec;
 
       const m = Math.floor(activeExam.sectionRemainingSec / 60);
       const s = activeExam.sectionRemainingSec % 60;
@@ -4514,10 +4524,10 @@ Return ONLY valid JSON.`;
         else clockEl.className = "hud-timer";
       }
 
-      const qm = Math.floor(activeExam.currentQTimeSpentSec / 60);
-      const qs = activeExam.currentQTimeSpentSec % 60;
+      const qm = Math.floor(totalQSec / 60);
+      const qs = totalQSec % 60;
       safeSetText("arena-q-timer", `${String(qm).padStart(2, "0")}:${String(qs).padStart(2, "0")}`);
-      safeSetText("hud-pacing-status", `${activeExam.currentQTimeSpentSec}s on Q`);
+      safeSetText("hud-pacing-status", `${totalQSec}s total on Q`);
 
       if (activeExam.sectionRemainingSec <= 0) {
         handleSectionLockTransition(true);
@@ -4733,6 +4743,15 @@ Return ONLY valid JSON.`;
         safeSetDisplay("btn-arena-early-lock", "none");
         safeSetDisplay("btn-drawer-early-lock", "none");
       }
+
+      // Cumulative Per-Question Timer: Immediately display existing cumulative timeSpentSec on revisit (never flicker to 00:00)
+      activeExam.currentVisitTimeSec = 0;
+      const cumulativeQSec = resp.timeSpentSec || 0;
+      activeExam.currentQTimeSpentSec = cumulativeQSec;
+      const qm = Math.floor(cumulativeQSec / 60);
+      const qs = cumulativeQSec % 60;
+      safeSetText("arena-q-timer", `${String(qm).padStart(2, "0")}:${String(qs).padStart(2, "0")}`);
+      safeSetText("hud-pacing-status", `${cumulativeQSec}s total on Q`);
     }
 
     const secQs = activeExam.questions.filter(item => item.sectionIndex === q.sectionIndex);
@@ -4929,7 +4948,8 @@ Return ONLY valid JSON.`;
           if (!resp.decisionTrail) resp.decisionTrail = [];
           resp.decisionTrail.push({
             opt: idx + 1,
-            atSec: activeExam.currentQTimeSpentSec,
+            atSec: resp.timeSpentSec || activeExam.currentQTimeSpentSec || 0,
+            visitSec: activeExam.currentVisitTimeSec || 0,
             secRem: activeExam.sectionRemainingSec
           });
           if (resp.status !== "marked") resp.status = "answered";
@@ -4966,8 +4986,6 @@ Return ONLY valid JSON.`;
       `;
       container.appendChild(card);
     });
-
-    if (!isRev) activeExam.currentQTimeSpentSec = 0;
   }
 
   /* ==========================================================================
@@ -5811,6 +5829,213 @@ Explanation: ${parentQ.explanation}`;
   let scratchpadRedoStack = [];
   let sheetInkRedoStack = [];
 
+  // OnePlus Stylo 2 Hardware Telemetry, Palm Rejection Shield & Double-Tap Quick-Switch State
+  let lastPenContactEpoch = 0;
+  let styloHardwareDetected = false;
+  let lastScratchOrbTapEpoch = 0;
+  let lastFolioOrbTapEpoch = 0;
+  let prevScratchNonEraserMode = "PEN";
+  let prevFolioNonEraserTool = "pen";
+  let folioInkInputMode = "FINGER_AND_STYLUS"; // "AUTO_STYLO" | "FINGER_AND_STYLUS" | "PAN_ONLY"
+  let orbDragSuppressClickUntil = 0;
+
+  function notifyStyloHardwareDetected(e) {
+    if (!e || e.pointerType !== "pen") return;
+    lastPenContactEpoch = Date.now();
+    if (!styloHardwareDetected) {
+      styloHardwareDetected = true;
+      ["folio-stylo-telemetry-badge", "scratch-stylo-telemetry-badge"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.style.display = "inline-flex";
+          el.innerText = "✒️ Stylo 2 Active (Pressure + Tilt + Palm Shield ON)";
+        }
+      });
+    }
+  }
+
+  function isPalmTouchRejected(e) {
+    if (!e || e.pointerType !== "touch") return false;
+    if ((Date.now() - lastPenContactEpoch) < 650) return true;
+    if ((typeof e.width === "number" && e.width > 26) || (typeof e.height === "number" && e.height > 26)) {
+      return true;
+    }
+    return false;
+  }
+
+  function isStyloHardwareEraserEvent(e) {
+    return Boolean(e && e.pointerType === "pen" && (e.buttons === 32 || e.button === 5 || (e.buttons & 2) === 2));
+  }
+
+  function positionFloatingCardRelativeToOrb(orbRect, cardEl) {
+    if (!orbRect || !cardEl) return;
+    const vw = window.innerWidth || 800;
+    const vh = window.innerHeight || 700;
+    const cardW = Math.min(cardEl.offsetWidth || 410, vw - 16);
+    const cardH = Math.min(cardEl.offsetHeight || 340, vh - 76);
+
+    const orbCenterX = orbRect.left + (orbRect.width || 52) / 2;
+    const orbCenterY = orbRect.top + (orbRect.height || 52) / 2;
+
+    let targetLeft = orbCenterX > vw / 2
+      ? (orbRect.right - cardW)
+      : orbRect.left;
+    targetLeft = Math.max(8, Math.min(Math.max(8, vw - cardW - 8), Math.round(targetLeft)));
+
+    let targetTop;
+    if (cardEl.id === "comp-pdf-tools-drawer") {
+      // Prefer opening directly below PDF orb if space permits, else above it
+      const spaceBelow = vh - orbRect.bottom - 14;
+      if (spaceBelow >= Math.min(cardH, 280) || orbRect.top < vh * 0.48) {
+        targetTop = orbRect.bottom + 8;
+      } else {
+        targetTop = orbRect.top - cardH - 8;
+      }
+    } else {
+      // For Ink Studio cards, open upward if orb is in bottom half, downward if in top half
+      targetTop = orbCenterY > vh / 2
+        ? (orbRect.bottom - cardH)
+        : orbRect.top;
+    }
+    targetTop = Math.max(54, Math.min(Math.max(54, vh - cardH - 12), Math.round(targetTop)));
+
+    cardEl.style.left = `${targetLeft}px`;
+    cardEl.style.top = `${targetTop}px`;
+    cardEl.style.right = "auto";
+    cardEl.style.bottom = "auto";
+  }
+
+  function restoreOrbSavedPosition(shellEl) {
+    if (!shellEl || !shellEl._orbSavedPos) return;
+    const vw = window.innerWidth || 800;
+    const vh = window.innerHeight || 700;
+    const clampedLeft = Math.max(8, Math.min(Math.max(8, vw - 60), Math.round(shellEl._orbSavedPos.left)));
+    const clampedTop = Math.max(54, Math.min(Math.max(54, vh - 64), Math.round(shellEl._orbSavedPos.top)));
+    shellEl.style.left = `${clampedLeft}px`;
+    shellEl.style.top = `${clampedTop}px`;
+    shellEl.style.right = "auto";
+    shellEl.style.bottom = "auto";
+  }
+
+  function bindFloatingOrbDragController(triggerEl, moveContainerEl, opts = {}) {
+    if (!triggerEl || !moveContainerEl || triggerEl.dataset.orbDragBound === "true") return;
+    triggerEl.dataset.orbDragBound = "true";
+
+    let dragging = false;
+    let pointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let startLeft = 0;
+    let startTop = 0;
+    let moved = false;
+
+    triggerEl.addEventListener("pointerdown", (e) => {
+      if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
+      if (opts.isHeaderDrag && e.target && e.target.closest("button, input, select, textarea, a")) {
+        return;
+      }
+      const rect = moveContainerEl.getBoundingClientRect();
+      dragging = true;
+      moved = false;
+      pointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+      try { triggerEl.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+
+    triggerEl.addEventListener("pointermove", (e) => {
+      if (!dragging || e.pointerId !== pointerId) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) >= 5) {
+        moved = true;
+        moveContainerEl.classList.add("orb-dragging");
+      }
+      if (moved) {
+        e.preventDefault();
+        const vw = window.innerWidth || 800;
+        const vh = window.innerHeight || 700;
+        const elW = Math.min(moveContainerEl.offsetWidth || 52, vw - 16);
+        const elH = Math.min(moveContainerEl.offsetHeight || 52, vh - 66);
+        const maxLeft = Math.max(8, vw - elW - 8);
+        const maxTop = Math.max(54, vh - elH - 10);
+        const nextLeft = Math.max(8, Math.min(maxLeft, Math.round(startLeft + dx)));
+        const nextTop = Math.max(54, Math.min(maxTop, Math.round(startTop + dy)));
+        moveContainerEl.style.left = `${nextLeft}px`;
+        moveContainerEl.style.top = `${nextTop}px`;
+        moveContainerEl.style.right = "auto";
+        moveContainerEl.style.bottom = "auto";
+
+        if (!opts.isHeaderDrag) {
+          moveContainerEl._orbSavedPos = { left: nextLeft, top: nextTop };
+        } else {
+          const orbLeft = (nextLeft + elW / 2 > vw / 2) ? Math.max(8, nextLeft + elW - 52) : nextLeft;
+          const orbTop = (nextTop + elH / 2 > vh / 2) ? Math.max(54, nextTop + elH - 52) : nextTop;
+          moveContainerEl._orbSavedPos = { left: Math.round(orbLeft), top: Math.round(orbTop) };
+          if (opts.pairedOrbEl) {
+            opts.pairedOrbEl.style.left = `${Math.round(orbLeft)}px`;
+            opts.pairedOrbEl.style.top = `${Math.round(orbTop)}px`;
+            opts.pairedOrbEl.style.right = "auto";
+            opts.pairedOrbEl.style.bottom = "auto";
+            opts.pairedOrbEl._orbSavedPos = { left: Math.round(orbLeft), top: Math.round(orbTop) };
+          }
+        }
+
+        // If dragging the PDF Orb while the PDF Tools Drawer is open, keep the drawer dynamically anchored to the orb!
+        if (moveContainerEl.id === "comp-pdf-floating-hud-pill") {
+          const pdfDrawer = document.getElementById("comp-pdf-tools-drawer");
+          if (pdfDrawer && (pdfDrawer.classList.contains("open") || pdfDrawer.style.display === "flex")) {
+            positionFloatingCardRelativeToOrb(moveContainerEl.getBoundingClientRect(), pdfDrawer);
+          }
+        }
+      }
+    });
+
+    const endDrag = (e) => {
+      if (!dragging || (e && e.pointerId !== undefined && e.pointerId !== pointerId)) return;
+      dragging = false;
+      moveContainerEl.classList.remove("orb-dragging");
+      if (e && e.pointerId !== undefined) {
+        try { triggerEl.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      if (moved) {
+        orbDragSuppressClickUntil = Date.now() + 260;
+      }
+      pointerId = null;
+    };
+
+    triggerEl.addEventListener("pointerup", endDrag);
+    triggerEl.addEventListener("pointercancel", endDrag);
+  }
+
+  function initAllDraggableFloatingOrbs() {
+    const pdfOrb = document.getElementById("comp-pdf-floating-hud-pill");
+    const pdfDrawer = document.getElementById("comp-pdf-tools-drawer");
+    if (pdfOrb) bindFloatingOrbDragController(pdfOrb, pdfOrb);
+    if (pdfDrawer) {
+      const pdfHeader = pdfDrawer.querySelector(".pdf-tools-drawer-header");
+      if (pdfHeader) bindFloatingOrbDragController(pdfHeader, pdfDrawer, { isHeaderDrag: true, pairedOrbEl: pdfOrb });
+    }
+
+    const folioOrbBtn = document.getElementById("folio-ink-orb-trigger-btn");
+    const folioShell = document.getElementById("comp-folio-ink-toolbar");
+    if (folioOrbBtn && folioShell) {
+      bindFloatingOrbDragController(folioOrbBtn, folioShell);
+      const folioHeader = folioShell.querySelector(".ink-studio-card-header");
+      if (folioHeader) bindFloatingOrbDragController(folioHeader, folioShell, { isHeaderDrag: true });
+    }
+
+    const scratchOrbBtn = document.getElementById("scratch-orb-trigger-btn");
+    const scratchShell = document.getElementById("scratchpad-toolbar-pill");
+    if (scratchOrbBtn && scratchShell) {
+      bindFloatingOrbDragController(scratchOrbBtn, scratchShell);
+      const scratchHeader = scratchShell.querySelector(".ink-studio-card-header");
+      if (scratchHeader) bindFloatingOrbDragController(scratchHeader, scratchShell, { isHeaderDrag: true });
+    }
+  }
+
   const INK_TOOL_ORB_ICONS = {
     pan: "✋",
     pen: "🖊️",
@@ -5842,6 +6067,7 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function syncInkCircularOrbVisuals() {
+    initAllDraggableFloatingOrbs();
     // Folio Ink Orb
     const folioIcon = document.getElementById("folio-orb-tool-icon");
     const folioRing = document.getElementById("folio-orb-color-ring");
@@ -5863,21 +6089,87 @@ Explanation: ${parentQ.explanation}`;
 
   function setInkStudioPillExpanded(expanded = false, evt = null) {
     if (evt && typeof evt.stopPropagation === "function") evt.stopPropagation();
+    if (evt && Date.now() < orbDragSuppressClickUntil) return;
+    if (evt && Boolean(expanded)) {
+      const now = Date.now();
+      if (now - lastFolioOrbTapEpoch < 280) {
+        lastFolioOrbTapEpoch = 0;
+        const cur = String(compSheetInkTool || "pen").toLowerCase();
+        if (cur === "stroke_eraser" || cur === "eraser") {
+          setCompSheetInkTool(prevFolioNonEraserTool || "pen");
+          showToast(`✒️ Quick-Switch: ${String(prevFolioNonEraserTool || "pen").toUpperCase()}`, "cyan", 1400);
+        } else {
+          prevFolioNonEraserTool = cur;
+          setCompSheetInkTool("stroke_eraser");
+          showToast("🧽 Quick-Switch: Stroke Eraser", "purple", 1400);
+        }
+        setInkStudioPillExpanded(false);
+        return;
+      }
+      lastFolioOrbTapEpoch = now;
+    }
     const toolbarEl = document.getElementById("comp-folio-ink-toolbar");
     if (!toolbarEl) return;
     const isExp = Boolean(expanded);
+    const wasCollapsed = toolbarEl.classList.contains("is-collapsed-orb");
+    let orbRect = null;
+    if (isExp && wasCollapsed) {
+      const r = toolbarEl.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        orbRect = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+        toolbarEl._orbSavedPos = { left: Math.round(r.left), top: Math.round(r.top) };
+      }
+    }
     toolbarEl.classList.toggle("is-expanded-card", isExp);
     toolbarEl.classList.toggle("is-collapsed-orb", !isExp);
+    if (isExp && orbRect) {
+      positionFloatingCardRelativeToOrb(orbRect, toolbarEl);
+    } else if (!isExp) {
+      restoreOrbSavedPosition(toolbarEl);
+    }
     syncInkCircularOrbVisuals();
   }
 
   function setScratchpadPillExpanded(expanded = false, evt = null) {
     if (evt && typeof evt.stopPropagation === "function") evt.stopPropagation();
+    if (evt && Date.now() < orbDragSuppressClickUntil) return;
+    if (evt && Boolean(expanded)) {
+      const now = Date.now();
+      if (now - lastScratchOrbTapEpoch < 280) {
+        lastScratchOrbTapEpoch = 0;
+        const cur = String(scratchpadMode || "PEN").toUpperCase();
+        if (cur === "ERASER" || cur === "STROKE_ERASER") {
+          setScratchpadMode(prevScratchNonEraserMode || "PEN");
+          showToast(`✒️ Quick-Switch: ${prevScratchNonEraserMode || "PEN"}`, "cyan", 1400);
+        } else {
+          prevScratchNonEraserMode = cur;
+          setScratchpadMode("STROKE_ERASER");
+          showToast("🧽 Quick-Switch: Stroke Eraser", "purple", 1400);
+        }
+        setScratchpadPillExpanded(false);
+        return;
+      }
+      lastScratchOrbTapEpoch = now;
+    }
     const toolbarEl = document.getElementById("scratchpad-toolbar-pill");
     if (!toolbarEl) return;
     const isExp = Boolean(expanded);
+    const wasCollapsed = toolbarEl.classList.contains("is-collapsed-orb");
+    let orbRect = null;
+    if (isExp && wasCollapsed) {
+      const r = toolbarEl.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        orbRect = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+        toolbarEl._orbSavedPos = { left: Math.round(r.left), top: Math.round(r.top) };
+      }
+    }
     toolbarEl.classList.toggle("is-expanded-card", isExp);
     toolbarEl.classList.toggle("is-collapsed-orb", !isExp);
+    if (isExp && orbRect) {
+      positionFloatingCardRelativeToOrb(orbRect, toolbarEl);
+    } else if (!isExp) {
+      restoreOrbSavedPosition(toolbarEl);
+    }
     syncInkCircularOrbVisuals();
   }
 
@@ -6515,10 +6807,19 @@ Explanation: ${parentQ.explanation}`;
     }
   }
 
+  let scratchpadInputMode = "FINGER_AND_STYLUS"; // "FINGER_AND_STYLUS" | "AUTO_STYLO" | "PAN_ONLY"
+  let scratchpadEraserCursorPreview = null;
+  let scratchLassoPolygon = [];
+  let scratchLassoSelectedIndices = [];
+  let scratchLassoBounds = null;
+  let scratchLassoDragging = false;
+  let scratchLassoLastPos = null;
+
   function syncScratchpadModeUI() {
     const overlay = document.getElementById("scratchpad-overlay");
     const btn = document.getElementById("btn-scratch-finger-mode");
-    const isScrollMode = !scratchpadFingerDraw;
+    const isPanTool = scratchpadMode === "PAN" || scratchpadInputMode === "PAN_ONLY";
+    const isScrollMode = isPanTool || !scratchpadFingerDraw || scratchpadInputMode === "AUTO_STYLO";
 
     scratchpadScrollPassthrough = isScrollMode;
 
@@ -6531,14 +6832,105 @@ Explanation: ${parentQ.explanation}`;
     }
 
     if (btn) {
-      if (isScrollMode) {
-        btn.className = "btn btn-emerald";
-        btn.innerText = "\u270B Scroll ON";
+      btn.classList.toggle("btn-emerald", scratchpadInputMode === "FINGER_AND_STYLUS" && !isPanTool);
+      btn.classList.toggle("btn-cyan", scratchpadInputMode === "AUTO_STYLO" && !isPanTool);
+      btn.classList.toggle("btn-secondary", scratchpadInputMode === "PAN_ONLY" || isPanTool);
+      if (scratchpadInputMode === "AUTO_STYLO") {
+        btn.innerText = "\u2712\uFE0F Stylo 2 Auto (Pen Writes \u2022 1-Finger Scrolls)";
+      } else if (scratchpadInputMode === "PAN_ONLY" || isPanTool) {
+        btn.innerText = "\u270B Pan / Read Only";
       } else {
-        btn.className = "btn btn-amber";
-        btn.innerText = "\u270D\uFE0F Draw ON";
+        btn.innerText = "\u270D\uFE0F Finger & Stylus: Write";
       }
     }
+  }
+
+  function computeScratchLassoBounds() {
+    if (!scratchLassoSelectedIndices.length) {
+      scratchLassoBounds = null;
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    scratchLassoSelectedIndices.forEach(idx => {
+      const s = scratchpadStrokes[idx];
+      if (!Array.isArray(s)) return;
+      s.forEach(pt => {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y > maxY) maxY = pt.y;
+      });
+    });
+    scratchLassoBounds = minX <= maxX ? { minX, minY, maxX, maxY } : null;
+  }
+
+  function isWorldPtInScratchPolygon(x, y, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-7) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function tryToggleScratchpadTapeAtPoint(worldX, worldY) {
+    const hitSq = 18 * 18;
+    for (let sIdx = scratchpadStrokes.length - 1; sIdx >= 0; sIdx--) {
+      const stroke = scratchpadStrokes[sIdx];
+      if (!Array.isArray(stroke) || stroke.length < 2) continue;
+      if (String(stroke[0].mode || "").toUpperCase() !== "TAPE") continue;
+      for (let i = 0; i < stroke.length - 1; i++) {
+        if (distToSegmentSq(worldX, worldY, stroke[i].x, stroke[i].y, stroke[i + 1].x, stroke[i + 1].y) <= hitSq) {
+          stroke[0].revealed = !stroke[0].revealed;
+          inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
+          redrawScratchpad();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function eraseWholeScratchpadStrokesAlongSegment(p0, p1, hitRadiusPx = 28) {
+    if (!Array.isArray(scratchpadStrokes) || scratchpadStrokes.length === 0) return false;
+    const moveDist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+    const steps = Math.max(1, Math.ceil(moveDist / 6));
+    const samplePts = [];
+    for (let s = 0; s <= steps; s++) {
+      const f = s / steps;
+      samplePts.push({ x: p0.x + (p1.x - p0.x) * f, y: p0.y + (p1.y - p0.y) * f });
+    }
+    let removedAny = false;
+    scratchpadStrokes = scratchpadStrokes.filter(stroke => {
+      if (!Array.isArray(stroke) || stroke.length === 0) return false;
+      const m = String(stroke[0].mode || "PEN").toUpperCase();
+      if (m === "ERASER") return true;
+      const baseSz = Number(stroke[0].size) || 3.2;
+      const halfW = m === "MARKER" ? Math.max(16, baseSz * 6) / 2 : (m === "TAPE" ? 11 : baseSz / 2);
+      const threshSq = (hitRadiusPx + halfW) * (hitRadiusPx + halfW);
+      for (const sp of samplePts) {
+        if (stroke.length === 1) {
+          if ((sp.x - stroke[0].x) ** 2 + (sp.y - stroke[0].y) ** 2 <= threshSq) {
+            removedAny = true;
+            return false;
+          }
+        } else {
+          for (let i = 0; i < stroke.length - 1; i++) {
+            if (distToSegmentSq(sp.x, sp.y, stroke[i].x, stroke[i].y, stroke[i + 1].x, stroke[i + 1].y) <= threshSq) {
+              removedAny = true;
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    });
+    if (removedAny && !scratchpadStrokes.some(s => Array.isArray(s) && s[0] && String(s[0].mode || "PEN").toUpperCase() !== "ERASER")) {
+      scratchpadStrokes = [];
+    }
+    return removedAny;
   }
 
   function initScratchpadCanvasListeners() {
@@ -6552,6 +6944,8 @@ Explanation: ${parentQ.explanation}`;
     let twoFingerScrolling = false;
     let lastTwoFingerMidY = 0;
     let lastTwoFingerMidX = 0;
+    let lastScratchEraserPt = null;
+    let scratchStrokeEraserModified = false;
 
     // Bind scroll listeners on all primary reading/solving containers + window so ink stays locked to text
     ["arena-body", "dojo-arena-body", "comp-studio-canvas"].forEach(cid => {
@@ -6590,6 +6984,7 @@ Explanation: ${parentQ.explanation}`;
         if (scratchpadDrawing) {
           scratchpadDrawing = false;
           currentStroke = [];
+          scratchpadEraserCursorPreview = null;
           redrawScratchpad();
         }
         lastTwoFingerMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
@@ -6632,32 +7027,83 @@ Explanation: ${parentQ.explanation}`;
 
     const scheduleScratchHoldSnap = () => {
       clearTimeout(scratchHoldSnapTimer);
-      if (scratchStrokeSnapped || !scratchpadDrawing || currentStroke.length < 6) return;
-      if (currentStroke[0]?.mode === "ERASER") return;
+      if (!inkAutoShapeSnapEnabled) return;
+      if (scratchStrokeSnapped || !scratchpadDrawing || currentStroke.length < 5) return;
+      const m = String(currentStroke[0]?.mode || "PEN").toUpperCase();
+      if (m === "ERASER" || m === "STROKE_ERASER" || m === "TAPE" || m === "LASSO" || m === "PAN") return;
       scratchHoldSnapTimer = setTimeout(() => {
-        if (!scratchpadDrawing || scratchStrokeSnapped) return;
+        if (!scratchpadDrawing || scratchStrokeSnapped || currentStroke.length < 5) return;
         const snapped = snapWorldStrokeToGeometricShape(currentStroke);
-        if (snapped) {
+        if (snapped && snapped.length >= 2) {
+          snapped[0].shapeSnap = true;
           currentStroke = snapped;
           scratchStrokeSnapped = true;
           if (navigator.vibrate) navigator.vibrate(18);
           redrawScratchpad();
         }
-      }, 350);
+      }, 330);
     };
 
     const startStrokeFromEvent = (e) => {
       if (twoFingerScrolling) return;
-      // Auto-collapse expanded Ink Studio card back into small circular floating pill when drawing starts
+      notifyStyloHardwareDetected(e);
+      if (isPalmTouchRejected(e)) return;
       setScratchpadPillExpanded(false);
-      const isHardwareEraser = (e.pointerType === "pen" && (e.buttons === 32 || e.button === 5));
-      const effectiveMode = isHardwareEraser ? "ERASER" : scratchpadMode;
+      const isHardwareEraser = isStyloHardwareEraserEvent(e);
+      const effectiveMode = isHardwareEraser ? "STROKE_ERASER" : (scratchpadLaserMode ? "LASER" : scratchpadMode);
+      if (effectiveMode === "PAN") return;
+
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
+      const tilt = Math.hypot(e.tiltX || 0, e.tiltY || 0);
+      const pos = getWorldPos(e);
+      const eraserW = getEffectiveEraserPixelWidth(scratchpadSize);
+
+      if (effectiveMode === "LASSO") {
+        if (scratchLassoBounds && scratchLassoSelectedIndices.length > 0) {
+          if (
+            pos.x >= scratchLassoBounds.minX - 16 &&
+            pos.x <= scratchLassoBounds.maxX + 16 &&
+            pos.y >= scratchLassoBounds.minY - 16 &&
+            pos.y <= scratchLassoBounds.maxY + 16
+          ) {
+            scratchLassoDragging = true;
+            scratchpadDrawing = true;
+            scratchLassoLastPos = pos;
+            return;
+          }
+        }
+        scratchLassoDragging = false;
+        scratchLassoSelectedIndices = [];
+        scratchLassoBounds = null;
+        scratchLassoPolygon = [pos];
+        scratchpadDrawing = true;
+        redrawScratchpad();
+        return;
+      }
 
       scratchpadDrawing = true;
       scratchStrokeSnapped = false;
+      scratchStrokeEraserModified = false;
+      lastScratchEraserPt = pos;
       clearTimeout(scratchHoldSnapTimer);
-      const pos = getWorldPos(e);
+
+      if (effectiveMode === "STROKE_ERASER") {
+        const hitR = Math.max(20, Math.round(eraserW * 0.55));
+        scratchpadEraserCursorPreview = { x: pos.x, y: pos.y, radiusPx: hitR };
+        currentStroke = [{ x: pos.x, y: pos.y, mode: "STROKE_ERASER" }];
+        if (eraseWholeScratchpadStrokesAlongSegment(pos, pos, hitR)) {
+          scratchStrokeEraserModified = true;
+        }
+        redrawScratchpad();
+        return;
+      }
+
+      if (effectiveMode === "ERASER") {
+        scratchpadEraserCursorPreview = { x: pos.x, y: pos.y, radiusPx: Math.round(eraserW / 2) };
+      } else {
+        scratchpadEraserCursorPreview = null;
+      }
+
       currentStroke = [{
         x: pos.x,
         y: pos.y,
@@ -6666,18 +7112,64 @@ Explanation: ${parentQ.explanation}`;
         mode: effectiveMode,
         color: scratchpadColor,
         size: scratchpadSize,
-        pressure: pressure
+        eraserWidth: eraserW,
+        pressure: pressure,
+        tilt: tilt,
+        revealed: false,
+        shapeSnap: String(effectiveMode).startsWith("SHAPE_")
       }];
       redrawScratchpad();
     };
 
     const moveStrokeFromEvent = (e) => {
       if (!scratchpadDrawing || !scratchpadActive || twoFingerScrolling) return;
+      notifyStyloHardwareDetected(e);
+      if (isPalmTouchRejected(e)) return;
+      const pos = getWorldPos(e);
+
+      if (scratchpadMode === "LASSO" && !isStyloHardwareEraserEvent(e)) {
+        if (scratchLassoDragging && scratchLassoLastPos) {
+          const dx = pos.x - scratchLassoLastPos.x;
+          const dy = pos.y - scratchLassoLastPos.y;
+          scratchLassoLastPos = pos;
+          scratchLassoSelectedIndices.forEach(idx => {
+            const s = scratchpadStrokes[idx];
+            if (!Array.isArray(s)) return;
+            s.forEach(pt => {
+              pt.x += dx;
+              pt.y += dy;
+            });
+          });
+          computeScratchLassoBounds();
+          redrawScratchpad();
+          return;
+        }
+        scratchLassoPolygon.push(pos);
+        redrawScratchpad();
+        return;
+      }
+
       const activeMode = currentStroke[0] ? currentStroke[0].mode : scratchpadMode;
       const activeCol = currentStroke[0] ? currentStroke[0].color : scratchpadColor;
       const activeSz = currentStroke[0] ? currentStroke[0].size : scratchpadSize;
+      const eraserW = getEffectiveEraserPixelWidth(activeSz);
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
-      const pos = getWorldPos(e);
+      const tilt = Math.hypot(e.tiltX || 0, e.tiltY || 0);
+
+      if (activeMode === "STROKE_ERASER") {
+        const hitR = Math.max(20, Math.round(eraserW * 0.55));
+        scratchpadEraserCursorPreview = { x: pos.x, y: pos.y, radiusPx: hitR };
+        if (eraseWholeScratchpadStrokesAlongSegment(lastScratchEraserPt || pos, pos, hitR)) {
+          scratchStrokeEraserModified = true;
+        }
+        lastScratchEraserPt = pos;
+        redrawScratchpad();
+        return;
+      }
+
+      if (activeMode === "ERASER") {
+        scratchpadEraserCursorPreview = { x: pos.x, y: pos.y, radiusPx: Math.round(eraserW / 2) };
+      }
 
       // Direct 1-Stroke Geometry Figure Tools
       if (String(activeMode).startsWith("SHAPE_")) {
@@ -6690,8 +7182,10 @@ Explanation: ${parentQ.explanation}`;
           color: activeCol,
           size: activeSz,
           pressure: pressure,
+          tilt: tilt,
           startOriginX: origin.x,
-          startOriginY: origin.y
+          startOriginY: origin.y,
+          shapeSnap: true
         };
         currentStroke = buildDirectDragGeometricPoints(origin, pos, activeMode, baseMeta);
         redrawScratchpad();
@@ -6707,17 +7201,19 @@ Explanation: ${parentQ.explanation}`;
       }
 
       const lastPt = currentStroke[currentStroke.length - 1];
-      if (lastPt && Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y) > 4.2) {
-        scheduleScratchHoldSnap();
-      }
       currentStroke.push({
         x: pos.x,
         y: pos.y,
         mode: activeMode,
         color: activeCol,
         size: activeSz,
-        pressure: pressure
+        eraserWidth: eraserW,
+        pressure: pressure,
+        tilt: tilt
       });
+      if (!lastPt || Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y) > 0.6) {
+        scheduleScratchHoldSnap();
+      }
       redrawScratchpad();
     };
 
@@ -6726,15 +7222,70 @@ Explanation: ${parentQ.explanation}`;
       if (!scratchpadDrawing) return;
       scratchpadDrawing = false;
       scratchStrokeSnapped = false;
+      scratchpadEraserCursorPreview = null;
+      lastScratchEraserPt = null;
       if (overlay) overlay.classList.remove("pen-active-stroke");
+
+      if (scratchpadMode === "LASSO") {
+        if (scratchLassoDragging) {
+          scratchLassoDragging = false;
+          scratchLassoLastPos = null;
+          inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
+          redrawScratchpad();
+          return;
+        }
+        if (scratchLassoPolygon.length >= 3) {
+          scratchLassoSelectedIndices = [];
+          scratchpadStrokes.forEach((s, idx) => {
+            if (!Array.isArray(s) || s.length === 0 || s[0].mode === "ERASER") return;
+            const insideCount = s.filter(pt => isWorldPtInScratchPolygon(pt.x, pt.y, scratchLassoPolygon)).length;
+            if (insideCount >= Math.max(1, Math.floor(s.length * 0.35))) {
+              scratchLassoSelectedIndices.push(idx);
+            }
+          });
+          scratchLassoPolygon = [];
+          computeScratchLassoBounds();
+          redrawScratchpad();
+          if (scratchLassoSelectedIndices.length > 0) {
+            showToast(`${scratchLassoSelectedIndices.length} stroke(s) selected — drag box to move.`, "cyan", 1800);
+          }
+        } else {
+          scratchLassoPolygon = [];
+          redrawScratchpad();
+        }
+        return;
+      }
+
+      if (currentStroke.length > 0 && currentStroke[0].mode === "STROKE_ERASER") {
+        currentStroke = [];
+        if (scratchStrokeEraserModified) {
+          scratchStrokeEraserModified = false;
+          inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
+        }
+        redrawScratchpad();
+        return;
+      }
+
       if (currentStroke.length > 0) {
+        // Tap-to-reveal Recall Tape ribbon on Scratchpad
+        if (currentStroke[0].mode === "TAPE" && currentStroke.length <= 4) {
+          const p0 = currentStroke[0];
+          const pLast = currentStroke[currentStroke.length - 1];
+          if (Math.hypot(pLast.x - p0.x, pLast.y - p0.y) < 10) {
+            currentStroke = [];
+            if (tryToggleScratchpadTapeAtPoint(p0.x, p0.y)) return;
+            redrawScratchpad();
+            return;
+          }
+        }
+
         const committedStroke = [...currentStroke];
         scratchpadStrokes.push(committedStroke);
         scratchpadRedoStack = [];
         inkMemoryByContextKey[activeInkContextKey] = [...scratchpadStrokes];
         currentStroke = [];
 
-        if (scratchpadLaserMode) {
+        if (committedStroke[0]?.mode === "LASER" || scratchpadLaserMode) {
           setTimeout(() => {
             const idx = scratchpadStrokes.indexOf(committedStroke);
             if (idx !== -1) {
@@ -6751,8 +7302,15 @@ Explanation: ${parentQ.explanation}`;
     // 1. Direct Canvas Pointer Listeners (Active when Draw Mode is ON)
     canvas.addEventListener("pointerdown", (e) => {
       if (!scratchpadActive || twoFingerScrolling) return;
+      notifyStyloHardwareDetected(e);
+      if (isPalmTouchRejected(e)) return;
       if (!e.isPrimary) return;
-      if (scratchpadScrollPassthrough && e.pointerType !== "pen") return;
+
+      const pos = getWorldPos(e);
+      if (scratchpadScrollPassthrough && e.pointerType !== "pen") {
+        tryToggleScratchpadTapeAtPoint(pos.x, pos.y);
+        return;
+      }
 
       e.preventDefault();
       try {
@@ -6763,6 +7321,8 @@ Explanation: ${parentQ.explanation}`;
 
     canvas.addEventListener("pointermove", (e) => {
       if (!scratchpadDrawing || !scratchpadActive || twoFingerScrolling) return;
+      notifyStyloHardwareDetected(e);
+      if (isPalmTouchRejected(e)) return;
       e.preventDefault();
       moveStrokeFromEvent(e);
     });
@@ -6772,6 +7332,7 @@ Explanation: ${parentQ.explanation}`;
 
     // 2. Global Stylo 2 / Active Stylus Auto-Ink Capture (Even when Scroll Mode is ON!)
     window.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "pen") notifyStyloHardwareDetected(e);
       if (!scratchpadActive || e.pointerType !== "pen") return;
       if (!scratchpadScrollPassthrough) return; // Already handled by canvas when Draw Mode is ON
       if (e.target && e.target.closest(".scratchpad-toolbar, button, input, select, textarea, a, .arena-header, .arena-footer")) {
@@ -6783,6 +7344,7 @@ Explanation: ${parentQ.explanation}`;
     }, { capture: true });
 
     window.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "pen") notifyStyloHardwareDetected(e);
       if (!scratchpadDrawing || !scratchpadActive || e.pointerType !== "pen") return;
       if (!scratchpadScrollPassthrough) return;
       e.preventDefault();
@@ -6800,8 +7362,13 @@ Explanation: ${parentQ.explanation}`;
     const canvas = document.getElementById("scratchpad-canvas");
     const overlay = document.getElementById("scratchpad-overlay");
     if (!canvas || !overlay) return;
-    canvas.width = overlay.clientWidth || window.innerWidth;
-    canvas.height = overlay.clientHeight || (window.innerHeight - 56);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const cssW = Math.max(overlay.clientWidth || window.innerWidth, 320);
+    const cssH = Math.max(overlay.clientHeight || (window.innerHeight - 56), 320);
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
     redrawScratchpad();
   }
 
@@ -6809,50 +7376,162 @@ Explanation: ${parentQ.explanation}`;
     const canvas = document.getElementById("scratchpad-canvas");
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(dpr, dpr);
 
     const sc = getActiveScrollContainerForInk();
     const sTop = sc ? sc.scrollTop : 0;
     const sLeft = sc ? sc.scrollLeft : 0;
 
     const allStrokes = currentStroke.length > 0 ? [...scratchpadStrokes, currentStroke] : scratchpadStrokes;
-    allStrokes.forEach(stroke => {
+    allStrokes.forEach((stroke, sIdx) => {
       if (!stroke || stroke.length === 0) return;
+      const sMode = String(stroke[0].mode || "PEN").toUpperCase();
+      if (sMode === "STROKE_ERASER") return;
+
       ctx.save();
       ctx.beginPath();
-      const sMode = String(stroke[0].mode || "PEN").toUpperCase();
       const isEraser = sMode === "ERASER";
       const isMarker = sMode === "MARKER";
       const isFountain = sMode === "FOUNTAIN";
       const isDashed = sMode === "DASHED";
+      const isLaser = sMode === "LASER" || (scratchpadLaserMode && !isEraser);
+      const isTape = sMode === "TAPE";
       const strokeCol = stroke[0].color || "#38bdf8";
       const baseSz = Number(stroke[0].size) || 3.2;
       const avgPressure = stroke[0].pressure || 0.5;
-      ctx.globalCompositeOperation = isEraser ? "destination-out" : "source-over";
-      ctx.globalAlpha = isMarker ? 0.36 : 1.0;
-      ctx.strokeStyle = strokeCol;
-      ctx.lineWidth = isEraser
-        ? Math.max(24, baseSz * 9)
-        : (isMarker ? Math.max(16, baseSz * 6) : (isFountain ? baseSz * (0.75 + avgPressure * 0.9) : baseSz));
-      ctx.lineCap = isMarker ? "square" : "round";
+      const tiltVal = Number(stroke[0].tilt) || 0;
+      const tiltFactor = tiltVal > 25 ? Math.min(1.6, 1 + ((tiltVal - 25) / 55) * 0.6) : 1.0;
+
+      if (isEraser) {
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.strokeStyle = "rgba(0,0,0,1)";
+        ctx.lineWidth = stroke[0].eraserWidth || getEffectiveEraserPixelWidth(baseSz);
+        ctx.lineCap = "round";
+      } else if (isTape) {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineCap = "butt";
+        ctx.globalAlpha = stroke[0].revealed ? 0.14 : 0.96;
+        ctx.strokeStyle = strokeCol || "#7c3aed";
+        ctx.lineWidth = 22;
+      } else if (isMarker) {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineCap = "square";
+        ctx.globalAlpha = 0.36;
+        ctx.strokeStyle = strokeCol;
+        ctx.lineWidth = Math.max(16, baseSz * 6.8 * tiltFactor);
+      } else if (isFountain) {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineCap = "round";
+        ctx.globalAlpha = 1.0;
+        ctx.strokeStyle = strokeCol;
+        ctx.lineWidth = Math.max(1.4, baseSz * (0.75 + avgPressure * 0.9) * tiltFactor);
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineCap = "round";
+        ctx.globalAlpha = 1.0;
+        ctx.strokeStyle = strokeCol;
+        ctx.lineWidth = baseSz;
+      }
       ctx.lineJoin = "round";
       if (isDashed) {
         ctx.setLineDash([baseSz * 2.6, baseSz * 1.8]);
       }
-
-      if (scratchpadLaserMode && !isEraser) {
+      if (isLaser) {
         ctx.shadowColor = strokeCol;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = 12;
       }
 
-      ctx.moveTo(stroke[0].x - sLeft, stroke[0].y - sTop);
-      for (let i = 1; i < stroke.length; i++) {
-        ctx.lineTo(stroke[i].x - sLeft, stroke[i].y - sTop);
+      const pts = stroke.map(pt => ({ x: pt.x - sLeft, y: pt.y - sTop }));
+      ctx.moveTo(pts[0].x, pts[0].y);
+      if (pts.length === 1) {
+        ctx.lineTo(pts[0].x + 0.1, pts[0].y + 0.1);
+      } else if (stroke[0].shapeSnap || String(sMode).startsWith("SHAPE_")) {
+        for (let i = 1; i < pts.length; i++) {
+          ctx.lineTo(pts[i].x, pts[i].y);
+        }
+      } else {
+        for (let i = 1; i < pts.length - 1; i++) {
+          const midX = (pts[i].x + pts[i + 1].x) / 2;
+          const midY = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+        }
+        const last = pts[pts.length - 1];
+        ctx.lineTo(last.x, last.y);
       }
       ctx.stroke();
+
+      if (isTape && pts.length >= 2) {
+        ctx.globalAlpha = stroke[0].revealed ? 0.45 : 0.85;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "#38bdf8";
+        ctx.stroke();
+      }
+
+      if (sIdx < scratchpadStrokes.length && scratchLassoSelectedIndices.includes(sIdx)) {
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = "#38bdf8";
+        ctx.stroke();
+      }
       ctx.restore();
     });
-    ctx.globalCompositeOperation = "source-over";
+
+    if (scratchLassoPolygon.length > 1) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(scratchLassoPolygon[0].x - sLeft, scratchLassoPolygon[0].y - sTop);
+      for (let i = 1; i < scratchLassoPolygon.length; i++) {
+        ctx.lineTo(scratchLassoPolygon[i].x - sLeft, scratchLassoPolygon[i].y - sTop);
+      }
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(56, 189, 248, 0.08)";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (scratchLassoBounds && scratchLassoSelectedIndices.length > 0) {
+      const bx = (scratchLassoBounds.minX - sLeft) - 6;
+      const by = (scratchLassoBounds.minY - sTop) - 6;
+      const bw = (scratchLassoBounds.maxX - scratchLassoBounds.minX) + 12;
+      const bh = (scratchLassoBounds.maxY - scratchLassoBounds.minY) + 12;
+      ctx.save();
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.fillStyle = "rgba(56, 189, 248, 0.07)";
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.restore();
+    }
+
+    if (scratchpadEraserCursorPreview && scratchpadDrawing) {
+      const ex = scratchpadEraserCursorPreview.x - sLeft;
+      const ey = scratchpadEraserCursorPreview.y - sTop;
+      const r = scratchpadEraserCursorPreview.radiusPx || 32;
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.beginPath();
+      ctx.arc(ex, ey, r, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(244, 63, 94, 0.16)";
+      ctx.fill();
+      ctx.lineWidth = 2.0;
+      ctx.strokeStyle = "rgba(251, 113, 133, 0.92)";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
 
   function toggleScratchpadCanvas(forceState = null) {
@@ -6880,6 +7559,7 @@ Explanation: ${parentQ.explanation}`;
       setTimeout(resizeScratchpadCanvas, 20);
     } else {
       scratchpadDrawing = false;
+      scratchpadEraserCursorPreview = null;
       overlay.classList.remove("finger-draw-enabled", "scroll-passthrough", "pen-active-stroke");
     }
 
@@ -6896,17 +7576,37 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function toggleScratchpadLaserMode(forceState = null) {
-    scratchpadLaserMode = typeof forceState === "boolean" ? forceState : !scratchpadLaserMode;
-    const btn = document.getElementById("btn-scratch-laser");
-    if (btn) {
-      btn.className = scratchpadLaserMode ? "btn btn-purple ink-grid-btn" : "btn btn-secondary ink-grid-btn";
-      btn.innerText = scratchpadLaserMode ? "\u2728 Laser ON" : "\u2728 Laser 3s";
-    }
-    syncInkCircularOrbVisuals();
+    const nextState = typeof forceState === "boolean" ? forceState : (scratchpadMode !== "LASER" && !scratchpadLaserMode);
+    scratchpadLaserMode = nextState;
+    setScratchpadMode(nextState ? "LASER" : "PEN");
   }
 
   function toggleScratchpadFingerDraw(forceDrawState = null) {
-    scratchpadFingerDraw = typeof forceDrawState === "boolean" ? forceDrawState : !scratchpadFingerDraw;
+    if (typeof forceDrawState === "boolean") {
+      scratchpadFingerDraw = forceDrawState;
+      scratchpadInputMode = forceDrawState ? "FINGER_AND_STYLUS" : "AUTO_STYLO";
+    } else {
+      if (scratchpadInputMode === "FINGER_AND_STYLUS") {
+        scratchpadInputMode = "AUTO_STYLO";
+        scratchpadFingerDraw = false;
+      } else if (scratchpadInputMode === "AUTO_STYLO") {
+        scratchpadInputMode = "PAN_ONLY";
+        scratchpadFingerDraw = false;
+      } else {
+        scratchpadInputMode = "FINGER_AND_STYLUS";
+        scratchpadFingerDraw = true;
+      }
+    }
+    syncScratchpadModeUI();
+  }
+
+  function toggleScratchpadFingerMode(forceDrawState = null) {
+    toggleScratchpadFingerDraw(forceDrawState);
+  }
+
+  function setScratchpadInputMode(mode = "FINGER_AND_STYLUS") {
+    scratchpadInputMode = mode;
+    scratchpadFingerDraw = (mode === "FINGER_AND_STYLUS");
     syncScratchpadModeUI();
   }
 
@@ -6926,11 +7626,8 @@ Explanation: ${parentQ.explanation}`;
 
   function setScratchpadColor(colorHex, btnEl) {
     scratchpadColor = colorHex || "#38bdf8";
-    if (scratchpadMode === "ERASER") {
+    if (scratchpadMode === "ERASER" || scratchpadMode === "STROKE_ERASER" || scratchpadMode === "LASSO" || scratchpadMode === "PAN") {
       setScratchpadMode("PEN");
-    }
-    if (!scratchpadFingerDraw) {
-      toggleScratchpadFingerDraw(true);
     }
     document.querySelectorAll(".ink-color-dot").forEach(dot => {
       dot.classList.toggle("active", dot === btnEl || dot.dataset.color === scratchpadColor);
@@ -6941,14 +7638,26 @@ Explanation: ${parentQ.explanation}`;
   function setScratchpadMode(mode) {
     const norm = String(mode || "PEN").toUpperCase();
     scratchpadMode = norm;
-    if (!scratchpadFingerDraw) {
-      toggleScratchpadFingerDraw(true);
+    scratchpadLaserMode = (norm === "LASER");
+    scratchLassoPolygon = [];
+    scratchLassoSelectedIndices = [];
+    scratchLassoBounds = null;
+    if (norm !== "PAN" && scratchpadInputMode === "PAN_ONLY") {
+      scratchpadInputMode = "FINGER_AND_STYLUS";
+      scratchpadFingerDraw = true;
     }
+    syncScratchpadModeUI();
+
     const modeBtnMap = {
+      PAN: "btn-scratch-pan",
       PEN: "btn-scratch-pen",
       FOUNTAIN: "btn-scratch-fountain",
       MARKER: "btn-scratch-marker",
       DASHED: "btn-scratch-dashed",
+      LASER: "btn-scratch-laser",
+      TAPE: "btn-scratch-tape",
+      LASSO: "btn-scratch-lasso",
+      STROKE_ERASER: "btn-scratch-stroke-eraser",
       ERASER: "btn-scratch-eraser",
       SHAPE_LINE: "btn-scratch-shape-line",
       SHAPE_ARROW: "btn-scratch-shape-arrow",
@@ -6962,11 +7671,14 @@ Explanation: ${parentQ.explanation}`;
     Object.keys(modeBtnMap).forEach(k => {
       const b = document.getElementById(modeBtnMap[k]);
       if (b) {
-        b.classList.toggle("btn-cyan", scratchpadMode === k);
-        b.classList.toggle("btn-secondary", scratchpadMode !== k);
+        const isActive = scratchpadMode === k;
+        b.classList.toggle("active", isActive);
+        b.classList.toggle("btn-cyan", isActive);
+        b.classList.toggle("btn-secondary", !isActive);
       }
     });
     syncInkCircularOrbVisuals();
+    redrawScratchpad();
   }
 
   function undoScratchpadStroke() {
@@ -6991,6 +7703,9 @@ Explanation: ${parentQ.explanation}`;
     scratchpadStrokes = [];
     scratchpadRedoStack = [];
     currentStroke = [];
+    scratchLassoPolygon = [];
+    scratchLassoSelectedIndices = [];
+    scratchLassoBounds = null;
     inkMemoryByContextKey[activeInkContextKey] = [];
     redrawScratchpad();
   }
@@ -8987,15 +9702,37 @@ Explanation: ${parentQ.explanation}`;
    * ========================================================================== */
   function startDojoStopwatch() {
     clearInterval(dojoStopwatchInterval);
-    dojoStopwatchSec = 0;
-    dojoSetupSplitSec = null;
-    safeSetText("dojo-stopwatch-display", "00:00");
-    safeSetText("dojo-stopwatch-splits", "");
+    if (!dojoExam || !dojoExam.questions || dojoExam.questions.length === 0) return;
+    const curQ = dojoExam.questions[dojoExam.currentIndex];
+    const curResp = curQ && dojoExam.userResponses ? dojoExam.userResponses[curQ.id] : null;
+    dojoStopwatchSec = (curResp && typeof curResp.timeSpentSec === "number") ? curResp.timeSpentSec : 0;
+    dojoSetupSplitSec = (curResp && curResp.setupSplitSec !== undefined) ? curResp.setupSplitSec : null;
+
+    const initM = Math.floor(dojoStopwatchSec / 60);
+    const initS = dojoStopwatchSec % 60;
+    safeSetText("dojo-stopwatch-display", `${String(initM).padStart(2, "0")}:${String(initS).padStart(2, "0")}`);
+    if (dojoSetupSplitSec !== null) {
+      const calcSec = Math.max(0, dojoStopwatchSec - dojoSetupSplitSec);
+      safeSetText("dojo-stopwatch-splits", `[Setup: ${dojoSetupSplitSec}s | Calc: ${calcSec}s]`);
+    } else if (curResp && curResp.status === "answered" && dojoStopwatchSec > 0) {
+      safeSetText("dojo-stopwatch-splits", `[Solved in ${dojoStopwatchSec}s]`);
+    } else {
+      safeSetText("dojo-stopwatch-splits", "");
+    }
+
+    if (curResp && curResp.status === "answered") return;
 
     dojoStopwatchInterval = setInterval(() => {
       const dojoView = document.getElementById("dojo-arena-view");
       if (!dojoExam || !dojoView || dojoView.style.display !== "flex") return;
+      const activeQ = dojoExam.questions[dojoExam.currentIndex];
+      const activeResp = activeQ && dojoExam.userResponses ? dojoExam.userResponses[activeQ.id] : null;
+      if (activeResp && activeResp.status === "answered") return;
+
       dojoStopwatchSec++;
+      if (activeResp) {
+        activeResp.timeSpentSec = dojoStopwatchSec;
+      }
       const m = Math.floor(dojoStopwatchSec / 60);
       const s = dojoStopwatchSec % 60;
       safeSetText("dojo-stopwatch-display", `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
@@ -9003,8 +9740,11 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function recordDojoStopwatchSplit() {
+    const curQ = dojoExam && dojoExam.questions ? dojoExam.questions[dojoExam.currentIndex] : null;
+    const curResp = curQ && dojoExam.userResponses ? dojoExam.userResponses[curQ.id] : null;
     if (dojoSetupSplitSec === null) {
       dojoSetupSplitSec = dojoStopwatchSec;
+      if (curResp) curResp.setupSplitSec = dojoSetupSplitSec;
       safeSetText("dojo-stopwatch-splits", `[Setup: ${dojoSetupSplitSec}s]`);
       showToast(`Setup split marked at ${dojoSetupSplitSec}s`, "purple", 1600);
     } else {
@@ -9070,11 +9810,20 @@ Explanation: ${parentQ.explanation}`;
       dojoExam.userResponses[q.id] = {
         selectedOption: null,
         status: "unanswered",
-        revealed: false
+        revealed: false,
+        timeSpentSec: 0,
+        setupSplitSec: null
       };
     });
 
     pushNavLayer("dojo-arena-view", () => {
+      if (dojoExam && dojoExam.questions) {
+        const curQ = dojoExam.questions[dojoExam.currentIndex];
+        if (curQ && dojoExam.userResponses[curQ.id]) {
+          dojoExam.userResponses[curQ.id].timeSpentSec = dojoStopwatchSec;
+          dojoExam.userResponses[curQ.id].setupSplitSec = dojoSetupSplitSec;
+        }
+      }
       safeSetDisplay("dojo-arena-view", "none");
       clearInterval(dojoStopwatchInterval);
       toggleScratchpadCanvas(false);
@@ -9111,6 +9860,13 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function exitDojoArena() {
+    if (dojoExam && dojoExam.questions) {
+      const curQ = dojoExam.questions[dojoExam.currentIndex];
+      if (curQ && dojoExam.userResponses[curQ.id]) {
+        dojoExam.userResponses[curQ.id].timeSpentSec = dojoStopwatchSec;
+        dojoExam.userResponses[curQ.id].setupSplitSec = dojoSetupSplitSec;
+      }
+    }
     safeSetDisplay("dojo-arena-view", "none");
     clearInterval(dojoStopwatchInterval);
     toggleScratchpadCanvas(false);
@@ -9136,7 +9892,8 @@ Explanation: ${parentQ.explanation}`;
     // Switch per-question ink context automatically
     switchScratchpadContext(`dojo_q_${q.id}`);
 
-    if (resetStopwatch && resp.status === "unanswered") {
+    // Always restore or continue the cumulative per-question timer without resetting to 0
+    if (resetStopwatch) {
       startDojoStopwatch();
     }
 
@@ -9273,9 +10030,10 @@ Explanation: ${parentQ.explanation}`;
           resp.selectedOption = null;
           resp.status = "unanswered";
           resp.revealed = false;
+          resp.timeSpentSec = dojoStopwatchSec;
           safeSetDisplay("dojo-arena-feedback", "none");
           await PerformanceService.recordUntimedPracticeSolve(q, null, 0);
-          renderDojoArenaQuestion(false);
+          renderDojoArenaQuestion(true);
           return;
         }
 
@@ -9285,6 +10043,8 @@ Explanation: ${parentQ.explanation}`;
         resp.selectedOption = idx;
         resp.status = "answered";
         resp.revealed = true;
+        resp.timeSpentSec = dojoStopwatchSec;
+        resp.setupSplitSec = dojoSetupSplitSec;
         clearInterval(dojoStopwatchInterval);
         const solveTimeSec = Math.max(2, dojoStopwatchSec || 12);
 
@@ -9326,6 +10086,11 @@ Explanation: ${parentQ.explanation}`;
 
   function navDojoArena(step) {
     if (!dojoExam) return;
+    const curQ = dojoExam.questions[dojoExam.currentIndex];
+    if (curQ && dojoExam.userResponses[curQ.id]) {
+      dojoExam.userResponses[curQ.id].timeSpentSec = dojoStopwatchSec;
+      dojoExam.userResponses[curQ.id].setupSplitSec = dojoSetupSplitSec;
+    }
     const next = dojoExam.currentIndex + step;
     if (next >= 0 && next < dojoExam.questions.length) {
       dojoExam.currentIndex = next;
@@ -9399,6 +10164,11 @@ Explanation: ${parentQ.explanation}`;
 
         cell.innerText = item.q.dojoSequentialNum;
         cell.addEventListener("click", () => {
+          const curQ = dojoExam.questions[dojoExam.currentIndex];
+          if (curQ && dojoExam.userResponses[curQ.id]) {
+            dojoExam.userResponses[curQ.id].timeSpentSec = dojoStopwatchSec;
+            dojoExam.userResponses[curQ.id].setupSplitSec = dojoSetupSplitSec;
+          }
           dojoExam.currentIndex = item.idx;
           toggleDojoPalette(false);
           renderDojoArenaQuestion(true);
@@ -10007,7 +10777,10 @@ Explanation: ${parentQ.explanation}`;
     const toolsDrawer = document.getElementById("comp-pdf-tools-drawer");
     const marginRail = document.getElementById("comp-margin-rail");
     if (!pdfActive) {
-      if (hudPill) hudPill.style.display = "none";
+      if (hudPill) {
+        hudPill.style.display = "none";
+        hudPill.classList.remove("orb-drawer-open");
+      }
       if (toolsDrawer) {
         toolsDrawer.style.display = "none";
         toolsDrawer.classList.remove("open");
@@ -10020,8 +10793,15 @@ Explanation: ${parentQ.explanation}`;
       if (hudPill) {
         hudPill.style.display = "inline-flex";
         hudPill.classList.remove("hud-pill-faded");
+        initAllDraggableFloatingOrbs();
       }
     }
+  }
+
+  function handlePdfOrbClick(event) {
+    if (event && event.stopPropagation) event.stopPropagation();
+    if (Date.now() < orbDragSuppressClickUntil) return;
+    toggleCompPdfToolsDrawer();
   }
 
   function wakeCompPdfHudPill() {
@@ -10046,18 +10826,29 @@ Explanation: ${parentQ.explanation}`;
       forceState = null;
     }
     const drawer = document.getElementById("comp-pdf-tools-drawer");
+    const hudPill = document.getElementById("comp-pdf-floating-hud-pill");
     const toggleBtn = document.getElementById("btn-comp-pdf-tools-toggle") || document.getElementById("btn-pdf-tools-drawer-toggle");
     if (!drawer) return;
     const isCurrentlyOpen = drawer.classList.contains("open") || drawer.style.display === "flex";
     const nextState = typeof forceState === "boolean" ? forceState : !isCurrentlyOpen;
     drawer.classList.toggle("open", nextState);
     drawer.style.display = nextState ? "flex" : "none";
+    if (hudPill) {
+      hudPill.classList.toggle("orb-drawer-open", nextState);
+    }
     if (toggleBtn) {
       toggleBtn.classList.toggle("active", nextState);
-      toggleBtn.innerText = nextState ? "\u2699\uFE0F PDF Tools \u25B4" : "\u2699\uFE0F PDF Tools \u25BE";
+      toggleBtn.innerText = nextState ? "\u2699\uFE0F" : "\uD83D\uDCC4";
     }
     if (nextState) {
       wakeCompPdfHudPill();
+      initAllDraggableFloatingOrbs();
+      if (hudPill) {
+        const orbRect = hudPill.getBoundingClientRect();
+        if (orbRect.width > 0 && orbRect.height > 0) {
+          positionFloatingCardRelativeToOrb(orbRect, drawer);
+        }
+      }
     }
   }
 
@@ -10601,6 +11392,11 @@ Explanation: ${parentQ.explanation}`;
     const toolType = String(stroke.tool || "pen").toLowerCase();
     if (toolType === "stroke_eraser") return;
 
+    const avgTilt = stroke.points.reduce((acc, p) => acc + (p.tilt || 0), 0) / Math.max(1, stroke.points.length);
+    const tiltFactor = (avgTilt > 25 && (toolType === "marker" || toolType === "fountain"))
+      ? Math.min(1.6, 1 + (avgTilt - 25) / 55)
+      : 1.0;
+
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -10619,12 +11415,12 @@ Explanation: ${parentQ.explanation}`;
       ctx.lineCap = "square";
       ctx.globalAlpha = 0.36;
       ctx.strokeStyle = stroke.color || "#facc15";
-      ctx.lineWidth = Math.max(16, (stroke.size || 3.0) * 6.8);
+      ctx.lineWidth = Math.max(16, (stroke.size || 3.0) * 6.8) * tiltFactor;
     } else if (toolType === "fountain") {
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1.0;
       ctx.strokeStyle = stroke.color || "#38bdf8";
-      ctx.lineWidth = Math.max(1.4, (stroke.size || 3.0) * 1.25);
+      ctx.lineWidth = Math.max(1.4, (stroke.size || 3.0) * 1.25) * tiltFactor;
     } else if (toolType === "dashed") {
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1.0;
@@ -10986,26 +11782,28 @@ Explanation: ${parentQ.explanation}`;
     updateRecallProgressCounter();
   }
 
+  let compSheetInkInputMode = "FINGER_AND_STYLUS"; // "AUTO_STYLO" | "FINGER_AND_STYLUS" | "PAN_ONLY"
+
   function syncSheetInkPointerPassthrough() {
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     const pageEl = document.getElementById("comp-folio-page");
     const pdfPanBtn = document.getElementById("btn-comp-pdf-pan");
-    const isPanMode = !compSheetInkMode || compSheetInkTool === "pan";
+    const isPanMode = !compSheetInkMode || compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY";
     if (pdfPanBtn) {
       pdfPanBtn.classList.toggle("btn-emerald", isPanMode);
       pdfPanBtn.classList.toggle("btn-secondary", !isPanMode);
     }
     if (!inkCanvas) return;
-    if (!compSheetInkMode || compSheetInkTool === "pan") {
+    if (!compSheetInkMode || compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY") {
       inkCanvas.style.pointerEvents = "none";
       inkCanvas.style.touchAction = "pan-x pan-y pinch-zoom";
       if (pageEl) {
-        pageEl.classList.toggle("stylus-only-scroll", compSheetInkMode && compSheetInkTool === "pan");
+        pageEl.classList.toggle("stylus-only-scroll", compSheetInkMode && (compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY"));
         pageEl.style.touchAction = "pan-x pan-y pinch-zoom";
       }
       return;
     }
-    if (compSheetInkFingerDraw) {
+    if (compSheetInkFingerDraw && compSheetInkInputMode === "FINGER_AND_STYLUS") {
       inkCanvas.style.pointerEvents = "auto";
       inkCanvas.style.touchAction = "none";
       if (pageEl) {
@@ -11144,17 +11942,36 @@ Explanation: ${parentQ.explanation}`;
     setCompSheetInkColor(color, btnEl);
   }
 
-  function toggleCompendiumFolioInkFingerMode() {
-    compSheetInkFingerDraw = !compSheetInkFingerDraw;
+  function cycleCompendiumFolioInkInputMode() {
+    if (compSheetInkInputMode === "FINGER_AND_STYLUS") {
+      compSheetInkInputMode = "AUTO_STYLO";
+      compSheetInkFingerDraw = false;
+    } else if (compSheetInkInputMode === "AUTO_STYLO") {
+      compSheetInkInputMode = "PAN_ONLY";
+      compSheetInkFingerDraw = false;
+    } else {
+      compSheetInkInputMode = "FINGER_AND_STYLUS";
+      compSheetInkFingerDraw = true;
+    }
+
     const btn = document.getElementById("btn-folio-ink-finger-toggle");
     if (btn) {
-      btn.classList.toggle("btn-emerald", compSheetInkFingerDraw);
-      btn.classList.toggle("btn-secondary", !compSheetInkFingerDraw);
-      btn.innerText = compSheetInkFingerDraw
-        ? "\u270D\uFE0F Finger & Stylus: Write"
-        : "\uD83D\uDD8A\uFE0F Stylus Only (1-Finger Scrolls)";
+      btn.classList.toggle("btn-emerald", compSheetInkInputMode === "FINGER_AND_STYLUS");
+      btn.classList.toggle("btn-cyan", compSheetInkInputMode === "AUTO_STYLO");
+      btn.classList.toggle("btn-secondary", compSheetInkInputMode === "PAN_ONLY");
+      if (compSheetInkInputMode === "AUTO_STYLO") {
+        btn.innerText = "\u2712\uFE0F Stylo 2 Auto (Pen Writes \u2022 1-Finger Scrolls)";
+      } else if (compSheetInkInputMode === "PAN_ONLY") {
+        btn.innerText = "\u270B Pan / Read Only";
+      } else {
+        btn.innerText = "\u270D\uFE0F Finger & Stylus: Write";
+      }
     }
     syncSheetInkPointerPassthrough();
+  }
+
+  function toggleCompendiumFolioInkFingerMode() {
+    cycleCompendiumFolioInkInputMode();
   }
 
   function setCompSheetInkSize(size = 3.0, btnEl = null) {
@@ -11249,7 +12066,9 @@ Explanation: ${parentQ.explanation}`;
       const y = e.clientY - rect.top;
       return {
         nx: Math.max(0, Math.min(1, x / w)),
-        ny: Math.max(0, Math.min(1, y / h))
+        ny: Math.max(0, Math.min(1, y / h)),
+        tilt: Math.hypot(e.tiltX || 0, e.tiltY || 0),
+        pressure: e.pressure || 0.5
       };
     };
 
@@ -11328,13 +12147,14 @@ Explanation: ${parentQ.explanation}`;
     };
 
     const beginInkAtEvent = (e) => {
+      notifyStyloHardwareDetected(e);
       // Auto-collapse expanded Ink Studio card back into small circular floating pill when drawing starts
       setInkStudioPillExpanded(false);
       if (isCompPdfActive()) {
         fadeCompPdfHudPill();
         toggleCompPdfToolsDrawer(false);
       }
-      const isHardwareEraser = (e.pointerType === "pen" && (e.buttons === 32 || e.button === 5));
+      const isHardwareEraser = isStyloHardwareEraserEvent(e);
       const effectiveTool = isHardwareEraser ? "stroke_eraser" : compSheetInkTool;
       const pt = getNormalizedPoint(e);
       const eraserW = getEffectiveEraserPixelWidth(compSheetInkSize);
@@ -11491,7 +12311,7 @@ Explanation: ${parentQ.explanation}`;
       }
 
       currentSheetInkStroke.points.push(pt);
-      if (!prevPt || Math.hypot(pt.nx - prevPt.nx, pt.ny - prevPt.ny) > 0.0038) {
+      if (!prevPt || Math.hypot(pt.nx - prevPt.nx, pt.ny - prevPt.ny) > 0.0007) {
         scheduleFolioShapeSnap();
       }
       redrawSheetInkCanvas();
@@ -11598,7 +12418,9 @@ Explanation: ${parentQ.explanation}`;
 
     inkCanvas.addEventListener("pointerdown", (e) => {
       if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
-      if (!compSheetInkMode) return;
+      notifyStyloHardwareDetected(e);
+      if (isPalmTouchRejected(e)) return;
+      if (!compSheetInkMode || compSheetInkInputMode === "PAN_ONLY") return;
       if (!compSheetInkFingerDraw && e.pointerType !== "pen") return;
       if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
 
@@ -11620,6 +12442,8 @@ Explanation: ${parentQ.explanation}`;
 
     inkCanvas.addEventListener("pointermove", (e) => {
       if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
+      notifyStyloHardwareDetected(e);
+      if (isPalmTouchRejected(e)) return;
       if (!compSheetInkMode || !isDrawingSheetInk) return;
       e.preventDefault();
       e.stopPropagation();
@@ -11632,6 +12456,7 @@ Explanation: ${parentQ.explanation}`;
     if (pageEl) {
       pageEl.addEventListener("pointerover", (e) => {
         if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
+        notifyStyloHardwareDetected(e);
         if (!compSheetInkMode || compSheetInkFingerDraw) return;
         if (e.pointerType === "pen") {
           pageEl.style.touchAction = "none";
@@ -11642,6 +12467,8 @@ Explanation: ${parentQ.explanation}`;
 
       pageEl.addEventListener("pointerdown", (e) => {
         if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
+        notifyStyloHardwareDetected(e);
+        if (isPalmTouchRejected(e)) return;
         // In Continuous PDF Scroll mode, touching or clicking ANY visible page immediately activates that page
         let switchedPdfPageInContinuous = false;
         if (isCompPdfActive() && activeCompPdfScrollMode === "continuous") {
@@ -11656,7 +12483,7 @@ Explanation: ${parentQ.explanation}`;
         }
 
         // Allow tapping Recall Tape ribbons when Ink Mode is OFF or in Stylus-Only Touch mode
-        if (!compSheetInkMode || compSheetInkTool === "pan" || (!compSheetInkFingerDraw && e.pointerType === "touch")) {
+        if (!compSheetInkMode || compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY" || (!compSheetInkFingerDraw && e.pointerType === "touch")) {
           const pt = getNormalizedPoint(e);
           if (tryToggleRecallTapeAtNormPoint(pt.nx, pt.ny)) {
             e.preventDefault();
@@ -11666,7 +12493,7 @@ Explanation: ${parentQ.explanation}`;
         }
 
         // If user started drawing on a newly-clicked PDF page in Continuous Scroll mode (where e.target was the page canvas before inkCanvas moved onto it), start stroke seamlessly
-        if (switchedPdfPageInContinuous && compSheetInkMode && compSheetInkTool !== "pan" && e.target !== inkCanvas) {
+        if (switchedPdfPageInContinuous && compSheetInkMode && compSheetInkTool !== "pan" && compSheetInkInputMode !== "PAN_ONLY" && e.target !== inkCanvas) {
           if ((compSheetInkFingerDraw || e.pointerType === "pen") && (e.button === undefined || e.button === 0 || e.pointerType !== "mouse")) {
             if (!getUnderlyingInteractiveControl(e.clientX, e.clientY)) {
               e.preventDefault();
@@ -11678,7 +12505,7 @@ Explanation: ${parentQ.explanation}`;
           }
         }
 
-        if (!compSheetInkMode || compSheetInkFingerDraw) return;
+        if (!compSheetInkMode || compSheetInkFingerDraw || compSheetInkInputMode === "PAN_ONLY") return;
         if (e.pointerType === "touch") {
           pageEl.style.touchAction = "pan-y pinch-zoom";
           return;
@@ -11748,13 +12575,13 @@ Explanation: ${parentQ.explanation}`;
     const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
     const pdfWrap = document.getElementById("comp-pdf-canvas-wrap");
     if (dy !== 0) {
-      if (canvas && canvas.scrollHeight > canvas.clientHeight) canvas.scrollTop += dy;
       if (ws && ws.scrollHeight > ws.clientHeight) ws.scrollTop += dy;
+      if (canvas && canvas.scrollHeight > canvas.clientHeight) canvas.scrollTop += dy;
     }
     if (dx !== 0) {
-      if (pdfWrap && isCompPdfActive()) pdfWrap.scrollLeft += dx;
-      if (canvas) canvas.scrollLeft += dx;
-      if (ws) ws.scrollLeft += dx;
+      if (ws && ws.scrollWidth > ws.clientWidth) ws.scrollLeft += dx;
+      if (canvas && canvas.scrollWidth > canvas.clientWidth) canvas.scrollLeft += dx;
+      if (pdfWrap && isCompPdfActive() && pdfWrap.scrollWidth > pdfWrap.clientWidth) pdfWrap.scrollLeft += dx;
     }
   }
 
@@ -12763,9 +13590,40 @@ Explanation: ${parentQ.explanation}`;
 
       const dataUrl = offCanvas.toDataURL("image/png", 0.92);
       const curSheet = currentCompSheets[activeCompSheetIndex];
+
+      // V9.6 Excerpt Text + Diagram Extraction: extract PDF text items inside the normalized crop box
+      let extractedText = "";
+      if (isCompPdfActive() && activeCompPdfDocProxy) {
+        try {
+          const page = await activeCompPdfDocProxy.getPage(activeCompPdfPageNum);
+          const unscaledVp = page.getViewport({ scale: 1 });
+          const textContent = await page.getTextContent();
+          if (textContent && Array.isArray(textContent.items)) {
+            const matchedStrings = [];
+            textContent.items.forEach(item => {
+              if (!item || !item.str || !Array.isArray(item.transform)) return;
+              const pdfX = item.transform[4] || 0;
+              const pdfY = item.transform[5] || 0;
+              const itemNx = pdfX / Math.max(unscaledVp.width, 1);
+              const itemNy = 1 - (pdfY / Math.max(unscaledVp.height, 1));
+              if (
+                itemNx >= (minNx - 0.03) &&
+                itemNx <= (maxNx + 0.03) &&
+                itemNy >= (minNy - 0.03) &&
+                itemNy <= (maxNy + 0.03)
+              ) {
+                matchedStrings.push(item.str.trim());
+              }
+            });
+            extractedText = matchedStrings.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+          }
+        } catch (_) {}
+      }
+
       stagedExcerptCrop = {
         id: "ex_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
         dataUrl,
+        extractedText,
         pageNum: isCompPdfActive() ? activeCompPdfPageNum : null,
         scrollTop: getActiveCompendiumScrollTop(),
         label: isCompPdfActive()
@@ -12776,7 +13634,13 @@ Explanation: ${parentQ.explanation}`;
 
       const bar = document.getElementById("comp-excerpt-action-bar");
       if (bar) bar.style.display = "flex";
-      showToast("Region captured! Choose Pin to Margin Rail or Send to Question Creator.", "cyan", 2600);
+      showToast(
+        extractedText
+          ? `Region + ${extractedText.split(/\s+/).length} words captured! Pin to Margin or Send to Question Creator.`
+          : "Region captured! Choose Pin to Margin Rail or Send to Question Creator.",
+        "cyan",
+        2600
+      );
     } catch (err) {
       showToast(`Excerpt capture error: ${err.message}`, "rose");
     }
@@ -12812,6 +13676,7 @@ Explanation: ${parentQ.explanation}`;
     if (!stagedExcerptCrop || !stagedExcerptCrop.dataUrl) return;
     const capturedUrl = stagedExcerptCrop.dataUrl;
     const capturedLabel = stagedExcerptCrop.label || "PDF / Sheet Excerpt";
+    const capturedText = stagedExcerptCrop.extractedText || "";
     stagedExcerptCrop = null;
     const bar = document.getElementById("comp-excerpt-action-bar");
     if (bar) bar.style.display = "none";
@@ -12823,7 +13688,12 @@ Explanation: ${parentQ.explanation}`;
       capturedUrl,
       capturedLabel
     );
-    showToast("Excerpt loaded into Question Creator!", "emerald", 2400);
+    if (capturedText) {
+      safeSetValue("new-q-smart-raw-input", capturedText);
+      showToast("Excerpt diagram + extracted PDF text loaded into Question Creator! Tap Smart Auto-Fill to parse.", "emerald", 2800);
+    } else {
+      showToast("Excerpt loaded into Question Creator!", "emerald", 2400);
+    }
   }
 
   function cancelActiveExcerptCrop() {
@@ -12856,6 +13726,8 @@ Explanation: ${parentQ.explanation}`;
     return { text: `Opened ${diffDays}d ago`, color: "#94a3b8", bg: "rgba(148,163,184,0.14)" };
   }
 
+  let pdfZoomDebounceTimer = null;
+
   function applyCompendiumZoomStyle() {
     const docEl = document.getElementById("comp-studio-doc-content");
     const pdfStage = document.getElementById("comp-pdf-canvas-wrap") || document.getElementById("comp-pdf-canvas-stage");
@@ -12880,24 +13752,145 @@ Explanation: ${parentQ.explanation}`;
     setTimeout(syncSheetInkCanvasGeometry, 40);
   }
 
+  let activeCompPdfBasePageAspect = 1.4142;
+
+  function getActivePdfScrollHost() {
+    const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
+    const canvas = document.getElementById("comp-studio-canvas");
+    if (ws && (ws.scrollHeight > ws.clientHeight + 2 || ws.scrollWidth > ws.clientWidth + 2)) return ws;
+    if (canvas && (canvas.scrollHeight > canvas.clientHeight + 2 || canvas.scrollWidth > canvas.clientWidth + 2)) return canvas;
+    return ws || canvas;
+  }
+
+  function applyLivePdfZoomDimensions(nextScale, focalClientX = null, focalClientY = null) {
+    if (!isCompPdfActive()) return;
+    const zoomFactor = Math.max(0.65, Math.min(2.6, nextScale || compendiumZoomScale || 1.0));
+    const baseFitWidth = Math.min(window.innerWidth - 16, 1180);
+    const newCssW = Math.max(240, Math.floor(baseFitWidth * zoomFactor));
+
+    const scrollHost = getActivePdfScrollHost();
+    const hostRect = scrollHost ? scrollHost.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    const fX = (typeof focalClientX === "number" && !Number.isNaN(focalClientX))
+      ? focalClientX
+      : (hostRect.left + hostRect.width * 0.5);
+    const fY = (typeof focalClientY === "number" && !Number.isNaN(focalClientY))
+      ? focalClientY
+      : (hostRect.top + hostRect.height * 0.5);
+
+    const sampleCanvas = activeCompPdfScrollMode === "continuous"
+      ? (document.getElementById(`comp-pdf-page-canvas-${activeCompPdfPageNum}`) || document.querySelector("#comp-pdf-continuous-container .comp-pdf-page-canvas"))
+      : document.getElementById("comp-pdf-render-canvas");
+
+    const oldCssW = sampleCanvas
+      ? (parseFloat(sampleCanvas.style.width) || sampleCanvas.getBoundingClientRect().width || newCssW)
+      : newCssW;
+    const scaleRatio = oldCssW > 1 ? (newCssW / oldCssW) : 1;
+
+    const oldScrollLeft = scrollHost ? scrollHost.scrollLeft : 0;
+    const oldScrollTop = scrollHost ? scrollHost.scrollTop : 0;
+    const contentFocalX = oldScrollLeft + (fX - hostRect.left);
+    const contentFocalY = oldScrollTop + (fY - hostRect.top);
+
+    if (activeCompPdfScrollMode === "continuous") {
+      const slots = document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-page-slot[data-page-num]");
+      slots.forEach(slot => {
+        const pNum = slot.getAttribute("data-page-num");
+        const pCanvas = document.getElementById(`comp-pdf-page-canvas-${pNum}`);
+        const pInk = document.getElementById(`comp-pdf-page-ink-${pNum}`);
+        const pMedia = document.getElementById(`comp-pdf-stage-media-${pNum}`);
+        const slotBar = slot.querySelector(".comp-pdf-page-slot-bar");
+        const aspect = (pCanvas && pCanvas.width > 0 && pCanvas.height > 0)
+          ? (pCanvas.height / pCanvas.width)
+          : activeCompPdfBasePageAspect;
+        const newCssH = Math.max(200, Math.floor(newCssW * aspect));
+        if (pCanvas) {
+          pCanvas.style.width = `${newCssW}px`;
+          pCanvas.style.height = `${newCssH}px`;
+        }
+        if (pInk) {
+          pInk.style.width = `${newCssW}px`;
+          pInk.style.height = `${newCssH}px`;
+        }
+        if (pMedia) {
+          pMedia.style.width = `${newCssW}px`;
+          pMedia.style.height = `${newCssH}px`;
+        }
+        if (slotBar) {
+          slotBar.style.width = `${newCssW}px`;
+        }
+      });
+    } else {
+      const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
+      const singleMediaLayer = document.getElementById("comp-pdf-single-media-layer");
+      const aspect = (pdfCanvas && pdfCanvas.width > 0 && pdfCanvas.height > 0)
+        ? (pdfCanvas.height / pdfCanvas.width)
+        : activeCompPdfBasePageAspect;
+      const newCssH = Math.max(200, Math.floor(newCssW * aspect));
+      if (pdfCanvas) {
+        pdfCanvas.style.width = `${newCssW}px`;
+        pdfCanvas.style.height = `${newCssH}px`;
+      }
+      if (singleMediaLayer) {
+        singleMediaLayer.style.width = `${newCssW}px`;
+        singleMediaLayer.style.height = `${newCssH}px`;
+      }
+    }
+
+    if (scrollHost && Math.abs(scaleRatio - 1) > 0.0005) {
+      pdfProgrammaticScrollUntil = Date.now() + 260;
+      scrollHost.scrollLeft = Math.max(0, contentFocalX * scaleRatio - (fX - hostRect.left));
+      scrollHost.scrollTop = Math.max(0, contentFocalY * scaleRatio - (fY - hostRect.top));
+    }
+
+    const pctText = `${Math.round(zoomFactor * 100)}%`;
+    safeSetText("comp-zoom-pct-btn", pctText);
+    safeSetText("comp-pdf-zoom-btn", pctText);
+    syncSheetInkCanvasGeometry();
+  }
+
+  function sharpenPdfPagesAtCurrentZoom() {
+    if (!isCompPdfActive() || !activeCompPdfDocProxy) return;
+    if (activeCompPdfScrollMode === "continuous") {
+      activeCompPdfRenderedPagesSet.clear();
+      Object.values(activeCompPdfRenderingPagesMap).forEach(t => {
+        if (t && typeof t.cancel === "function") {
+          try { t.cancel(); } catch (_) {}
+        }
+      });
+      activeCompPdfRenderingPagesMap = {};
+      renderSingleContinuousPdfPageCanvas(activeCompPdfPageNum).then(() => {
+        renderVisibleAndNearbyContinuousPdfPages();
+        syncSheetInkCanvasGeometry();
+      });
+    } else {
+      renderPdfPage(activeCompPdfPageNum || 1);
+    }
+  }
+
   function adjustCompendiumZoom(delta) {
-    compendiumZoomScale = Math.max(0.75, Math.min(2.2, Math.round((compendiumZoomScale + delta) * 100) / 100));
+    compendiumZoomScale = Math.max(0.65, Math.min(2.6, Math.round((compendiumZoomScale + delta) * 100) / 100));
     readerFontScale = compendiumZoomScale;
     document.documentElement.style.setProperty("--reader-font-scale", String(readerFontScale));
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
-      renderPdfPage(activeCompPdfPageNum);
+      applyLivePdfZoomDimensions(compendiumZoomScale);
+      clearTimeout(pdfZoomDebounceTimer);
+      pdfZoomDebounceTimer = setTimeout(() => {
+        sharpenPdfPagesAtCurrentZoom();
+      }, 170);
     }
   }
 
   function resetCompendiumZoom() {
+    clearTimeout(pdfZoomDebounceTimer);
     compendiumZoomScale = 1.0;
     readerFontScale = 1.0;
     document.documentElement.style.setProperty("--reader-font-scale", "1");
     putRecord("store_config", { key: "reader_font_scale", value: 1.0 });
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
-      renderPdfPage(activeCompPdfPageNum);
+      applyLivePdfZoomDimensions(1.0);
+      sharpenPdfPagesAtCurrentZoom();
     }
   }
 
@@ -13260,7 +14253,7 @@ Explanation: ${parentQ.explanation}`;
     }
     safeSetText("comp-pdf-page-total", String(activeCompPdfTotalPages));
     safeSetText("comp-pdf-total-pages", `/ ${activeCompPdfTotalPages}`);
-    safeSetText("comp-pdf-pill-page-label", `Page ${activeCompPdfPageNum} / ${activeCompPdfTotalPages}`);
+    safeSetText("comp-pdf-pill-page-label", `P.${activeCompPdfPageNum}/${activeCompPdfTotalPages}`);
     safeSetText("comp-pdf-bottom-page-info", `Page ${activeCompPdfPageNum} of ${activeCompPdfTotalPages}`);
     safeSetText("comp-pdf-zoom-btn", `${Math.round((compendiumZoomScale || 1) * 100)}%`);
 
@@ -13348,7 +14341,10 @@ Explanation: ${parentQ.explanation}`;
     try {
       const page = await activeCompPdfDocProxy.getPage(pNum);
       const unscaledViewport = page.getViewport({ scale: 1 });
-      const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
+      if (unscaledViewport.width > 0 && unscaledViewport.height > 0) {
+        activeCompPdfBasePageAspect = unscaledViewport.height / unscaledViewport.width;
+      }
+      const zoomFactor = Math.max(0.65, Math.min(2.6, compendiumZoomScale || 1.0));
       const targetWidth = Math.min(window.innerWidth - 16, 1180) * zoomFactor;
       const scale = targetWidth / Math.max(unscaledViewport.width, 1);
       const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
@@ -13359,8 +14355,6 @@ Explanation: ${parentQ.explanation}`;
       const cssW = Math.max(1, Math.floor(unscaledViewport.width * scale));
       const cssH = Math.max(1, Math.floor(unscaledViewport.height * scale));
 
-      pageCanvas.width = pixelW;
-      pageCanvas.height = pixelH;
       pageCanvas.style.width = `${cssW}px`;
       pageCanvas.style.height = `${cssH}px`;
       pageCanvas.classList.toggle("pdf-dark-inverted", !!activeCompPdfDarkInvert);
@@ -13372,26 +14366,40 @@ Explanation: ${parentQ.explanation}`;
         slotBar.style.width = `${cssW}px`;
       }
 
+      const pInk = document.getElementById(`comp-pdf-page-ink-${pNum}`);
+      if (pInk) {
+        pInk.style.width = `${cssW}px`;
+        pInk.style.height = `${cssH}px`;
+      }
+
       const stageMediaLayer = document.getElementById(`comp-pdf-stage-media-${pNum}`);
       if (stageMediaLayer) {
         stageMediaLayer.style.width = `${cssW}px`;
         stageMediaLayer.style.height = `${cssH}px`;
       }
 
-      const ctx = pageCanvas.getContext("2d", { alpha: false });
-      if (ctx) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, pixelW, pixelH);
-        ctx.restore();
+      // Render onto an offscreen buffer first so the visible canvas never flashes blank white during zoom or scroll
+      const offCanvas = document.createElement("canvas");
+      offCanvas.width = pixelW;
+      offCanvas.height = pixelH;
+      const offCtx = offCanvas.getContext("2d", { alpha: false });
+      if (offCtx) {
+        offCtx.fillStyle = "#ffffff";
+        offCtx.fillRect(0, 0, pixelW, pixelH);
 
         const task = page.render({
-          canvasContext: ctx,
+          canvasContext: offCtx,
           viewport: renderViewport
         });
         activeCompPdfRenderingPagesMap[pNum] = task;
         await task.promise;
+
+        const ctx = pageCanvas.getContext("2d", { alpha: false });
+        if (ctx) {
+          pageCanvas.width = pixelW;
+          pageCanvas.height = pixelH;
+          ctx.drawImage(offCanvas, 0, 0);
+        }
         activeCompPdfRenderedPagesSet.add(pNum);
       }
       renderCompPdfPageInkOverlay(pNum);
@@ -13600,7 +14608,7 @@ Explanation: ${parentQ.explanation}`;
       invBtn.classList.toggle("btn-cyan", !!activeCompPdfDarkInvert);
     }
 
-    const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
+    const zoomFactor = Math.max(0.65, Math.min(2.6, compendiumZoomScale || 1.0));
     const targetWidth = Math.min(window.innerWidth - 16, 1180) * zoomFactor;
 
     // 5. Render either Continuous Multi-Page Vertical Scroll Stack OR Single-Page Canvas
@@ -13608,7 +14616,8 @@ Explanation: ${parentQ.explanation}`;
       if (singleStage) singleStage.style.display = "none";
       contContainer.style.display = "flex";
 
-      const domSig = `${item.id}_${activeCompPdfTotalPages}_${Math.round(targetWidth)}_${Math.round(zoomFactor * 100)}`;
+      // DOM signature depends only on PDF ID and page count — NEVER wipe DOM slots on zoom!
+      const domSig = `${item.id}_${activeCompPdfTotalPages}`;
 
       if (activeCompPdfBuiltDomSignature !== domSig || contContainer.children.length !== activeCompPdfTotalPages) {
         activeCompPdfBuiltDomSignature = domSig;
@@ -13623,12 +14632,35 @@ Explanation: ${parentQ.explanation}`;
 
         const firstPage = await activeCompPdfDocProxy.getPage(1);
         const unscaledVp1 = firstPage.getViewport({ scale: 1 });
+        if (unscaledVp1.width > 0 && unscaledVp1.height > 0) {
+          activeCompPdfBasePageAspect = unscaledVp1.height / unscaledVp1.width;
+        }
         const scale1 = targetWidth / Math.max(unscaledVp1.width, 1);
         const estCssW = Math.max(1, Math.floor(unscaledVp1.width * scale1));
         const estCssH = Math.max(1, Math.floor(unscaledVp1.height * scale1));
 
         const annSet = new Set(Array.isArray(item.annotatedPages) ? item.annotatedPages : []);
         const bmSet = new Set(Array.isArray(item.bookmarkedPages) ? item.bookmarkedPages : []);
+
+        if (window._cglPdfSlotObserver) {
+          try { window._cglPdfSlotObserver.disconnect(); } catch (_) {}
+        }
+        window._cglPdfSlotObserver = new IntersectionObserver((entries) => {
+          if (!isCompPdfActive() || activeCompPdfScrollMode !== "continuous") return;
+          if (Date.now() < pdfProgrammaticScrollUntil || isDrawingSheetInk) return;
+          let bestEntry = null;
+          entries.forEach(entry => {
+            if (entry.isIntersecting && (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio)) {
+              bestEntry = entry;
+            }
+          });
+          if (bestEntry && bestEntry.target) {
+            const pNum = Number(bestEntry.target.getAttribute("data-page-num"));
+            if (pNum >= 1 && pNum !== activeCompPdfPageNum) {
+              setActiveCompPdfPageInScrollSync(pNum);
+            }
+          }
+        }, { threshold: [0.35, 0.65] });
 
         for (let p = 1; p <= activeCompPdfTotalPages; p++) {
           const slot = document.createElement("div");
@@ -13640,7 +14672,7 @@ Explanation: ${parentQ.explanation}`;
           const hasBm = bmSet.has(p);
 
           slot.innerHTML = `
-            <div class="comp-pdf-page-slot-bar" style="width:${estCssW}px; max-width:98vw;">
+            <div class="comp-pdf-page-slot-bar" style="width:${estCssW}px;">
               <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                 <span id="comp-pdf-slot-active-badge-${p}" style="color:${p === activeCompPdfPageNum ? "#38bdf8" : "var(--text-muted)"}; font-weight:800;">${p === activeCompPdfPageNum ? `\u25CF Page ${p} (Active)` : `Page ${p}`}</span>
                 <span style="opacity:0.65;">of ${activeCompPdfTotalPages}</span>
@@ -13648,10 +14680,6 @@ Explanation: ${parentQ.explanation}`;
               </div>
               <div class="comp-pdf-slot-surgery-strip">
                 <button type="button" class="pdf-slot-mini-btn" id="comp-pdf-slot-bm-${p}" style="color:${hasBm ? "#fbbf24" : "#cbd5e1"};" title="Bookmark Page ${p}">${hasBm ? "\u2605" : "\u2606"}</button>
-                <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.rotateActivePdfPage(90, ${p})" title="Rotate Page ${p} by 90°">\uD83D\uDD04 Rotate</button>
-                <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.insertBlankPageIntoActivePdf(${p})" title="Insert Blank Page after Page ${p}">\uD83D\uDCC4 +Blank</button>
-                <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.duplicateActivePdfPage(${p})" title="Duplicate Page ${p}">\uD83D\uDCD1 Dup</button>
-                <button type="button" class="pdf-slot-mini-btn danger" onclick="event.stopPropagation(); CGL_OS.deleteActivePdfSinglePage(${p})" title="Delete Page ${p}">\uD83D\uDDD1\uFE0F Delete Page</button>
               </div>
             </div>
             <div class="comp-pdf-page-stage" id="comp-pdf-page-stage-${p}" data-page-num="${p}">
@@ -13671,6 +14699,9 @@ Explanation: ${parentQ.explanation}`;
           }
 
           contContainer.appendChild(slot);
+          if (window._cglPdfSlotObserver) {
+            window._cglPdfSlotObserver.observe(slot);
+          }
           renderCompPdfPageInkOverlay(p);
         }
       }
@@ -13692,6 +14723,9 @@ Explanation: ${parentQ.explanation}`;
 
         const page = await activeCompPdfDocProxy.getPage(activeCompPdfPageNum);
         const unscaledViewport = page.getViewport({ scale: 1 });
+        if (unscaledViewport.width > 0 && unscaledViewport.height > 0) {
+          activeCompPdfBasePageAspect = unscaledViewport.height / unscaledViewport.width;
+        }
         const scale = targetWidth / Math.max(unscaledViewport.width, 1);
         const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
         const renderViewport = page.getViewport({ scale: scale * dpr });
@@ -13701,8 +14735,6 @@ Explanation: ${parentQ.explanation}`;
         const cssW = Math.max(1, Math.floor(unscaledViewport.width * scale));
         const cssH = Math.max(1, Math.floor(unscaledViewport.height * scale));
 
-        pdfCanvas.width = pixelW;
-        pdfCanvas.height = pixelH;
         pdfCanvas.style.width = `${cssW}px`;
         pdfCanvas.style.height = `${cssH}px`;
 
@@ -13712,20 +14744,27 @@ Explanation: ${parentQ.explanation}`;
           singleMediaLayer.style.height = `${cssH}px`;
         }
 
-        const ctx = pdfCanvas.getContext("2d", { alpha: false });
-        if (ctx) {
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, pixelW, pixelH);
-          ctx.restore();
+        const offCanvas = document.createElement("canvas");
+        offCanvas.width = pixelW;
+        offCanvas.height = pixelH;
+        const offCtx = offCanvas.getContext("2d", { alpha: false });
+        if (offCtx) {
+          offCtx.fillStyle = "#ffffff";
+          offCtx.fillRect(0, 0, pixelW, pixelH);
 
           activePdfRenderTask = page.render({
-            canvasContext: ctx,
+            canvasContext: offCtx,
             viewport: renderViewport
           });
           await activePdfRenderTask.promise;
           activePdfRenderTask = null;
+
+          const ctx = pdfCanvas.getContext("2d", { alpha: false });
+          if (ctx) {
+            pdfCanvas.width = pixelW;
+            pdfCanvas.height = pixelH;
+            ctx.drawImage(offCanvas, 0, 0);
+          }
         }
       } catch (err) {
         if (err && err.name !== "RenderingCancelledException") {
@@ -14085,14 +15124,31 @@ Explanation: ${parentQ.explanation}`;
       const refPage = pdfDoc.getPage(currentIdx);
       const { width, height } = refPage.getSize();
       const insertAtIndex = currentIdx + 1;
-      const newPage = pdfDoc.insertPage(insertAtIndex, [width || 595.28, height || 841.89]);
+      const pageW = width || 595.28;
+      const pageH = height || 841.89;
+      const newPage = pdfDoc.insertPage(insertAtIndex, [pageW, pageH]);
 
       newPage.drawText(`Scratchpad & Derivations — Inserted after Page ${basePageNum}`, {
         x: 28,
-        y: (height || 841.89) - 26,
+        y: pageH - 26,
         size: 9,
         color: window.PDFLib.rgb(0.45, 0.52, 0.62)
       });
+
+      // V9.6 GoodNotes-style subtle 5mm (~14.17pt) dot-grid pattern for structured math derivations
+      const gridStepPt = 18;
+      const dotColor = window.PDFLib.rgb(0.76, 0.80, 0.86);
+      for (let gx = 28; gx <= pageW - 24; gx += gridStepPt) {
+        for (let gy = 28; gy <= pageH - 42; gy += gridStepPt) {
+          newPage.drawCircle({
+            x: gx,
+            y: gy,
+            size: 0.65,
+            color: dotColor,
+            opacity: 0.55
+          });
+        }
+      }
 
       const updatedBytes = await pdfDoc.save();
       const oldTotal = totalBefore;
@@ -14129,10 +15185,62 @@ Explanation: ${parentQ.explanation}`;
       if (activeCompPdfScrollMode === "continuous") {
         scrollToPdfPageSlot(targetNewPage, true);
       }
-      showToast(`Inserted blank page at Page ${targetNewPage}!`, "emerald", 2200);
+      showToast(`Inserted dot-grid blank page at Page ${targetNewPage}!`, "emerald", 2200);
     } catch (err) {
       showToast(`Could not insert blank page: ${err.message}`, "rose");
     }
+  }
+
+  let lastPdfSearchQuery = "";
+  let lastPdfSearchMatchedPages = [];
+  let lastPdfSearchMatchIdx = -1;
+
+  async function searchInsideActivePdf(rawQuery) {
+    if (!isCompPdfActive() || !activeCompPdfDocProxy) {
+      showToast("Open a PDF document first to search inside pages.", "amber");
+      return;
+    }
+    const q = String(rawQuery !== undefined ? rawQuery : (document.getElementById("comp-pdf-search-input")?.value || "")).trim().toLowerCase();
+    if (!q) {
+      showToast("Enter a keyword or formula term to search inside this PDF.", "amber", 1800);
+      return;
+    }
+
+    if (q === lastPdfSearchQuery && lastPdfSearchMatchedPages.length > 0) {
+      lastPdfSearchMatchIdx = (lastPdfSearchMatchIdx + 1) % lastPdfSearchMatchedPages.length;
+      const targetPage = lastPdfSearchMatchedPages[lastPdfSearchMatchIdx];
+      await jumpCompPdfToPage(targetPage);
+      showToast(`Match ${lastPdfSearchMatchIdx + 1}/${lastPdfSearchMatchedPages.length} on Page ${targetPage}`, "cyan", 1800);
+      return;
+    }
+
+    showToast(`Searching ${activeCompPdfTotalPages} pages for "${q}"...`, "cyan", 1400);
+    const matchedPages = [];
+    for (let p = 1; p <= activeCompPdfTotalPages; p++) {
+      try {
+        const page = await activeCompPdfDocProxy.getPage(p);
+        const tc = await page.getTextContent();
+        const pageStr = (tc && Array.isArray(tc.items))
+          ? tc.items.map(it => it.str || "").join(" ").toLowerCase()
+          : "";
+        if (pageStr.includes(q)) {
+          matchedPages.push(p);
+        }
+      } catch (_) {}
+    }
+
+    lastPdfSearchQuery = q;
+    lastPdfSearchMatchedPages = matchedPages;
+    if (matchedPages.length === 0) {
+      lastPdfSearchMatchIdx = -1;
+      showToast(`No matches found for "${q}" in this PDF.`, "amber", 2200);
+      return;
+    }
+
+    lastPdfSearchMatchIdx = 0;
+    const firstPage = matchedPages[0];
+    await jumpCompPdfToPage(firstPage);
+    showToast(`Found on ${matchedPages.length} page(s)! Jumped to Page ${firstPage} (tap Find again for next).`, "emerald", 2600);
   }
 
   /**
@@ -14918,20 +16026,29 @@ Explanation: ${parentQ.explanation}`;
       }
     });
 
-    // Touch Brush-Drag + 2-Finger Pinch-to-Zoom
+    // Touch Brush-Drag + 60fps Focal-Point Anchored 2-Finger Pinch-to-Zoom & 2-Finger Pan
     let pinchStartDist = 0;
     let pinchBaseScale = 1.0;
+    let pinchLastMidX = 0;
+    let pinchLastMidY = 0;
 
     canvas.addEventListener("touchstart", (e) => {
       if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (e.touches.length === 2) {
+        if (isDrawingSheetInk) {
+          isDrawingSheetInk = false;
+          currentSheetInkStroke = null;
+          redrawSheetInkCanvas();
+        }
         brushSession = null;
         canvas.classList.remove("brush-painting-active");
         clearBrushPreviewClasses(document.getElementById("comp-studio-doc-body"));
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         pinchStartDist = Math.hypot(dx, dy);
-        pinchBaseScale = compendiumZoomScale;
+        pinchBaseScale = compendiumZoomScale || 1.0;
+        pinchLastMidX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
+        pinchLastMidY = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
         return;
       }
       if (isCompPdfActive()) return;
@@ -14949,13 +16066,32 @@ Explanation: ${parentQ.explanation}`;
 
     canvas.addEventListener("touchmove", (e) => {
       if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
-      if (e.touches.length === 2 && pinchStartDist > 20) {
+      if (e.touches.length === 2 && pinchStartDist > 16) {
+        if (e.cancelable) e.preventDefault();
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
+        const panDx = pinchLastMidX - midX;
+        const panDy = pinchLastMidY - midY;
+        pinchLastMidX = midX;
+        pinchLastMidY = midY;
+
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.hypot(dx, dy);
         const ratio = dist / pinchStartDist;
-        compendiumZoomScale = Math.max(0.75, Math.min(2.2, Math.round(pinchBaseScale * ratio * 100) / 100));
-        applyCompendiumZoomStyle();
+        const nextScale = Math.max(0.65, Math.min(2.6, Math.round(pinchBaseScale * ratio * 1000) / 1000));
+        compendiumZoomScale = nextScale;
+
+        if (isCompPdfActive()) {
+          const scrollHost = getActivePdfScrollHost();
+          if (scrollHost && (Math.abs(panDx) > 0.25 || Math.abs(panDy) > 0.25)) {
+            scrollHost.scrollLeft += panDx;
+            scrollHost.scrollTop += panDy;
+          }
+          applyLivePdfZoomDimensions(nextScale, midX, midY);
+        } else {
+          applyCompendiumZoomStyle();
+        }
         return;
       }
       if (isCompPdfActive()) return;
@@ -14966,10 +16102,12 @@ Explanation: ${parentQ.explanation}`;
     }, { passive: false });
 
     canvas.addEventListener("touchend", async (e) => {
-      if (e.touches.length < 2 && pinchStartDist > 20) {
+      if (e.touches.length < 2 && pinchStartDist > 16) {
         pinchStartDist = 0;
+        compendiumZoomScale = Math.max(0.65, Math.min(2.6, Math.round(compendiumZoomScale * 100) / 100));
+        applyCompendiumZoomStyle();
         if (isCompPdfActive()) {
-          await renderPdfPage(activeCompPdfPageNum);
+          sharpenPdfPagesAtCurrentZoom();
         }
       }
       if (brushSession) {
@@ -14978,6 +16116,12 @@ Explanation: ${parentQ.explanation}`;
     }, { passive: true });
 
     canvas.addEventListener("touchcancel", () => {
+      if (pinchStartDist > 16) {
+        pinchStartDist = 0;
+        if (isCompPdfActive()) {
+          sharpenPdfPagesAtCurrentZoom();
+        }
+      }
       brushSession = null;
       canvas.classList.remove("brush-painting-active");
       clearBrushPreviewClasses(document.getElementById("comp-studio-doc-body"));
@@ -17937,7 +19081,21 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     }
   }
 
+  let lastMultiTouchEpoch = 0;
+
   function initGestureControllers() {
+    window.addEventListener("touchstart", (e) => {
+      if (e.touches && e.touches.length >= 2) {
+        lastMultiTouchEpoch = Date.now();
+      }
+    }, { passive: true });
+
+    window.addEventListener("touchmove", (e) => {
+      if (e.touches && e.touches.length >= 2) {
+        lastMultiTouchEpoch = Date.now();
+      }
+    }, { passive: true });
+
     window.addEventListener("popstate", () => {
       if (navStack.length > 0) {
         popNavLayer();
@@ -17980,7 +19138,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       return false;
     };
 
-    // Helper for horizontal swipe detection that ignores horizontal scroll tables, pill strips & zoomed sheets
+    // Helper for horizontal swipe detection that ignores horizontal scroll tables, pill strips, multi-touch pinches & zoomed sheets
     const bindHorizontalSwipe = (elementId, onSwipeLeft, onSwipeRight) => {
       const el = document.getElementById(elementId);
       if (!el) return;
@@ -17989,6 +19147,11 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       let ignoreSwipe = false;
 
       el.addEventListener("touchstart", (e) => {
+        if ((Date.now() - lastMultiTouchEpoch) < 500 || (e.touches && e.touches.length >= 2)) {
+          lastMultiTouchEpoch = Date.now();
+          ignoreSwipe = true;
+          return;
+        }
         if (scratchpadDrawing || (scratchpadActive && scratchpadFingerDraw)) {
           ignoreSwipe = true;
           return;
@@ -18007,6 +19170,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       }, { passive: true });
 
       el.addEventListener("touchend", (e) => {
+        if ((Date.now() - lastMultiTouchEpoch) < 500) return;
         if (ignoreSwipe || scratchpadDrawing || (scratchpadActive && scratchpadFingerDraw)) return;
         if (elementId === "compendium-fullscreen-view" && compendiumZoomScale > 1.03) return;
         if (e.changedTouches.length === 1) {
@@ -18045,6 +19209,11 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       const tabs = ["tab-dashboard", "tab-dojo", "tab-console"];
 
       viewportRoot.addEventListener("touchstart", (e) => {
+        if ((Date.now() - lastMultiTouchEpoch) < 500 || (e.touches && e.touches.length >= 2)) {
+          lastMultiTouchEpoch = Date.now();
+          rootIgnoreSwipe = true;
+          return;
+        }
         const isModalOpen = document.querySelector(".modal-overlay.active");
         const isArenaOpen = document.getElementById("exam-arena")?.style.display === "flex";
         const isDojoOpen = document.getElementById("dojo-arena-view")?.style.display === "flex";
@@ -18065,7 +19234,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
       }, { passive: true });
 
       viewportRoot.addEventListener("touchend", (e) => {
-        if (rootIgnoreSwipe) return;
+        if (rootIgnoreSwipe || (Date.now() - lastMultiTouchEpoch) < 500) return;
         const isModalOpen = document.querySelector(".modal-overlay.active");
         const isArenaOpen = document.getElementById("exam-arena")?.style.display === "flex";
         const isDojoOpen = document.getElementById("dojo-arena-view")?.style.display === "flex";
@@ -18375,6 +19544,8 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     toggleScratchpadCanvas,
     toggleScratchpadLaserMode,
     toggleScratchpadFingerDraw,
+    toggleScratchpadFingerMode,
+    setScratchpadInputMode,
     toggleScratchpadScrollMode,
     setScratchpadMode,
     setScratchpadSize,
@@ -18399,6 +19570,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     closeCompMorePopover,
     toggleCompMarginDrawer,
     toggleCompPdfToolsDrawer,
+    handlePdfOrbClick,
     wakeCompPdfHudPill,
     setCompendiumPaperPreset,
     setCompendiumReadingSurface,
@@ -18415,6 +19587,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     setCompendiumFolioInkTool,
     setCompSheetInkColor,
     setCompendiumFolioInkColor,
+    cycleCompendiumFolioInkInputMode,
     toggleCompendiumFolioInkFingerMode,
     setCompSheetInkSize,
     undoCompSheetInk,
@@ -18472,6 +19645,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     setCompPdfThumbnailFilter,
     setCompPdfThumbFilter: setCompPdfThumbnailFilter,
     insertBlankPageIntoActivePdf,
+    searchInsideActivePdf,
     deleteActivePdfSinglePage,
     rotateActivePdfPage,
     duplicateActivePdfPage,
