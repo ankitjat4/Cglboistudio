@@ -9321,6 +9321,96 @@ Explanation: ${parentQ.explanation}`;
     }
   }
 
+  function syncPdfStudioFullscreenClass() {
+    const fsView = document.getElementById("compendium-fullscreen-view");
+    const folio = document.getElementById("comp-folio-page");
+    const pdfActive = isCompPdfActive();
+    if (fsView) fsView.classList.toggle("pdf-studio-fullscreen", pdfActive);
+    if (folio) folio.classList.toggle("pdf-studio-fullscreen", pdfActive);
+
+    const hudPill = document.getElementById("comp-pdf-floating-hud-pill");
+    const toolsDrawer = document.getElementById("comp-pdf-tools-drawer");
+    const marginRail = document.getElementById("comp-margin-rail");
+    if (!pdfActive) {
+      if (hudPill) hudPill.style.display = "none";
+      if (toolsDrawer) {
+        toolsDrawer.style.display = "none";
+        toolsDrawer.classList.remove("open");
+      }
+      if (marginRail) {
+        marginRail.classList.remove("margin-drawer-open");
+      }
+      document.getElementById("btn-dock-margin-drawer")?.classList.remove("active");
+    } else {
+      if (hudPill) {
+        hudPill.style.display = "flex";
+        hudPill.classList.remove("hud-pill-faded");
+      }
+    }
+  }
+
+  function wakeCompPdfHudPill() {
+    const hudPill = document.getElementById("comp-pdf-floating-hud-pill");
+    if (hudPill) hudPill.classList.remove("hud-pill-faded");
+  }
+
+  function fadeCompPdfHudPill() {
+    const hudPill = document.getElementById("comp-pdf-floating-hud-pill");
+    const toolsDrawer = document.getElementById("comp-pdf-tools-drawer");
+    if (toolsDrawer && (toolsDrawer.classList.contains("open") || toolsDrawer.style.display === "flex")) {
+      return;
+    }
+    if (hudPill && isCompPdfActive()) {
+      hudPill.classList.add("hud-pill-faded");
+    }
+  }
+
+  function toggleCompPdfToolsDrawer(forceState = null) {
+    if (forceState && typeof forceState === "object") {
+      if (forceState.stopPropagation) forceState.stopPropagation();
+      forceState = null;
+    }
+    const drawer = document.getElementById("comp-pdf-tools-drawer");
+    const toggleBtn = document.getElementById("btn-pdf-tools-drawer-toggle");
+    if (!drawer) return;
+    const isCurrentlyOpen = drawer.classList.contains("open") || drawer.style.display === "flex";
+    const nextState = typeof forceState === "boolean" ? forceState : !isCurrentlyOpen;
+    drawer.classList.toggle("open", nextState);
+    drawer.style.display = nextState ? "flex" : "none";
+    if (toggleBtn) {
+      toggleBtn.classList.toggle("active", nextState);
+      toggleBtn.innerText = nextState ? "\u2699\uFE0F PDF Tools \u25B4" : "\u2699\uFE0F PDF Tools \u25BE";
+    }
+    if (nextState) {
+      wakeCompPdfHudPill();
+    }
+  }
+
+  function toggleCompMarginDrawer(forceState = null) {
+    if (forceState && typeof forceState === "object") {
+      if (forceState.stopPropagation) forceState.stopPropagation();
+      forceState = null;
+    }
+    const rail = document.getElementById("comp-margin-rail");
+    const dockBtn = document.getElementById("btn-dock-margin-drawer");
+    const pdfBtn = document.getElementById("btn-pdf-margin-drawer");
+    if (!rail) return;
+
+    if (!isCompPdfActive()) {
+      rail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      showToast("Margin Excerpts & Linked Qs Drawer focused.", "cyan", 1400);
+      return;
+    }
+
+    const nextState = typeof forceState === "boolean" ? forceState : !rail.classList.contains("margin-drawer-open");
+    rail.classList.toggle("margin-drawer-open", nextState);
+    if (dockBtn) dockBtn.classList.toggle("active", nextState);
+    if (pdfBtn) pdfBtn.classList.toggle("active", nextState);
+    if (nextState) {
+      renderCompMarginAnnotationsList();
+    }
+  }
+
   function toggleCompStudioMoreMenu(forceState = null) {
     if (forceState && typeof forceState === "object") {
       if (forceState.stopPropagation) forceState.stopPropagation();
@@ -10434,7 +10524,7 @@ Explanation: ${parentQ.explanation}`;
       const elUnder = document.elementFromPoint(clientX, clientY);
       inkCanvas.style.pointerEvents = prevPe;
       if (!elUnder) return null;
-      return elUnder.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-bottom-nav, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap");
+      return elUnder.closest("button, a, input, select, textarea, .sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-bottom-nav, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap");
     };
 
     // Forward mouse wheel & trackpad scrolling even when Ink Mode is active
@@ -10444,6 +10534,7 @@ Explanation: ${parentQ.explanation}`;
 
     // 2-Finger Natural Scroll (both X and Y, across mobile & desktop) on Folio Ink Canvas when 1-Finger Draw Mode is ON
     inkCanvas.addEventListener("touchstart", (te) => {
+      if (te.target && te.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (te.touches && te.touches.length >= 2) {
         clearTimeout(folioShapeHoldTimer);
         if (isDrawingSheetInk) {
@@ -10501,6 +10592,10 @@ Explanation: ${parentQ.explanation}`;
     };
 
     const beginInkAtEvent = (e) => {
+      if (isCompPdfActive()) {
+        fadeCompPdfHudPill();
+        toggleCompPdfToolsDrawer(false);
+      }
       const isHardwareEraser = (e.pointerType === "pen" && (e.buttons === 32 || e.button === 5));
       const effectiveTool = isHardwareEraser ? "stroke_eraser" : compSheetInkTool;
       const pt = getNormalizedPoint(e);
@@ -10728,12 +10823,16 @@ Explanation: ${parentQ.explanation}`;
     };
 
     inkCanvas.addEventListener("pointerdown", (e) => {
+      if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (!compSheetInkMode) return;
       if (!compSheetInkFingerDraw && e.pointerType !== "pen") return;
       if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
 
       const interactiveEl = getUnderlyingInteractiveControl(e.clientX, e.clientY);
       if (interactiveEl) {
+        if (interactiveEl.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) {
+          return;
+        }
         const clickable = interactiveEl.closest("button, a, input, select, textarea") || interactiveEl;
         if (typeof clickable.click === "function") clickable.click();
         return;
@@ -10746,6 +10845,7 @@ Explanation: ${parentQ.explanation}`;
     });
 
     inkCanvas.addEventListener("pointermove", (e) => {
+      if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (!compSheetInkMode || !isDrawingSheetInk) return;
       e.preventDefault();
       e.stopPropagation();
@@ -10757,6 +10857,7 @@ Explanation: ${parentQ.explanation}`;
 
     if (pageEl) {
       pageEl.addEventListener("pointerover", (e) => {
+        if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
         if (!compSheetInkMode || compSheetInkFingerDraw) return;
         if (e.pointerType === "pen") {
           pageEl.style.touchAction = "none";
@@ -10766,6 +10867,7 @@ Explanation: ${parentQ.explanation}`;
       }, { capture: true });
 
       pageEl.addEventListener("pointerdown", (e) => {
+        if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
         // In Continuous PDF Scroll mode, touching or clicking ANY visible page immediately activates that page
         let switchedPdfPageInContinuous = false;
         if (isCompPdfActive() && activeCompPdfScrollMode === "continuous") {
@@ -10808,7 +10910,7 @@ Explanation: ${parentQ.explanation}`;
           return;
         }
         if (e.pointerType !== "pen") return;
-        if (e.target && e.target.closest("button, a, input, select, textarea, .sheet-media-card, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap")) {
+        if (e.target && e.target.closest("button, a, input, select, textarea, .sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap")) {
           return;
         }
         pageEl.style.touchAction = "none";
@@ -10818,6 +10920,7 @@ Explanation: ${parentQ.explanation}`;
       }, { capture: true });
 
       pageEl.addEventListener("pointermove", (e) => {
+        if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
         if (!compSheetInkMode || compSheetInkFingerDraw || !isDrawingSheetInk) return;
         if (e.pointerType !== "pen") return;
         e.preventDefault();
@@ -10826,6 +10929,7 @@ Explanation: ${parentQ.explanation}`;
       }, { capture: true });
 
       pageEl.addEventListener("touchmove", (e) => {
+        if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
         if (compSheetInkMode && isDrawingSheetInk && (!e.touches || e.touches.length < 2) && e.cancelable) {
           e.preventDefault();
         }
@@ -11119,20 +11223,23 @@ Explanation: ${parentQ.explanation}`;
 
   async function addCompSheetStickyNote() {
     closeCompMorePopover();
-    const scrollOffset = getActiveCompendiumScrollTop();
+    const isPdf = isCompPdfActive();
+    const scrollOffset = isPdf ? 24 : getActiveCompendiumScrollTop();
     await insertMediaBlockIntoActiveSheet({
       type: "sticky",
       mode: "floating",
       text: "",
-      x: 36,
-      y: Math.max(76, scrollOffset + 85),
-      width: 245
+      color: "amber",
+      collapsed: false,
+      x: 28,
+      y: isPdf ? 36 : Math.max(76, scrollOffset + 85),
+      width: 250,
+      height: 120
     });
     setTimeout(() => {
-      const stickies = document.querySelectorAll("#comp-floating-media-layer .sheet-media-sticky-body");
+      const stickies = document.querySelectorAll(".sheet-media-card.sticky-card .sheet-media-sticky-body");
       const lastSticky = stickies[stickies.length - 1];
       if (lastSticky) {
-        lastSticky.scrollIntoView({ behavior: "smooth", block: "center" });
         lastSticky.focus();
       }
     }, 80);
@@ -11150,19 +11257,58 @@ Explanation: ${parentQ.explanation}`;
     return sheet ? `sheet_media_${sheet.id}` : null;
   }
 
+  function findMediaBlockAndPage(blockId) {
+    const direct = (activeSheetMediaBlocks || []).find(b => b.id === blockId);
+    if (direct) {
+      return { block: direct, pageNum: isCompPdfActive() ? activeCompPdfPageNum : null, list: activeSheetMediaBlocks };
+    }
+    if (isCompPdfActive() && activeCompPdfPageMediaMap) {
+      for (const [pStr, blocks] of Object.entries(activeCompPdfPageMediaMap)) {
+        if (Array.isArray(blocks)) {
+          const found = blocks.find(b => b.id === blockId);
+          if (found) {
+            return { block: found, pageNum: Number(pStr), list: blocks };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  async function saveMediaBlocksForContext(pageNum = null) {
+    if (isCompPdfActive() && activeCompPdfItem) {
+      const targetPage = pageNum || activeCompPdfPageNum;
+      const blocksToSave = targetPage === activeCompPdfPageNum
+        ? activeSheetMediaBlocks
+        : (activeCompPdfPageMediaMap[targetPage] || []);
+      activeCompPdfPageMediaMap[targetPage] = blocksToSave;
+      await putRecord("store_notes", {
+        id: `pdf_media_${activeCompPdfItem.id}_p${targetPage}`,
+        blocks: blocksToSave,
+        timestamp: Date.now()
+      });
+      return;
+    }
+    await saveActiveSheetMediaBlocks();
+  }
+
   async function insertMediaBlockIntoActiveSheet(blockSpec) {
     const key = getActiveMediaBlocksStorageKey();
     if (!key) return;
+    const isPdf = isCompPdfActive();
     const newBlock = {
       id: "media_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
       type: blockSpec.type || "image",
-      mode: blockSpec.mode || "floating",
+      mode: isPdf ? "floating" : (blockSpec.mode || "floating"),
       src: blockSpec.src || "",
       caption: blockSpec.caption || "",
       text: blockSpec.text || "",
-      x: typeof blockSpec.x === "number" ? blockSpec.x : 40,
-      y: typeof blockSpec.y === "number" ? blockSpec.y : 100,
-      width: typeof blockSpec.width === "number" ? blockSpec.width : 250
+      color: blockSpec.color || "amber",
+      collapsed: !!blockSpec.collapsed,
+      x: typeof blockSpec.x === "number" ? blockSpec.x : 32,
+      y: typeof blockSpec.y === "number" ? (isPdf && blockSpec.y > 400 ? 48 : blockSpec.y) : 64,
+      width: typeof blockSpec.width === "number" ? blockSpec.width : 250,
+      height: typeof blockSpec.height === "number" ? blockSpec.height : (blockSpec.type === "sticky" ? 120 : 180)
     };
     activeSheetMediaBlocks.push(newBlock);
     await saveActiveSheetMediaBlocks();
@@ -11184,168 +11330,348 @@ Explanation: ${parentQ.explanation}`;
   }
 
   async function toggleCompSheetMediaBlockMode(blockId) {
-    const blk = activeSheetMediaBlocks.find(b => b.id === blockId);
-    if (!blk) return;
-    blk.mode = blk.mode === "floating" ? "inline" : "floating";
-    await saveActiveSheetMediaBlocks();
+    const found = findMediaBlockAndPage(blockId);
+    if (!found || !found.block) return;
+    found.block.mode = found.block.mode === "floating" ? "inline" : "floating";
+    await saveMediaBlocksForContext(found.pageNum);
     renderActiveSheetMediaBlocks();
     setTimeout(syncSheetInkCanvasGeometry, 60);
+  }
+
+  async function setStickyNoteColor(blockId, color = "amber") {
+    const validColors = ["amber", "cyan", "emerald", "rose"];
+    const normColor = validColors.includes(String(color || "").toLowerCase())
+      ? String(color).toLowerCase()
+      : "amber";
+    const found = findMediaBlockAndPage(blockId);
+    if (!found || !found.block) return;
+    found.block.color = normColor;
+    await saveMediaBlocksForContext(found.pageNum);
+    renderActiveSheetMediaBlocks();
+  }
+
+  async function toggleStickyNoteCollapse(blockId) {
+    const found = findMediaBlockAndPage(blockId);
+    if (!found || !found.block) return;
+    found.block.collapsed = !found.block.collapsed;
+    await saveMediaBlocksForContext(found.pageNum);
+    renderActiveSheetMediaBlocks();
+  }
+
+  async function deleteSheetMediaBlock(blockId) {
+    const found = findMediaBlockAndPage(blockId);
+    if (!found || !found.list) return;
+    const idx = found.list.findIndex(b => b.id === blockId);
+    if (idx === -1) return;
+    found.list.splice(idx, 1);
+    await saveMediaBlocksForContext(found.pageNum);
+    renderActiveSheetMediaBlocks();
+    setTimeout(syncSheetInkCanvasGeometry, 60);
+    showToast("Removed note/visual card.", "cyan", 1300);
   }
 
   async function deleteCompSheetMediaBlock(blockId) {
-    const idx = activeSheetMediaBlocks.findIndex(b => b.id === blockId);
-    if (idx === -1) return;
-    activeSheetMediaBlocks.splice(idx, 1);
-    await saveActiveSheetMediaBlocks();
-    renderActiveSheetMediaBlocks();
-    setTimeout(syncSheetInkCanvasGeometry, 60);
+    await deleteSheetMediaBlock(blockId);
   }
 
   async function updateCompSheetMediaCaption(blockId, val) {
-    const blk = activeSheetMediaBlocks.find(b => b.id === blockId);
-    if (!blk) return;
-    blk.caption = val;
-    await saveActiveSheetMediaBlocks();
+    const found = findMediaBlockAndPage(blockId);
+    if (!found || !found.block) return;
+    found.block.caption = val;
+    await saveMediaBlocksForContext(found.pageNum);
   }
 
   async function updateCompSheetStickyText(blockId, val) {
-    const blk = activeSheetMediaBlocks.find(b => b.id === blockId);
-    if (!blk) return;
-    blk.text = val;
-    await saveActiveSheetMediaBlocks();
+    const found = findMediaBlockAndPage(blockId);
+    if (!found || !found.block) return;
+    found.block.text = val;
+    await saveMediaBlocksForContext(found.pageNum);
+  }
+
+  function createSheetMediaCardDOM(blk, pageNumContext = null, hostContainerEl = null) {
+    const card = document.createElement("div");
+    const isPdf = isCompPdfActive();
+    const isFloating = isPdf ? true : (blk.mode !== "inline");
+    const stickyColor = blk.color || "amber";
+    const isCollapsed = !!blk.collapsed;
+
+    card.className = [
+      "sheet-media-card",
+      isFloating ? "floating-card" : "inline-card",
+      blk.type === "sticky" ? `sticky-card sticky-color-${stickyColor}` : "",
+      isCollapsed ? "sticky-collapsed" : ""
+    ].filter(Boolean).join(" ");
+    card.setAttribute("data-media-id", blk.id);
+
+    if (isFloating) {
+      card.style.left = `${Math.max(4, blk.x || 24)}px`;
+      card.style.top = `${Math.max(8, blk.y || 40)}px`;
+      card.style.width = `${Math.max(160, Math.min(640, blk.width || 245))}px`;
+    } else {
+      card.style.width = `${Math.min(620, Math.max(200, blk.width || 340))}px`;
+    }
+
+    const previewTitle = blk.type === "sticky"
+      ? (isCollapsed && blk.text ? `\uD83D\uDCDD ${blk.text.trim().slice(0, 22)}` : "\uD83D\uDCDD Sticky Note")
+      : "\uD83D\uDDBC\uFE0F Visual";
+
+    const dragBar = document.createElement("div");
+    dragBar.className = "sheet-media-drag-bar";
+
+    const swatchHtml = blk.type === "sticky" ? `
+      <div class="sticky-color-swatches" style="display:inline-flex; align-items:center; gap:4px; margin-right:4px;">
+        ${["amber", "cyan", "emerald", "rose"].map(c => `
+          <span class="sticky-color-swatch-dot swatch-${c} ${stickyColor === c ? "active" : ""}" data-swatch-color="${c}" title="Color: ${c}"></span>
+        `).join("")}
+      </div>
+    ` : "";
+
+    const modeBtnHtml = !isPdf ? `
+      <button type="button" class="sheet-media-btn" data-action="mode" title="Switch between Free-Floating and Inline mode">${isFloating ? "\uD83D\uDCCC Inline" : "\uD83E\uDE9F Float"}</button>
+    ` : "";
+
+    dragBar.innerHTML = `
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:130px;">\u283F ${escapeHtml(previewTitle)}</span>
+      <div class="sheet-media-card-actions">
+        ${swatchHtml}
+        ${modeBtnHtml}
+        <button type="button" class="sheet-media-btn" data-action="collapse" title="${isCollapsed ? "Expand card" : "Collapse/Minimize card"}">${isCollapsed ? "\u25A2" : "\u2014"}</button>
+        <button type="button" class="sheet-media-btn" data-action="delete" style="color:#fb7185; font-weight:900;" title="Delete card">\u2715</button>
+      </div>
+    `;
+
+    // Prevent any pointerdown on action buttons or swatches from starting a drag or ink stroke
+    dragBar.querySelectorAll(".sticky-color-swatch-dot").forEach(dot => {
+      dot.addEventListener("pointerdown", (ev) => {
+        ev.stopPropagation();
+      });
+      dot.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const chosenColor = dot.getAttribute("data-swatch-color") || "amber";
+        setStickyNoteColor(blk.id, chosenColor);
+      });
+    });
+
+    const modeBtn = dragBar.querySelector('button[data-action="mode"]');
+    if (modeBtn) {
+      modeBtn.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      modeBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleCompSheetMediaBlockMode(blk.id);
+      });
+    }
+
+    const collapseBtn = dragBar.querySelector('button[data-action="collapse"]');
+    if (collapseBtn) {
+      collapseBtn.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      collapseBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleStickyNoteCollapse(blk.id);
+      });
+    }
+
+    const delBtn = dragBar.querySelector('button[data-action="delete"]');
+    if (delBtn) {
+      delBtn.addEventListener("pointerdown", (ev) => {
+        ev.stopPropagation();
+      });
+      delBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        deleteSheetMediaBlock(blk.id);
+      });
+    }
+
+    card.appendChild(dragBar);
+
+    let resizableContentEl = null;
+    if (blk.type === "sticky") {
+      const ta = document.createElement("textarea");
+      ta.className = "sheet-media-sticky-body";
+      ta.value = blk.text || "";
+      ta.placeholder = "Write your sticky callout note...";
+      ta.style.height = `${Math.max(90, Math.min(520, blk.height || 120))}px`;
+      ta.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      ta.addEventListener("input", (ev) => updateCompSheetStickyText(blk.id, ev.target.value));
+      card.appendChild(ta);
+      resizableContentEl = ta;
+    } else {
+      const imgWrap = document.createElement("div");
+      imgWrap.className = "sheet-media-img-wrap";
+      const imgEl = document.createElement("img");
+      imgEl.src = blk.src || "";
+      imgEl.alt = "Sheet Visual";
+      if (blk.height) {
+        imgEl.style.maxHeight = `${Math.max(90, Math.min(520, blk.height))}px`;
+      }
+      imgWrap.appendChild(imgEl);
+      card.appendChild(imgWrap);
+      resizableContentEl = imgEl;
+
+      const capInput = document.createElement("input");
+      capInput.type = "text";
+      capInput.className = "sheet-media-caption";
+      capInput.placeholder = "Add diagram caption / formula note...";
+      capInput.value = blk.caption || "";
+      capInput.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      capInput.addEventListener("input", (ev) => updateCompSheetMediaCaption(blk.id, ev.target.value));
+      card.appendChild(capInput);
+    }
+
+    const resizeHandle = document.createElement("div");
+    resizeHandle.className = "sheet-media-resize-handle";
+    resizeHandle.title = "Drag to resize width & height";
+    card.appendChild(resizeHandle);
+
+    // Guard card itself from triggering underlying canvas events
+    card.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+      if (pageNumContext && isCompPdfActive() && pageNumContext !== activeCompPdfPageNum) {
+        setActiveCompPdfPageInScrollSync(pageNumContext);
+      }
+    });
+
+    if (isFloating) {
+      dragBar.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("button, .sticky-color-swatch-dot")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try { dragBar.setPointerCapture(e.pointerId); } catch (_) {}
+
+        const boundsEl = hostContainerEl || card.parentElement || document.getElementById("comp-folio-page");
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const origX = blk.x || 24;
+        const origY = blk.y || 40;
+
+        const onMove = (me) => {
+          me.preventDefault();
+          me.stopPropagation();
+          const containerW = boundsEl ? Math.max(boundsEl.clientWidth, boundsEl.scrollWidth, 320) : 740;
+          const containerH = boundsEl ? Math.max(boundsEl.clientHeight, boundsEl.scrollHeight, 480) : 1400;
+          const maxX = Math.max(12, containerW - (blk.width || 220) - 6);
+          const maxY = Math.max(24, containerH - 44);
+          blk.x = Math.max(4, Math.min(maxX, Math.round(origX + (me.clientX - startX))));
+          blk.y = Math.max(6, Math.min(maxY, Math.round(origY + (me.clientY - startY))));
+          card.style.left = `${blk.x}px`;
+          card.style.top = `${blk.y}px`;
+        };
+
+        const onUp = async (ue) => {
+          dragBar.removeEventListener("pointermove", onMove);
+          dragBar.removeEventListener("pointerup", onUp);
+          dragBar.removeEventListener("pointercancel", onUp);
+          if (ue && ue.pointerId !== undefined) {
+            try { dragBar.releasePointerCapture(ue.pointerId); } catch (_) {}
+          }
+          await saveMediaBlocksForContext(pageNumContext);
+        };
+
+        dragBar.addEventListener("pointermove", onMove);
+        dragBar.addEventListener("pointerup", onUp);
+        dragBar.addEventListener("pointercancel", onUp);
+      });
+    }
+
+    resizeHandle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try { resizeHandle.setPointerCapture(e.pointerId); } catch (_) {}
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const origW = blk.width || 245;
+      const origH = blk.height || (blk.type === "sticky" ? 120 : 180);
+
+      const onMove = (me) => {
+        me.preventDefault();
+        me.stopPropagation();
+        blk.width = Math.max(160, Math.min(640, Math.round(origW + (me.clientX - startX))));
+        blk.height = Math.max(90, Math.min(520, Math.round(origH + (me.clientY - startY))));
+        card.style.width = `${blk.width}px`;
+        if (resizableContentEl) {
+          if (blk.type === "sticky") {
+            resizableContentEl.style.height = `${blk.height}px`;
+          } else {
+            resizableContentEl.style.maxHeight = `${blk.height}px`;
+          }
+        }
+      };
+
+      const onUp = async (ue) => {
+        resizeHandle.removeEventListener("pointermove", onMove);
+        resizeHandle.removeEventListener("pointerup", onUp);
+        resizeHandle.removeEventListener("pointercancel", onUp);
+        if (ue && ue.pointerId !== undefined) {
+          try { resizeHandle.releasePointerCapture(ue.pointerId); } catch (_) {}
+        }
+        await saveMediaBlocksForContext(pageNumContext);
+        syncSheetInkCanvasGeometry();
+      };
+
+      resizeHandle.addEventListener("pointermove", onMove);
+      resizeHandle.addEventListener("pointerup", onUp);
+      resizeHandle.addEventListener("pointercancel", onUp);
+    });
+
+    return card;
   }
 
   function renderActiveSheetMediaBlocks() {
-    const floatingLayer = document.getElementById("comp-floating-media-layer") || document.getElementById("comp-folio-floating-media-layer");
+    const folioFloatingLayer = document.getElementById("comp-floating-media-layer") || document.getElementById("comp-folio-floating-media-layer");
+    const singlePdfMediaLayer = document.getElementById("comp-pdf-single-media-layer");
     const inlineSlot = document.getElementById("comp-inline-media-container") || document.getElementById("comp-studio-inline-media-slot");
-    if (floatingLayer) floatingLayer.innerHTML = "";
+
+    if (folioFloatingLayer) folioFloatingLayer.innerHTML = "";
+    if (singlePdfMediaLayer) singlePdfMediaLayer.innerHTML = "";
     if (inlineSlot) inlineSlot.innerHTML = "";
+
+    // Clear all continuous PDF page media layers first
+    document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-stage-media-layer").forEach(layer => {
+      layer.innerHTML = "";
+    });
+
+    if (isCompPdfActive()) {
+      activeCompPdfPageMediaMap[activeCompPdfPageNum] = activeSheetMediaBlocks || [];
+
+      if (activeCompPdfScrollMode === "continuous") {
+        for (let p = 1; p <= activeCompPdfTotalPages; p++) {
+          const stageMediaLayer = document.getElementById(`comp-pdf-stage-media-${p}`);
+          const stageEl = document.getElementById(`comp-pdf-page-stage-${p}`);
+          const blocksForPage = activeCompPdfPageMediaMap[p] || [];
+          if (stageMediaLayer && blocksForPage.length > 0) {
+            blocksForPage.forEach(blk => {
+              const card = createSheetMediaCardDOM(blk, p, stageEl || stageMediaLayer);
+              stageMediaLayer.appendChild(card);
+            });
+          }
+        }
+        return;
+      }
+
+      // Single-page PDF mode: mount inside #comp-pdf-single-media-layer (or fallback to folioFloatingLayer)
+      const targetLayer = singlePdfMediaLayer || folioFloatingLayer;
+      const singleStage = document.getElementById("comp-pdf-single-stage") || targetLayer;
+      if (targetLayer && Array.isArray(activeSheetMediaBlocks)) {
+        activeSheetMediaBlocks.forEach(blk => {
+          const card = createSheetMediaCardDOM(blk, activeCompPdfPageNum, singleStage);
+          targetLayer.appendChild(card);
+        });
+      }
+      return;
+    }
 
     if (!Array.isArray(activeSheetMediaBlocks) || activeSheetMediaBlocks.length === 0) return;
 
+    const pageEl = document.getElementById("comp-folio-page");
     activeSheetMediaBlocks.forEach(blk => {
-      const card = document.createElement("div");
       const isFloating = blk.mode !== "inline";
-      card.className = `sheet-media-card ${isFloating ? "floating-card" : "inline-card"} ${blk.type === "sticky" ? "sticky-card" : ""}`;
-      card.setAttribute("data-media-id", blk.id);
-
-      if (isFloating) {
-        card.style.left = `${Math.max(4, blk.x || 24)}px`;
-        card.style.top = `${Math.max(8, blk.y || 80)}px`;
-        card.style.width = `${Math.max(150, blk.width || 240)}px`;
-      } else {
-        card.style.width = `${Math.min(620, Math.max(200, blk.width || 340))}px`;
-      }
-
-      const modeSwitchLabel = isFloating ? "\uD83D\uDCCC Dock Inline" : "\uD83E\uDE9F Float Free";
-      const headerLabel = blk.type === "sticky" ? "\uD83D\uDCDD Sticky Note" : "\uD83D\uDDBC\uFE0F Sheet Visual";
-
-      const dragBar = document.createElement("div");
-      dragBar.className = "sheet-media-drag-bar";
-      dragBar.innerHTML = `
-        <span>\u283F ${headerLabel}</span>
-        <div class="sheet-media-card-actions">
-          <button type="button" class="sheet-media-btn" title="Switch between Free-Floating and Inline mode">${modeSwitchLabel}</button>
-          <button type="button" class="sheet-media-btn" style="color:#fb7185;" title="Delete block">\u2715</button>
-        </div>
-      `;
-
-      const actionBtns = dragBar.querySelectorAll("button");
-      if (actionBtns[0]) {
-        actionBtns[0].addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          toggleCompSheetMediaBlockMode(blk.id);
-        });
-      }
-      if (actionBtns[1]) {
-        actionBtns[1].addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          deleteCompSheetMediaBlock(blk.id);
-        });
-      }
-
-      card.appendChild(dragBar);
-
-      if (blk.type === "sticky") {
-        const ta = document.createElement("textarea");
-        ta.className = "sheet-media-sticky-body";
-        ta.value = blk.text || "";
-        ta.placeholder = "Write your sticky callout note...";
-        ta.addEventListener("input", (ev) => updateCompSheetStickyText(blk.id, ev.target.value));
-        card.appendChild(ta);
-      } else {
-        const imgWrap = document.createElement("div");
-        imgWrap.className = "sheet-media-img-wrap";
-        imgWrap.innerHTML = `<img src="${blk.src}" alt="Sheet Visual">`;
-        card.appendChild(imgWrap);
-
-        const capInput = document.createElement("input");
-        capInput.type = "text";
-        capInput.className = "sheet-media-caption";
-        capInput.placeholder = "Add diagram caption / formula note...";
-        capInput.value = blk.caption || "";
-        capInput.addEventListener("input", (ev) => updateCompSheetMediaCaption(blk.id, ev.target.value));
-        card.appendChild(capInput);
-      }
-
-      const resizeHandle = document.createElement("div");
-      resizeHandle.className = "sheet-media-resize-handle";
-      resizeHandle.title = "Drag to resize";
-      card.appendChild(resizeHandle);
-
-      if (isFloating) {
-        dragBar.addEventListener("pointerdown", (e) => {
-          if (e.target.closest("button")) return;
-          e.preventDefault();
-          e.stopPropagation();
-          const pageEl = document.getElementById("comp-folio-page");
-          const startX = e.clientX;
-          const startY = e.clientY;
-          const origX = blk.x || 24;
-          const origY = blk.y || 80;
-
-          const onMove = (me) => {
-            const maxX = pageEl ? Math.max(40, pageEl.clientWidth - (blk.width || 220) - 8) : 520;
-            const maxY = pageEl ? Math.max(80, pageEl.scrollHeight - 80) : 2000;
-            blk.x = Math.max(4, Math.min(maxX, Math.round(origX + (me.clientX - startX))));
-            blk.y = Math.max(8, Math.min(maxY, Math.round(origY + (me.clientY - startY))));
-            card.style.left = `${blk.x}px`;
-            card.style.top = `${blk.y}px`;
-          };
-          const onUp = async () => {
-            window.removeEventListener("pointermove", onMove);
-            window.removeEventListener("pointerup", onUp);
-            await saveActiveSheetMediaBlocks();
-          };
-          window.addEventListener("pointermove", onMove);
-          window.addEventListener("pointerup", onUp);
-        });
-      }
-
-      resizeHandle.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const startX = e.clientX;
-        const origW = blk.width || 240;
-        const pageEl = document.getElementById("comp-folio-page");
-        const maxW = pageEl ? Math.max(220, pageEl.clientWidth - 28) : 640;
-
-        const onMove = (me) => {
-          blk.width = Math.max(140, Math.min(maxW, Math.round(origW + (me.clientX - startX))));
-          card.style.width = `${blk.width}px`;
-        };
-        const onUp = async () => {
-          window.removeEventListener("pointermove", onMove);
-          window.removeEventListener("pointerup", onUp);
-          await saveActiveSheetMediaBlocks();
-          syncSheetInkCanvasGeometry();
-        };
-        window.addEventListener("pointermove", onMove);
-        window.addEventListener("pointerup", onUp);
-      });
-
-      if (isFloating && floatingLayer) {
-        floatingLayer.appendChild(card);
+      const card = createSheetMediaCardDOM(blk, null, pageEl);
+      if (isFloating && folioFloatingLayer) {
+        folioFloatingLayer.appendChild(card);
       } else if (inlineSlot) {
         inlineSlot.appendChild(card);
       }
@@ -12101,11 +12427,12 @@ Explanation: ${parentQ.explanation}`;
       let grabStartY = 0;
 
       pdfWrap.addEventListener("mousedown", (e) => {
+        if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
         if (!isCompPdfActive()) return;
         // Allow mouse grab-to-pan when Ink Mode is OFF, or when Pan tool is selected, or middle-click
         const canPan = !compSheetInkMode || compSheetInkTool === "pan" || e.button === 1;
         if (!canPan) return;
-        if (e.target && e.target.closest("button, input, select, textarea, a")) return;
+        if (e.target && e.target.closest("button, input, select, textarea, a, .sheet-media-card")) return;
         isGrabPanning = true;
         grabStartX = e.clientX;
         grabStartY = e.clientY;
@@ -12165,7 +12492,7 @@ Explanation: ${parentQ.explanation}`;
     const scrollModeBtn = document.getElementById("btn-comp-pdf-scroll-mode");
     if (scrollModeBtn) {
       const isCont = activeCompPdfScrollMode === "continuous";
-      scrollModeBtn.innerText = isCont ? "\uD83D\uDCDC Continuous Scroll" : "\uD83D\uDCC4 Single Page";
+      scrollModeBtn.innerText = isCont ? "\uD83D\uDCDC Continuous" : "\uD83D\uDCC4 Single Page";
       scrollModeBtn.classList.toggle("btn-cyan", isCont);
       scrollModeBtn.classList.toggle("active", isCont);
       scrollModeBtn.classList.toggle("btn-secondary", !isCont);
@@ -12184,7 +12511,7 @@ Explanation: ${parentQ.explanation}`;
       slot.classList.toggle("active-pdf-page-slot", p === activeCompPdfPageNum);
       const statusBadge = document.getElementById(`comp-pdf-slot-active-badge-${p}`);
       if (statusBadge) {
-        statusBadge.innerText = p === activeCompPdfPageNum ? "\u25CF Active Page" : `Page ${p}`;
+        statusBadge.innerText = p === activeCompPdfPageNum ? `\u25CF Page ${p} (Active)` : `Page ${p}`;
         statusBadge.style.color = p === activeCompPdfPageNum ? "#38bdf8" : "var(--text-muted)";
       }
     });
@@ -12238,23 +12565,17 @@ Explanation: ${parentQ.explanation}`;
     activeCompPdfRenderingPagesMap[pNum] = true;
     try {
       const page = await activeCompPdfDocProxy.getPage(pNum);
-      const pdfWrap = document.getElementById("comp-pdf-canvas-wrap");
-      const pageEl = document.getElementById("comp-folio-page");
-      const measuredW = (pdfWrap && pdfWrap.clientWidth > 120)
-        ? pdfWrap.clientWidth - 20
-        : ((pageEl && pageEl.clientWidth > 120) ? pageEl.clientWidth - 36 : 720);
-      const availW = Math.max(280, Math.min(840, measuredW));
-
-      const unscaledVp = page.getViewport({ scale: 1 });
+      const unscaledViewport = page.getViewport({ scale: 1 });
       const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
-      const cssScale = (availW / Math.max(unscaledVp.width, 1)) * zoomFactor;
+      const targetWidth = Math.min(window.innerWidth - 16, 1180) * zoomFactor;
+      const scale = targetWidth / Math.max(unscaledViewport.width, 1);
       const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
-      const renderViewport = page.getViewport({ scale: cssScale * dpr });
+      const renderViewport = page.getViewport({ scale: scale * dpr });
 
       const pixelW = Math.max(1, Math.floor(renderViewport.width));
       const pixelH = Math.max(1, Math.floor(renderViewport.height));
-      const cssW = Math.max(1, Math.floor(unscaledVp.width * cssScale));
-      const cssH = Math.max(1, Math.floor(unscaledVp.height * cssScale));
+      const cssW = Math.max(1, Math.floor(unscaledViewport.width * scale));
+      const cssH = Math.max(1, Math.floor(unscaledViewport.height * scale));
 
       pageCanvas.width = pixelW;
       pageCanvas.height = pixelH;
@@ -12262,6 +12583,12 @@ Explanation: ${parentQ.explanation}`;
       pageCanvas.style.height = `${cssH}px`;
       pageCanvas.classList.toggle("pdf-dark-inverted", !!activeCompPdfDarkInvert);
       pageCanvas.classList.toggle("pdf-dark-invert", !!activeCompPdfDarkInvert);
+
+      const stageMediaLayer = document.getElementById(`comp-pdf-stage-media-${pNum}`);
+      if (stageMediaLayer) {
+        stageMediaLayer.style.width = `${cssW}px`;
+        stageMediaLayer.style.height = `${cssH}px`;
+      }
 
       const ctx = pageCanvas.getContext("2d", { alpha: false });
       if (ctx) {
@@ -12356,7 +12683,7 @@ Explanation: ${parentQ.explanation}`;
     if (scrollHost) {
       const hostRect = scrollHost.getBoundingClientRect();
       const slotRect = slot.getBoundingClientRect();
-      const targetScrollTop = Math.max(0, scrollHost.scrollTop + (slotRect.top - hostRect.top) - 68);
+      const targetScrollTop = Math.max(0, scrollHost.scrollTop + (slotRect.top - hostRect.top) - 56);
       scrollHost.scrollTo({
         top: targetScrollTop,
         behavior: smooth ? "smooth" : "auto"
@@ -12373,6 +12700,8 @@ Explanation: ${parentQ.explanation}`;
   /**
    * Core PDF.js Canvas Renderer (`renderPdfPage`):
    * Loads binary PDF data from IndexedDB (`store_notes` key `pdf_doc_${pdfId}`),
+   * enforces true edge-to-edge fullscreen (`.pdf-studio-fullscreen`),
+   * auto-fits PDF page width via `Math.min(window.innerWidth - 16, 1180) * compendiumZoomScale`,
    * supports BOTH Continuous Multi-Page Vertical Scroll Mode AND Page-by-Page Single View Mode,
    * and syncs per-page vector ink, Recall Tapes, Excerpts & Media overlays across all pages.
    */
@@ -12386,6 +12715,8 @@ Explanation: ${parentQ.explanation}`;
     if (!item || !item.isPdf) return;
     activeCompPdfItem = item;
 
+    syncPdfStudioFullscreenClass();
+
     if (compendiumMaskEditMode) compendiumMaskEditMode = false;
     if (compendiumHighlightMode) compendiumHighlightMode = false;
     const studioCanvas = document.getElementById("comp-studio-canvas");
@@ -12395,14 +12726,14 @@ Explanation: ${parentQ.explanation}`;
 
     bindPdfViewportPanAndKeyEvents();
 
-    // 1. Reveal PDF Studio Bar, Bottom Page Bar & Canvas Wrapper, hide Markdown prose container
-    const pdfBar = document.getElementById("comp-pdf-studio-bar");
+    // 1. Reveal Floating PDF HUD Pill, Bottom Page Bar & Canvas Wrapper, hide Markdown prose container
+    const hudPill = document.getElementById("comp-pdf-floating-hud-pill");
     const pdfBottomNav = document.getElementById("comp-pdf-bottom-nav");
     const pdfWrap = document.getElementById("comp-pdf-canvas-wrap") || document.getElementById("comp-pdf-canvas-stage");
     const singleStage = document.getElementById("comp-pdf-single-stage");
     const contContainer = document.getElementById("comp-pdf-continuous-container");
     const docContent = document.getElementById("comp-studio-doc-content");
-    if (pdfBar) pdfBar.style.display = "flex";
+    if (hudPill) hudPill.style.display = "flex";
     if (pdfBottomNav) pdfBottomNav.style.display = "flex";
     if (pdfWrap) pdfWrap.style.display = "flex";
     if (docContent) {
@@ -12481,18 +12812,15 @@ Explanation: ${parentQ.explanation}`;
       invBtn.classList.toggle("btn-cyan", !!activeCompPdfDarkInvert);
     }
 
+    const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
+    const targetWidth = Math.min(window.innerWidth - 16, 1180) * zoomFactor;
+
     // 5. Render either Continuous Multi-Page Vertical Scroll Stack OR Single-Page Canvas
     if (activeCompPdfScrollMode === "continuous" && contContainer && activeCompPdfDocProxy) {
       if (singleStage) singleStage.style.display = "none";
       contContainer.style.display = "flex";
 
-      const pageEl = document.getElementById("comp-folio-page");
-      const measuredW = (pdfWrap && pdfWrap.clientWidth > 120)
-        ? pdfWrap.clientWidth - 20
-        : ((pageEl && pageEl.clientWidth > 120) ? pageEl.clientWidth - 36 : 720);
-      const availW = Math.max(280, Math.min(840, measuredW));
-      const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
-      const domSig = `${item.id}_${activeCompPdfTotalPages}_${Math.round(availW)}_${Math.round(zoomFactor * 100)}`;
+      const domSig = `${item.id}_${activeCompPdfTotalPages}_${Math.round(targetWidth)}_${Math.round(zoomFactor * 100)}`;
 
       if (activeCompPdfBuiltDomSignature !== domSig || contContainer.children.length !== activeCompPdfTotalPages) {
         activeCompPdfBuiltDomSignature = domSig;
@@ -12507,9 +12835,9 @@ Explanation: ${parentQ.explanation}`;
 
         const firstPage = await activeCompPdfDocProxy.getPage(1);
         const unscaledVp1 = firstPage.getViewport({ scale: 1 });
-        const cssScale1 = (availW / Math.max(unscaledVp1.width, 1)) * zoomFactor;
-        const estCssW = Math.max(1, Math.floor(unscaledVp1.width * cssScale1));
-        const estCssH = Math.max(1, Math.floor(unscaledVp1.height * cssScale1));
+        const scale1 = targetWidth / Math.max(unscaledVp1.width, 1);
+        const estCssW = Math.max(1, Math.floor(unscaledVp1.width * scale1));
+        const estCssH = Math.max(1, Math.floor(unscaledVp1.height * scale1));
 
         const annSet = new Set(Array.isArray(item.annotatedPages) ? item.annotatedPages : []);
         const bmSet = new Set(Array.isArray(item.bookmarkedPages) ? item.bookmarkedPages : []);
@@ -12524,19 +12852,24 @@ Explanation: ${parentQ.explanation}`;
           const hasBm = bmSet.has(p);
 
           slot.innerHTML = `
-            <div class="comp-pdf-page-slot-bar">
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span id="comp-pdf-slot-active-badge-${p}" style="color:${p === activeCompPdfPageNum ? "#38bdf8" : "var(--text-muted)"};">${p === activeCompPdfPageNum ? "\u25CF Active Page" : `Page ${p}`}</span>
+            <div class="comp-pdf-page-slot-bar" style="width:${estCssW}px; max-width:98vw;">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span id="comp-pdf-slot-active-badge-${p}" style="color:${p === activeCompPdfPageNum ? "#38bdf8" : "var(--text-muted)"}; font-weight:800;">${p === activeCompPdfPageNum ? `\u25CF Page ${p} (Active)` : `Page ${p}`}</span>
                 <span style="opacity:0.65;">of ${activeCompPdfTotalPages}</span>
                 <span id="comp-pdf-slot-ink-badge-${p}" style="color:#a78bfa; font-size:10px;">${hasInk ? "\u270F\uFE0F Annotated" : ""}</span>
               </div>
-              <div style="display:flex; align-items:center; gap:6px;">
-                <button type="button" class="btn btn-secondary" id="comp-pdf-slot-bm-${p}" style="padding:1px 7px; font-size:10px; color:${hasBm ? "#fbbf24" : "var(--text-muted)"};" title="Bookmark Page ${p}">${hasBm ? "\u2605 Bookmarked" : "\u2606 Bookmark"}</button>
+              <div class="comp-pdf-slot-surgery-strip">
+                <button type="button" class="pdf-slot-mini-btn" id="comp-pdf-slot-bm-${p}" style="color:${hasBm ? "#fbbf24" : "#cbd5e1"};" title="Bookmark Page ${p}">${hasBm ? "\u2605" : "\u2606"}</button>
+                <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.rotateActivePdfPage(90, ${p})" title="Rotate Page ${p} by 90°">\uD83D\uDD04 Rotate</button>
+                <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.insertBlankPageIntoActivePdf(${p})" title="Insert Blank Page after Page ${p}">\uD83D\uDCC4 +Blank</button>
+                <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.duplicateActivePdfPage(${p})" title="Duplicate Page ${p}">\uD83D\uDCD1 Dup</button>
+                <button type="button" class="pdf-slot-mini-btn danger" onclick="event.stopPropagation(); CGL_OS.deleteActivePdfSinglePage(${p})" title="Delete Page ${p}">\uD83D\uDDD1\uFE0F Delete Page</button>
               </div>
             </div>
             <div class="comp-pdf-page-stage" id="comp-pdf-page-stage-${p}" data-page-num="${p}">
               <canvas class="comp-pdf-page-canvas ${activeCompPdfDarkInvert ? "pdf-dark-inverted" : ""}" id="comp-pdf-page-canvas-${p}" data-page-num="${p}" style="width:${estCssW}px; height:${estCssH}px;"></canvas>
               <canvas class="comp-pdf-page-ink-overlay" id="comp-pdf-page-ink-${p}" data-page-num="${p}" style="width:${estCssW}px; height:${estCssH}px;"></canvas>
+              <div class="comp-floating-media-layer comp-pdf-stage-media-layer" id="comp-pdf-stage-media-${p}" data-page-num="${p}" style="width:${estCssW}px; height:${estCssH}px;"></div>
             </div>
           `;
 
@@ -12570,27 +12903,26 @@ Explanation: ${parentQ.explanation}`;
         }
 
         const page = await activeCompPdfDocProxy.getPage(activeCompPdfPageNum);
-        const pageEl = document.getElementById("comp-folio-page");
-        const measuredW = (pdfWrap && pdfWrap.clientWidth > 120)
-          ? pdfWrap.clientWidth - 20
-          : ((pageEl && pageEl.clientWidth > 120) ? pageEl.clientWidth - 36 : 720);
-        const availW = Math.max(280, Math.min(840, measuredW));
-
-        const unscaledVp = page.getViewport({ scale: 1 });
-        const zoomFactor = Math.max(0.75, Math.min(2.2, compendiumZoomScale || 1.0));
-        const cssScale = (availW / Math.max(unscaledVp.width, 1)) * zoomFactor;
+        const unscaledViewport = page.getViewport({ scale: 1 });
+        const scale = targetWidth / Math.max(unscaledViewport.width, 1);
         const dpr = Math.min(window.devicePixelRatio || 1, 2.25);
-        const renderViewport = page.getViewport({ scale: cssScale * dpr });
+        const renderViewport = page.getViewport({ scale: scale * dpr });
 
         const pixelW = Math.max(1, Math.floor(renderViewport.width));
         const pixelH = Math.max(1, Math.floor(renderViewport.height));
-        const cssW = Math.max(1, Math.floor(unscaledVp.width * cssScale));
-        const cssH = Math.max(1, Math.floor(unscaledVp.height * cssScale));
+        const cssW = Math.max(1, Math.floor(unscaledViewport.width * scale));
+        const cssH = Math.max(1, Math.floor(unscaledViewport.height * scale));
 
         pdfCanvas.width = pixelW;
         pdfCanvas.height = pixelH;
         pdfCanvas.style.width = `${cssW}px`;
         pdfCanvas.style.height = `${cssH}px`;
+
+        const singleMediaLayer = document.getElementById("comp-pdf-single-media-layer");
+        if (singleMediaLayer) {
+          singleMediaLayer.style.width = `${cssW}px`;
+          singleMediaLayer.style.height = `${cssH}px`;
+        }
 
         const ctx = pdfCanvas.getContext("2d", { alpha: false });
         if (ctx) {
@@ -12897,7 +13229,7 @@ Explanation: ${parentQ.explanation}`;
       const card = document.createElement("div");
       card.className = "comp-pdf-thumb-card" + (pNum === activeCompPdfPageNum ? " active" : "");
       card.setAttribute("data-page-num", String(pNum));
-      const hasInk = annotatedSet.has(pNum);
+      const hasInk = annotatedSet.has(pNum) || (activeCompPdfPageStrokesMap[pNum] && activeCompPdfPageStrokesMap[pNum].length > 0);
       const hasStar = bookmarkedSet.has(pNum);
       card.innerHTML = `
         <div style="font-weight:800; color:${pNum === activeCompPdfPageNum ? "#38bdf8" : "#e2e8f0"}; margin-bottom:2px;">Page ${pNum}</div>
@@ -12906,13 +13238,52 @@ Explanation: ${parentQ.explanation}`;
           <span>${hasStar ? "\u2B50" : ""}</span>
           ${!hasInk && !hasStar ? `<span style="opacity:0.45;">#${pNum}</span>` : ""}
         </div>
+        <div class="comp-pdf-thumb-mini-actions">
+          <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.rotateActivePdfPage(90, ${pNum})" title="Rotate Page ${pNum}">\uD83D\uDD04</button>
+          <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.insertBlankPageIntoActivePdf(${pNum})" title="Insert Blank Page after Page ${pNum}">\uD83D\uDCC4+</button>
+          <button type="button" class="pdf-slot-mini-btn" onclick="event.stopPropagation(); CGL_OS.duplicateActivePdfPage(${pNum})" title="Duplicate Page ${pNum}">\uD83D\uDCD1</button>
+          <button type="button" class="pdf-slot-mini-btn danger" onclick="event.stopPropagation(); CGL_OS.deleteActivePdfSinglePage(${pNum})" title="Delete Page ${pNum}">\uD83D\uDDD1\uFE0F</button>
+        </div>
       `;
       card.addEventListener("click", () => jumpCompPdfToPage(pNum));
       track.appendChild(card);
     }
   }
 
-  async function insertBlankPageIntoActivePdf() {
+  async function persistUpdatedPdfDocumentBytes(updatedBytes, newTotalPages) {
+    activeCompPdfRawBytes = updatedBytes instanceof Uint8Array ? updatedBytes : new Uint8Array(updatedBytes);
+    const updatedBase64 = uint8ArrayToBase64(activeCompPdfRawBytes);
+
+    activeCompPdfTotalPages = newTotalPages;
+    activeCompPdfItem.numPages = activeCompPdfTotalPages;
+    activeCompPdfItem.subtitle = `PDF Document \u2022 ${activeCompPdfTotalPages} Page${activeCompPdfTotalPages === 1 ? "" : "s"}`;
+    activeCompPdfItem.updatedAt = Date.now();
+
+    await putRecord("store_notes", {
+      id: `pdf_doc_${activeCompPdfItem.id}`,
+      pdfId: activeCompPdfItem.id,
+      title: activeCompPdfItem.title,
+      subject: activeCompPdfItem.subject,
+      chapter: activeCompPdfItem.chapter,
+      pdfBytes: activeCompPdfRawBytes.slice(0),
+      base64Data: updatedBase64,
+      unbakedBase64Data: updatedBase64,
+      numPages: activeCompPdfTotalPages,
+      timestamp: Date.now()
+    });
+    await savePdfLibraryIndex();
+
+    const pdfjs = ensurePdfJsReady();
+    if (pdfjs) {
+      const loadingTask = pdfjs.getDocument({ data: activeCompPdfRawBytes.slice(0) });
+      activeCompPdfDocProxy = await loadingTask.promise;
+      activeCompPdfDocProxy._cglPdfId = activeCompPdfItem.id;
+    }
+    activeCompPdfLoadedIdForMaps = null;
+    activeCompPdfBuiltDomSignature = "";
+  }
+
+  async function insertBlankPageIntoActivePdf(afterPageNum = activeCompPdfPageNum) {
     if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
     if (!window.PDFLib || !window.PDFLib.PDFDocument) {
       showToast("pdf-lib is still loading. Try again in a moment.", "amber");
@@ -12920,13 +13291,15 @@ Explanation: ${parentQ.explanation}`;
     }
     try {
       const pdfDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
-      const currentIdx = Math.max(0, Math.min(pdfDoc.getPageCount() - 1, activeCompPdfPageNum - 1));
+      const totalBefore = pdfDoc.getPageCount();
+      const basePageNum = Math.max(1, Math.min(totalBefore, Math.floor(Number(afterPageNum) || activeCompPdfPageNum || 1)));
+      const currentIdx = basePageNum - 1;
       const refPage = pdfDoc.getPage(currentIdx);
       const { width, height } = refPage.getSize();
       const insertAtIndex = currentIdx + 1;
       const newPage = pdfDoc.insertPage(insertAtIndex, [width || 595.28, height || 841.89]);
 
-      newPage.drawText(`Scratchpad & Derivations — Inserted after Page ${activeCompPdfPageNum}`, {
+      newPage.drawText(`Scratchpad & Derivations — Inserted after Page ${basePageNum}`, {
         x: 28,
         y: (height || 841.89) - 26,
         size: 9,
@@ -12934,11 +13307,8 @@ Explanation: ${parentQ.explanation}`;
       });
 
       const updatedBytes = await pdfDoc.save();
-      activeCompPdfRawBytes = new Uint8Array(updatedBytes);
-      const updatedBase64 = uint8ArrayToBase64(activeCompPdfRawBytes);
-
-      const oldTotal = activeCompPdfTotalPages;
-      for (let p = oldTotal; p > activeCompPdfPageNum; p--) {
+      const oldTotal = totalBefore;
+      for (let p = oldTotal; p > basePageNum; p--) {
         const oldInk = await getRecord("store_notes", `pdf_ink_${activeCompPdfItem.id}_p${p}`);
         if (oldInk) {
           await putRecord("store_notes", {
@@ -12959,47 +13329,337 @@ Explanation: ${parentQ.explanation}`;
       }
 
       if (Array.isArray(activeCompPdfItem.annotatedPages)) {
-        activeCompPdfItem.annotatedPages = activeCompPdfItem.annotatedPages.map(p => (p > activeCompPdfPageNum ? p + 1 : p));
+        activeCompPdfItem.annotatedPages = activeCompPdfItem.annotatedPages.map(p => (p > basePageNum ? p + 1 : p));
       }
       if (Array.isArray(activeCompPdfItem.bookmarkedPages)) {
-        activeCompPdfItem.bookmarkedPages = activeCompPdfItem.bookmarkedPages.map(p => (p > activeCompPdfPageNum ? p + 1 : p));
+        activeCompPdfItem.bookmarkedPages = activeCompPdfItem.bookmarkedPages.map(p => (p > basePageNum ? p + 1 : p));
       }
 
-      activeCompPdfTotalPages = pdfDoc.getPageCount();
-      activeCompPdfItem.numPages = activeCompPdfTotalPages;
-      activeCompPdfItem.subtitle = `PDF Document \u2022 ${activeCompPdfTotalPages} Pages`;
-      activeCompPdfItem.updatedAt = Date.now();
-
-      await putRecord("store_notes", {
-        id: `pdf_doc_${activeCompPdfItem.id}`,
-        pdfId: activeCompPdfItem.id,
-        title: activeCompPdfItem.title,
-        subject: activeCompPdfItem.subject,
-        chapter: activeCompPdfItem.chapter,
-        pdfBytes: activeCompPdfRawBytes.slice(0),
-        base64Data: updatedBase64,
-        unbakedBase64Data: updatedBase64,
-        numPages: activeCompPdfTotalPages,
-        timestamp: Date.now()
-      });
-      await savePdfLibraryIndex();
-
-      const pdfjs = ensurePdfJsReady();
-      if (pdfjs) {
-        const loadingTask = pdfjs.getDocument({ data: activeCompPdfRawBytes.slice(0) });
-        activeCompPdfDocProxy = await loadingTask.promise;
-        activeCompPdfDocProxy._cglPdfId = activeCompPdfItem.id;
-      }
-      activeCompPdfLoadedIdForMaps = null;
-      activeCompPdfBuiltDomSignature = "";
-
-      await renderPdfPage(activeCompPdfPageNum + 1);
+      await persistUpdatedPdfDocumentBytes(updatedBytes, pdfDoc.getPageCount());
+      const targetNewPage = basePageNum + 1;
+      await renderPdfPage(targetNewPage);
       if (activeCompPdfScrollMode === "continuous") {
-        scrollToPdfPageSlot(activeCompPdfPageNum, true);
+        scrollToPdfPageSlot(targetNewPage, true);
       }
-      showToast(`Inserted blank page at Page ${activeCompPdfPageNum}!`, "emerald", 2200);
+      showToast(`Inserted blank page at Page ${targetNewPage}!`, "emerald", 2200);
     } catch (err) {
       showToast(`Could not insert blank page: ${err.message}`, "rose");
+    }
+  }
+
+  /**
+   * SINGLE-PAGE PDF SURGERY 1: Delete a Single Page (`deleteActivePdfSinglePage`)
+   */
+  async function deleteActivePdfSinglePage(targetPageNum = activeCompPdfPageNum) {
+    if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
+    if (activeCompPdfTotalPages <= 1) {
+      showToast("Cannot delete the only page — use \uD83D\uDDD1\uFE0F Delete PDF to remove the whole document.", "amber", 2600);
+      return;
+    }
+    if (!window.PDFLib || !window.PDFLib.PDFDocument) {
+      showToast("pdf-lib is still loading. Try again in a moment.", "amber");
+      return;
+    }
+    try {
+      const pdfDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
+      const oldTotal = pdfDoc.getPageCount();
+      const pageToDelete = Math.max(1, Math.min(oldTotal, Math.floor(Number(targetPageNum) || activeCompPdfPageNum || 1)));
+      const pageIdx = pageToDelete - 1;
+
+      pdfDoc.removePage(pageIdx);
+      const updatedBytes = await pdfDoc.save();
+      const newTotalPages = pdfDoc.getPageCount();
+      const pdfId = activeCompPdfItem.id;
+
+      // Delete target page's records and shift all subsequent pages p > pageToDelete down by -1
+      await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${pageToDelete}`);
+      await deleteRecord("store_notes", `pdf_media_${pdfId}_p${pageToDelete}`);
+
+      for (let p = pageToDelete + 1; p <= oldTotal; p++) {
+        const nextInk = await getRecord("store_notes", `pdf_ink_${pdfId}_p${p}`);
+        if (nextInk) {
+          await putRecord("store_notes", {
+            ...nextInk,
+            id: `pdf_ink_${pdfId}_p${p - 1}`,
+            pageNum: p - 1
+          });
+        } else {
+          await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${p - 1}`);
+        }
+
+        const nextMedia = await getRecord("store_notes", `pdf_media_${pdfId}_p${p}`);
+        if (nextMedia) {
+          await putRecord("store_notes", {
+            ...nextMedia,
+            id: `pdf_media_${pdfId}_p${p - 1}`
+          });
+        } else {
+          await deleteRecord("store_notes", `pdf_media_${pdfId}_p${p - 1}`);
+        }
+      }
+
+      // Remove orphaned last page records
+      await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${oldTotal}`);
+      await deleteRecord("store_notes", `pdf_media_${pdfId}_p${oldTotal}`);
+
+      if (Array.isArray(activeCompPdfItem.annotatedPages)) {
+        activeCompPdfItem.annotatedPages = activeCompPdfItem.annotatedPages
+          .filter(p => p !== pageToDelete)
+          .map(p => (p > pageToDelete ? p - 1 : p));
+      }
+      if (Array.isArray(activeCompPdfItem.bookmarkedPages)) {
+        activeCompPdfItem.bookmarkedPages = activeCompPdfItem.bookmarkedPages
+          .filter(p => p !== pageToDelete)
+          .map(p => (p > pageToDelete ? p - 1 : p));
+      }
+
+      await persistUpdatedPdfDocumentBytes(updatedBytes, newTotalPages);
+      const nextActivePage = Math.min(pageToDelete, newTotalPages);
+      await renderPdfPage(nextActivePage);
+      if (activeCompPdfScrollMode === "continuous") {
+        scrollToPdfPageSlot(nextActivePage, false);
+      }
+      showToast(`Deleted Page ${pageToDelete} (${newTotalPages} pages remaining).`, "emerald", 2200);
+    } catch (err) {
+      showToast(`Could not delete page: ${err.message}`, "rose");
+    }
+  }
+
+  /**
+   * SINGLE-PAGE PDF SURGERY 2: Rotate a Single Page by 90° (`rotateActivePdfPage`)
+   */
+  async function rotateActivePdfPage(deltaDeg = 90, targetPageNum = activeCompPdfPageNum) {
+    if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
+    if (!window.PDFLib || !window.PDFLib.PDFDocument) {
+      showToast("pdf-lib is still loading. Try again in a moment.", "amber");
+      return;
+    }
+    try {
+      const pdfDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
+      const total = pdfDoc.getPageCount();
+      const pNum = Math.max(1, Math.min(total, Math.floor(Number(targetPageNum) || activeCompPdfPageNum || 1)));
+      const page = pdfDoc.getPage(pNum - 1);
+      const curAngle = (page.getRotation && page.getRotation().angle) ? page.getRotation().angle : 0;
+      const nextAngle = (((curAngle + deltaDeg) % 360) + 360) % 360;
+      page.setRotation(window.PDFLib.degrees(nextAngle));
+
+      const updatedBytes = await pdfDoc.save();
+      await persistUpdatedPdfDocumentBytes(updatedBytes, total);
+      await renderPdfPage(pNum);
+      showToast(`Rotated Page ${pNum} by ${deltaDeg}\u00B0.`, "cyan", 1800);
+    } catch (err) {
+      showToast(`Could not rotate page: ${err.message}`, "rose");
+    }
+  }
+
+  /**
+   * SINGLE-PAGE PDF SURGERY 3: Duplicate a Single Page (`duplicateActivePdfPage`)
+   */
+  async function duplicateActivePdfPage(targetPageNum = activeCompPdfPageNum) {
+    if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
+    if (!window.PDFLib || !window.PDFLib.PDFDocument) {
+      showToast("pdf-lib is still loading. Try again in a moment.", "amber");
+      return;
+    }
+    try {
+      const pdfDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
+      const oldTotal = pdfDoc.getPageCount();
+      const pNum = Math.max(1, Math.min(oldTotal, Math.floor(Number(targetPageNum) || activeCompPdfPageNum || 1)));
+      const [copiedPage] = await pdfDoc.copyPages(pdfDoc, [pNum - 1]);
+      pdfDoc.insertPage(pNum, copiedPage);
+
+      const updatedBytes = await pdfDoc.save();
+      const pdfId = activeCompPdfItem.id;
+
+      // Shift per-page ink & media records for p > pNum up by +1
+      for (let p = oldTotal; p > pNum; p--) {
+        const oldInk = await getRecord("store_notes", `pdf_ink_${pdfId}_p${p}`);
+        if (oldInk) {
+          await putRecord("store_notes", {
+            ...oldInk,
+            id: `pdf_ink_${pdfId}_p${p + 1}`,
+            pageNum: p + 1
+          });
+          await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${p}`);
+        }
+        const oldMedia = await getRecord("store_notes", `pdf_media_${pdfId}_p${p}`);
+        if (oldMedia) {
+          await putRecord("store_notes", {
+            ...oldMedia,
+            id: `pdf_media_${pdfId}_p${p + 1}`
+          });
+          await deleteRecord("store_notes", `pdf_media_${pdfId}_p${p}`);
+        }
+      }
+
+      // Clone pNum's ink & media onto pNum + 1
+      const srcInk = await getRecord("store_notes", `pdf_ink_${pdfId}_p${pNum}`);
+      if (srcInk && Array.isArray(srcInk.strokes) && srcInk.strokes.length > 0) {
+        await putRecord("store_notes", {
+          ...JSON.parse(JSON.stringify(srcInk)),
+          id: `pdf_ink_${pdfId}_p${pNum + 1}`,
+          pageNum: pNum + 1,
+          timestamp: Date.now()
+        });
+      }
+      const srcMedia = await getRecord("store_notes", `pdf_media_${pdfId}_p${pNum}`);
+      if (srcMedia && Array.isArray(srcMedia.blocks) && srcMedia.blocks.length > 0) {
+        const clonedBlocks = JSON.parse(JSON.stringify(srcMedia.blocks)).map((b, i) => ({
+          ...b,
+          id: `media_${Date.now()}_${i}_${Math.floor(Math.random() * 1000)}`
+        }));
+        await putRecord("store_notes", {
+          id: `pdf_media_${pdfId}_p${pNum + 1}`,
+          blocks: clonedBlocks,
+          timestamp: Date.now()
+        });
+      }
+
+      if (Array.isArray(activeCompPdfItem.annotatedPages)) {
+        const shifted = activeCompPdfItem.annotatedPages.map(p => (p > pNum ? p + 1 : p));
+        if (shifted.includes(pNum) && !shifted.includes(pNum + 1)) shifted.push(pNum + 1);
+        activeCompPdfItem.annotatedPages = shifted.sort((a, b) => a - b);
+      }
+      if (Array.isArray(activeCompPdfItem.bookmarkedPages)) {
+        activeCompPdfItem.bookmarkedPages = activeCompPdfItem.bookmarkedPages.map(p => (p > pNum ? p + 1 : p));
+      }
+
+      await persistUpdatedPdfDocumentBytes(updatedBytes, pdfDoc.getPageCount());
+      await renderPdfPage(pNum + 1);
+      if (activeCompPdfScrollMode === "continuous") {
+        scrollToPdfPageSlot(pNum + 1, true);
+      }
+      showToast(`Duplicated Page ${pNum} \u2794 Page ${pNum + 1}!`, "emerald", 2000);
+    } catch (err) {
+      showToast(`Could not duplicate page: ${err.message}`, "rose");
+    }
+  }
+
+  /**
+   * SINGLE-PAGE PDF SURGERY 4: Reorder / Swap Page Up or Down (`reorderActivePdfPage`)
+   */
+  async function reorderActivePdfPage(direction = -1, targetPageNum = activeCompPdfPageNum) {
+    if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
+    if (!window.PDFLib || !window.PDFLib.PDFDocument) {
+      showToast("pdf-lib is still loading. Try again in a moment.", "amber");
+      return;
+    }
+    const delta = direction < 0 ? -1 : 1;
+    const pA = Math.max(1, Math.min(activeCompPdfTotalPages, Math.floor(Number(targetPageNum) || activeCompPdfPageNum || 1)));
+    const pB = pA + delta;
+    if (pB < 1 || pB > activeCompPdfTotalPages) {
+      showToast(delta < 0 ? "Already at the first page." : "Already at the last page.", "cyan", 1400);
+      return;
+    }
+
+    try {
+      const pdfDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
+      const minPage = Math.min(pA, pB);
+      const maxPage = Math.max(pA, pB);
+      const [copiedMax] = await pdfDoc.copyPages(pdfDoc, [maxPage - 1]);
+      pdfDoc.removePage(maxPage - 1);
+      pdfDoc.insertPage(minPage - 1, copiedMax);
+
+      const updatedBytes = await pdfDoc.save();
+      const pdfId = activeCompPdfItem.id;
+
+      // Swap ink & media records in store_notes between pA and pB
+      const inkA = await getRecord("store_notes", `pdf_ink_${pdfId}_p${pA}`);
+      const inkB = await getRecord("store_notes", `pdf_ink_${pdfId}_p${pB}`);
+      if (inkA) {
+        await putRecord("store_notes", { ...inkA, id: `pdf_ink_${pdfId}_p${pB}`, pageNum: pB });
+      } else {
+        await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${pB}`);
+      }
+      if (inkB) {
+        await putRecord("store_notes", { ...inkB, id: `pdf_ink_${pdfId}_p${pA}`, pageNum: pA });
+      } else {
+        await deleteRecord("store_notes", `pdf_ink_${pdfId}_p${pA}`);
+      }
+
+      const medA = await getRecord("store_notes", `pdf_media_${pdfId}_p${pA}`);
+      const medB = await getRecord("store_notes", `pdf_media_${pdfId}_p${pB}`);
+      if (medA) {
+        await putRecord("store_notes", { ...medA, id: `pdf_media_${pdfId}_p${pB}` });
+      } else {
+        await deleteRecord("store_notes", `pdf_media_${pdfId}_p${pB}`);
+      }
+      if (medB) {
+        await putRecord("store_notes", { ...medB, id: `pdf_media_${pdfId}_p${pA}` });
+      } else {
+        await deleteRecord("store_notes", `pdf_media_${pdfId}_p${pA}`);
+      }
+
+      const swapPageNumsInList = (arr) => {
+        if (!Array.isArray(arr)) return [];
+        return arr.map(p => (p === pA ? pB : (p === pB ? pA : p))).sort((a, b) => a - b);
+      };
+      activeCompPdfItem.annotatedPages = swapPageNumsInList(activeCompPdfItem.annotatedPages);
+      activeCompPdfItem.bookmarkedPages = swapPageNumsInList(activeCompPdfItem.bookmarkedPages);
+
+      await persistUpdatedPdfDocumentBytes(updatedBytes, pdfDoc.getPageCount());
+      await renderPdfPage(pB);
+      if (activeCompPdfScrollMode === "continuous") {
+        scrollToPdfPageSlot(pB, true);
+      }
+      showToast(`Moved Page ${pA} \u2794 Page ${pB}.`, "emerald", 1800);
+    } catch (err) {
+      showToast(`Could not reorder page: ${err.message}`, "rose");
+    }
+  }
+
+  /**
+   * SINGLE-PAGE PDF SURGERY 5: Extract a Single Page as a Standalone PDF (`extractActivePdfSinglePage`)
+   */
+  async function extractActivePdfSinglePage(targetPageNum = activeCompPdfPageNum) {
+    if (!isCompPdfActive() || !activeCompPdfItem || !activeCompPdfRawBytes) return;
+    if (!window.PDFLib || !window.PDFLib.PDFDocument) {
+      showToast("pdf-lib is still loading. Try again in a moment.", "amber");
+      return;
+    }
+    try {
+      const pNum = Math.max(1, Math.min(activeCompPdfTotalPages, Math.floor(Number(targetPageNum) || activeCompPdfPageNum || 1)));
+      const srcDoc = await window.PDFLib.PDFDocument.load(activeCompPdfRawBytes);
+      const singleDoc = await window.PDFLib.PDFDocument.create();
+      const [copiedPage] = await singleDoc.copyPages(srcDoc, [pNum - 1]);
+      const pdfPage = singleDoc.addPage(copiedPage);
+
+      // Bake any vector ink strokes on pNum onto the extracted single-page PDF
+      const inkRec = await getRecord("store_notes", `pdf_ink_${activeCompPdfItem.id}_p${pNum}`);
+      const strokes = (inkRec && Array.isArray(inkRec.strokes)) ? inkRec.strokes : (pNum === activeCompPdfPageNum ? activeSheetInkStrokes : []);
+      if (Array.isArray(strokes) && strokes.length > 0) {
+        const { width, height } = pdfPage.getSize();
+        strokes.forEach(stroke => {
+          if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return;
+          const tool = String(stroke.tool || "pen").toLowerCase();
+          if (tool === "eraser" || tool === "stroke_eraser") return;
+          const isMarker = tool === "marker";
+          const isTape = tool === "tape";
+          const colorRgb = hexToPdfRgb(stroke.color || (isMarker ? "#facc15" : "#38bdf8"));
+          const opacity = isMarker ? 0.34 : (isTape ? 0.92 : 0.95);
+          const thickness = isTape
+            ? Math.max(18, (stroke.size || 3) * 6.5)
+            : (isMarker ? Math.max(10, (stroke.size || 3) * 4.5) : Math.max(1.5, stroke.size || 2.5));
+          for (let i = 1; i < stroke.points.length; i++) {
+            const p0 = stroke.points[i - 1];
+            const p1 = stroke.points[i];
+            pdfPage.drawLine({
+              start: { x: p0.nx * width, y: (1 - p0.ny) * height },
+              end: { x: p1.nx * width, y: (1 - p1.ny) * height },
+              thickness,
+              color: colorRgb,
+              opacity
+            });
+          }
+        });
+      }
+
+      const bytes = new Uint8Array(await singleDoc.save());
+      const cleanTitle = (activeCompPdfItem.title || "PDF").replace(/[^a-zA-Z0-9_-]/g, "_");
+      await downloadFileResilient(`${cleanTitle}_Page_${pNum}.pdf`, "application/pdf", bytes);
+      showToast(`Extracted Page ${pNum} as standalone PDF!`, "emerald", 2200);
+    } catch (err) {
+      showToast(`Could not extract page: ${err.message}`, "rose");
     }
   }
 
@@ -13234,13 +13894,20 @@ Explanation: ${parentQ.explanation}`;
     if (!canvas || canvas.dataset.recallBound === "true") return;
     canvas.dataset.recallBound = "true";
 
-    // Close Top-Right More Popover when clicking outside
+    // Close Top-Right More Popover or PDF Tools Drawer when clicking outside
     document.addEventListener("click", (ev) => {
       const pop = document.getElementById("comp-more-popover");
       const btn = document.getElementById("btn-comp-more-menu");
       if (pop && (pop.classList.contains("open") || pop.style.display === "block")) {
         if (!pop.contains(ev.target) && (!btn || !btn.contains(ev.target))) {
           toggleCompStudioMoreMenu(false);
+        }
+      }
+      const pdfDrawer = document.getElementById("comp-pdf-tools-drawer");
+      const pdfPill = document.getElementById("comp-pdf-floating-hud-pill");
+      if (pdfDrawer && (pdfDrawer.classList.contains("open") || pdfDrawer.style.display === "flex")) {
+        if (!pdfDrawer.contains(ev.target) && (!pdfPill || !pdfPill.contains(ev.target))) {
+          toggleCompPdfToolsDrawer(false);
         }
       }
     });
@@ -13285,7 +13952,7 @@ Explanation: ${parentQ.explanation}`;
       }
     });
 
-    // Auto-Collapsing Zen Header on Scroll (binds both desktop #comp-studio-canvas and mobile .comp-studio-workspace)
+    // Auto-Collapsing Zen Header & Fading PDF HUD Pill on Scroll
     let lastScrollTop = 0;
     const handleStudioScroll = (scrollContainer) => {
       const st = scrollContainer.scrollTop || 0;
@@ -13297,8 +13964,15 @@ Explanation: ${parentQ.explanation}`;
           document.getElementById("comp-sheet-switcher-drawer")?.classList.remove("open");
           document.getElementById("dock-btn-sheets")?.classList.remove("active");
           toggleCompStudioMoreMenu(false);
+          if (isCompPdfActive()) {
+            fadeCompPdfHudPill();
+            toggleCompPdfToolsDrawer(false);
+          }
         } else if (delta < -8 || st <= 24) {
           zenHeader.classList.remove("comp-zen-header-hidden");
+          if (isCompPdfActive()) {
+            wakeCompPdfHudPill();
+          }
         }
       }
       lastScrollTop = st;
@@ -13461,6 +14135,7 @@ Explanation: ${parentQ.explanation}`;
     let pinchBaseScale = 1.0;
 
     canvas.addEventListener("touchstart", (e) => {
+      if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (e.touches.length === 2) {
         brushSession = null;
         canvas.classList.remove("brush-painting-active");
@@ -13485,6 +14160,7 @@ Explanation: ${parentQ.explanation}`;
     }, { passive: true });
 
     canvas.addEventListener("touchmove", (e) => {
+      if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (e.touches.length === 2 && pinchStartDist > 20) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -13521,6 +14197,7 @@ Explanation: ${parentQ.explanation}`;
 
     // Mouse / Stylus Brush-Drag on Desktop & Tablet
     canvas.addEventListener("mousedown", (e) => {
+      if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (e.button !== 0 || isCompPdfActive()) return;
       if (!compendiumMaskEditMode && !compendiumHighlightMode) return;
       const docBody = document.getElementById("comp-studio-doc-body");
@@ -13533,6 +14210,7 @@ Explanation: ${parentQ.explanation}`;
     });
 
     canvas.addEventListener("mousemove", (e) => {
+      if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (!brushSession) return;
       if (e.buttons !== 1) {
         commitBrushSession();
@@ -13548,6 +14226,7 @@ Explanation: ${parentQ.explanation}`;
     });
 
     canvas.addEventListener("click", async (e) => {
+      if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (suppressNextClickAfterBrush) return;
       const docBody = document.getElementById("comp-studio-doc-body") || document.getElementById("comp-studio-doc-content");
       if (!docBody || !docBody.contains(e.target)) return;
@@ -13979,7 +14658,9 @@ Explanation: ${parentQ.explanation}`;
 
     if (currentCompSheets.length === 0) {
       activeCompPdfItem = null;
-      safeSetDisplay("comp-pdf-studio-bar", "none");
+      syncPdfStudioFullscreenClass();
+      safeSetDisplay("comp-pdf-floating-hud-pill", "none");
+      safeSetDisplay("comp-pdf-tools-drawer", "none");
       safeSetDisplay("comp-pdf-thumb-scrubber", "none");
       safeSetDisplay("comp-pdf-canvas-wrap", "none");
       safeSetDisplay("comp-pdf-canvas-stage", "none");
@@ -14049,13 +14730,16 @@ Explanation: ${parentQ.explanation}`;
 
     if (sheet.isPdf) {
       activeCompPdfItem = sheet;
+      syncPdfStudioFullscreenClass();
       await renderPdfPage(activeCompPdfItem && activeCompPdfItem.id === sheet.id ? activeCompPdfPageNum : 1, sheet.id);
       return;
     }
 
-    // Standard Markdown Knowledge Sheet Mode: Hide PDF Studio Bar, Bottom Nav & Stage
+    // Standard Markdown Knowledge Sheet Mode: Hide Floating PDF HUD Pill, Tools Drawer, Bottom Nav & Stage
     activeCompPdfItem = null;
-    safeSetDisplay("comp-pdf-studio-bar", "none");
+    syncPdfStudioFullscreenClass();
+    safeSetDisplay("comp-pdf-floating-hud-pill", "none");
+    safeSetDisplay("comp-pdf-tools-drawer", "none");
     safeSetDisplay("comp-pdf-bottom-nav", "none");
     safeSetDisplay("comp-pdf-thumb-scrubber", "none");
     safeSetDisplay("comp-pdf-canvas-wrap", "none");
@@ -14443,6 +15127,8 @@ Explanation: ${parentQ.explanation}`;
     toggleScratchpadCanvas(false);
     if (compSheetInkMode) toggleCompSheetInkMode(false);
     toggleCompStudioMoreMenu(false);
+    toggleCompPdfToolsDrawer(false);
+    toggleCompMarginDrawer(false);
     document.getElementById("comp-dock-highlight-popover")?.classList.remove("open");
     cancelActiveExcerptCrop();
   }
@@ -16918,6 +17604,9 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     toggleCompStudioMoreMenu,
     toggleCompMorePopover,
     closeCompMorePopover,
+    toggleCompMarginDrawer,
+    toggleCompPdfToolsDrawer,
+    wakeCompPdfHudPill,
     setCompendiumPaperPreset,
     setCompendiumReadingSurface,
     toggleCompendiumRecallMode,
@@ -16953,6 +17642,9 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     insertSheetMediaFromUrlInput,
     commitSheetMediaFromModal,
     toggleCompSheetMediaBlockMode,
+    setStickyNoteColor,
+    toggleStickyNoteCollapse,
+    deleteSheetMediaBlock,
     deleteCompSheetMediaBlock,
     removeCustomMaskByIndex,
     removeCustomHighlightByIndex,
@@ -16986,6 +17678,11 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     setCompPdfThumbnailFilter,
     setCompPdfThumbFilter: setCompPdfThumbnailFilter,
     insertBlankPageIntoActivePdf,
+    deleteActivePdfSinglePage,
+    rotateActivePdfPage,
+    duplicateActivePdfPage,
+    reorderActivePdfPage,
+    extractActivePdfSinglePage,
     flattenAndSaveActivePdf,
     deleteCompPdfById,
     deleteActiveCompPdfDocument,
