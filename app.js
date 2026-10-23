@@ -13989,11 +13989,16 @@ Explanation: ${parentQ.explanation}`;
       });
     } else {
       const pdfCanvas = document.getElementById("comp-pdf-render-canvas");
+      const singleStage = document.getElementById("comp-pdf-single-stage");
       const singleMediaLayer = document.getElementById("comp-pdf-single-media-layer");
       const aspect = (pdfCanvas && pdfCanvas.width > 0 && pdfCanvas.height > 0)
         ? (pdfCanvas.height / pdfCanvas.width)
         : activeCompPdfBasePageAspect;
       const newCssH = Math.max(200, Math.round(newCssW * aspect));
+      if (singleStage) {
+        singleStage.style.width = `${newCssW}px`;
+        singleStage.style.height = `${newCssH}px`;
+      }
       if (pdfCanvas) {
         pdfCanvas.style.width = `${newCssW}px`;
         pdfCanvas.style.height = `${newCssH}px`;
@@ -14813,6 +14818,12 @@ Explanation: ${parentQ.explanation}`;
       activeCompPdfBuiltDomSignature = "";
     }
 
+    // Preserve current page's in-memory ink & media maps before changing activeCompPdfPageNum
+    if (activeCompPdfLoadedIdForMaps === item.id && activeCompPdfPageNum >= 1) {
+      activeCompPdfPageStrokesMap[activeCompPdfPageNum] = activeSheetInkStrokes || [];
+      activeCompPdfPageMediaMap[activeCompPdfPageNum] = activeSheetMediaBlocks || [];
+    }
+
     activeCompPdfTotalPages = (activeCompPdfDocProxy && activeCompPdfDocProxy.numPages) || item.numPages || 1;
     if (pageNum !== null && pageNum !== undefined && !Number.isNaN(Number(pageNum))) {
       activeCompPdfPageNum = Math.max(1, Math.min(activeCompPdfTotalPages, Math.floor(Number(pageNum))));
@@ -14950,8 +14961,15 @@ Explanation: ${parentQ.explanation}`;
       if (activeCompPdfPageNum < activeCompPdfTotalPages) renderSingleContinuousPdfPageCanvas(activeCompPdfPageNum + 1);
       setTimeout(renderVisibleAndNearbyContinuousPdfPages, 60);
     } else if (activeCompPdfDocProxy && pdfCanvas) {
-      if (contContainer) contContainer.style.display = "none";
-      if (singleStage) singleStage.style.display = "inline-block";
+      if (window._cglPdfSlotObserver) {
+        try { window._cglPdfSlotObserver.disconnect(); } catch (_) {}
+      }
+      if (contContainer) {
+        contContainer.style.display = "none";
+      }
+      if (singleStage) {
+        singleStage.style.display = "block";
+      }
 
       try {
         if (activePdfRenderTask && typeof activePdfRenderTask.cancel === "function") {
@@ -14973,6 +14991,10 @@ Explanation: ${parentQ.explanation}`;
         const cssW = Math.max(1, Math.floor(unscaledViewport.width * scale));
         const cssH = Math.max(1, Math.floor(unscaledViewport.height * scale));
 
+        if (singleStage) {
+          singleStage.style.width = `${cssW}px`;
+          singleStage.style.height = `${cssH}px`;
+        }
         pdfCanvas.style.width = `${cssW}px`;
         pdfCanvas.style.height = `${cssH}px`;
 
@@ -15033,6 +15055,7 @@ Explanation: ${parentQ.explanation}`;
     renderCompMarginAnnotationsList();
     updateRecallProgressCounter();
     syncSheetInkPointerPassthrough();
+    syncSheetInkCanvasGeometry();
     setTimeout(syncSheetInkCanvasGeometry, 45);
 
     if (activeCompPdfThumbnailsOpen) {
@@ -15108,6 +15131,11 @@ Explanation: ${parentQ.explanation}`;
       activeCompPdfScrollMode = activeCompPdfScrollMode === "continuous" ? "single" : "continuous";
     }
     activeCompPdfBuiltDomSignature = "";
+    const contContainer = document.getElementById("comp-pdf-continuous-container");
+    if (activeCompPdfScrollMode === "single" && contContainer) {
+      contContainer.style.display = "none";
+      contContainer.innerHTML = "";
+    }
     const curPage = activeCompPdfPageNum || 1;
     await renderPdfPage(curPage);
     if (activeCompPdfScrollMode === "continuous") {

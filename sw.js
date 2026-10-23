@@ -3,7 +3,7 @@
    Supports GitHub Pages subdirectory hosting & full offline IndexedDB operation
    ========================================================================== */
 
-const CACHE_NAME = "cgl-os-webapk-v9.7.2";
+const CACHE_NAME = "cgl-os-webapk-v9.7.3";
 
 const CORE_ASSETS = [
   "./",
