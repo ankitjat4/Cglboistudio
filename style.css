@@ -799,10 +799,11 @@ body {
   bottom: 0;
   z-index: 2250;
   pointer-events: none;
-  background: transparent;
+  background: transparent !important;
 }
 .scratchpad-canvas-overlay.active {
   display: block;
+  background: transparent !important;
 }
 /* Default / Scroll Mode: Overlay & Canvas let all 1-finger scrolls, swipes, and clicks pass straight through! */
 .scratchpad-canvas-el {
@@ -811,6 +812,7 @@ body {
   pointer-events: none;
   touch-action: auto;
   cursor: crosshair;
+  background: transparent !important;
 }
 /* Active Draw Mode (Finger/Mouse Draw OR Active Stylus Pen Stroke): Captures strokes on canvas */
 .scratchpad-canvas-overlay.finger-draw-enabled,
@@ -3403,22 +3405,27 @@ mark.user-hl-purple {
 /* 1. True Edge-to-Edge Fullscreen PDF Mode (Unified 2D Scroll Host for Pinch-Zoom & Panning) */
 #compendium-fullscreen-view.pdf-studio-fullscreen .comp-studio-workspace {
   display: block !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
   width: 100%;
   height: calc(100vh - 52px);
   overflow-x: auto !important;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
 }
 #compendium-fullscreen-view.pdf-studio-fullscreen .comp-document-canvas {
+  display: block !important;
   padding: 0 !important;
   min-width: 100%;
   width: max-content;
-  height: auto;
+  height: auto !important;
   overflow: visible !important;
 }
 #compendium-fullscreen-view.pdf-studio-fullscreen .comp-folio-page,
 .comp-folio-page.pdf-studio-fullscreen {
+  display: block !important;
   max-width: none !important;
   min-width: 100% !important;
   width: max-content !important;
@@ -3435,7 +3442,7 @@ mark.user-hl-purple {
   min-height: calc(100vh - 56px);
   margin: 0 auto;
   padding: 8px 12px 96px 12px;
-  display: block;
+  display: block !important;
   overflow: visible !important;
   border-radius: 0;
 }
@@ -3787,7 +3794,9 @@ mark.user-hl-purple {
 .comp-pdf-continuous-container {
   min-width: 100%;
   width: max-content;
-  display: block;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
 }
 
 .comp-pdf-page-slot {

@@ -7450,7 +7450,7 @@ Explanation: ${parentQ.explanation}`;
   function redrawScratchpad() {
     const canvas = document.getElementById("scratchpad-canvas");
     if (!canvas) return;
-    const ctx = canvas.getContext("2d", { desynchronized: true }) || canvas.getContext("2d");
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -11619,7 +11619,7 @@ Explanation: ${parentQ.explanation}`;
   function redrawSheetInkCanvas() {
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     if (!inkCanvas) return;
-    const ctx = inkCanvas.getContext("2d", { desynchronized: true }) || inkCanvas.getContext("2d");
+    const ctx = inkCanvas.getContext("2d");
     if (!ctx) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -14767,7 +14767,7 @@ Explanation: ${parentQ.explanation}`;
     const docContent = document.getElementById("comp-studio-doc-content");
     if (hudPill) hudPill.style.display = "inline-flex";
     if (pdfBottomNav) pdfBottomNav.style.display = "flex";
-    if (pdfWrap) pdfWrap.style.display = "flex";
+    if (pdfWrap) pdfWrap.style.display = "block";
     if (docContent) {
       docContent.style.display = "none";
       docContent.innerHTML = "";
@@ -14851,6 +14851,8 @@ Explanation: ${parentQ.explanation}`;
     if (activeCompPdfScrollMode === "continuous" && contContainer && activeCompPdfDocProxy) {
       if (singleStage) singleStage.style.display = "none";
       contContainer.style.display = "flex";
+      contContainer.style.flexDirection = "column";
+      contContainer.style.alignItems = "center";
 
       // DOM signature depends only on PDF ID and page count — NEVER wipe DOM slots on zoom!
       const domSig = `${item.id}_${activeCompPdfTotalPages}`;
