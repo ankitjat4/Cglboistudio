@@ -5875,8 +5875,9 @@ Explanation: ${parentQ.explanation}`;
     if (!orbRect || !cardEl) return;
     const vw = window.innerWidth || 800;
     const vh = window.innerHeight || 700;
-    const cardW = Math.min(cardEl.offsetWidth || 410, vw - 16);
-    const cardH = Math.min(cardEl.offsetHeight || 340, vh - 76);
+    const measuredRect = cardEl.getBoundingClientRect();
+    const cardW = Math.min(Math.round(measuredRect.width || cardEl.offsetWidth || 410), vw - 16);
+    const cardH = Math.min(Math.round(measuredRect.height || cardEl.offsetHeight || 360), vh - 68);
 
     const orbCenterX = orbRect.left + (orbRect.width || 52) / 2;
     const orbCenterY = orbRect.top + (orbRect.height || 52) / 2;
@@ -5888,20 +5889,23 @@ Explanation: ${parentQ.explanation}`;
 
     let targetTop;
     if (cardEl.id === "comp-pdf-tools-drawer") {
-      // Prefer opening directly below PDF orb if space permits, else above it
-      const spaceBelow = vh - orbRect.bottom - 14;
-      if (spaceBelow >= Math.min(cardH, 280) || orbRect.top < vh * 0.48) {
+      const spaceBelow = vh - orbRect.bottom - 12;
+      const spaceAbove = orbRect.top - 58;
+      if (spaceBelow >= cardH || spaceBelow >= spaceAbove) {
         targetTop = orbRect.bottom + 8;
       } else {
         targetTop = orbRect.top - cardH - 8;
       }
     } else {
-      // For Ink Studio cards, open upward if orb is in bottom half, downward if in top half
-      targetTop = orbCenterY > vh / 2
-        ? (orbRect.bottom - cardH)
-        : orbRect.top;
+      const spaceAbove = orbRect.bottom - 54;
+      const spaceBelow = vh - orbRect.top - 10;
+      if (orbCenterY > vh / 2 && spaceAbove >= Math.min(cardH, spaceBelow)) {
+        targetTop = orbRect.bottom - cardH;
+      } else {
+        targetTop = orbRect.top;
+      }
     }
-    targetTop = Math.max(54, Math.min(Math.max(54, vh - cardH - 12), Math.round(targetTop)));
+    targetTop = Math.max(54, Math.min(Math.max(54, vh - cardH - 10), Math.round(targetTop)));
 
     cardEl.style.left = `${targetLeft}px`;
     cardEl.style.top = `${targetTop}px`;
@@ -5915,10 +5919,31 @@ Explanation: ${parentQ.explanation}`;
     const vh = window.innerHeight || 700;
     const clampedLeft = Math.max(8, Math.min(Math.max(8, vw - 60), Math.round(shellEl._orbSavedPos.left)));
     const clampedTop = Math.max(54, Math.min(Math.max(54, vh - 64), Math.round(shellEl._orbSavedPos.top)));
+    shellEl._orbSavedPos = { left: clampedLeft, top: clampedTop };
     shellEl.style.left = `${clampedLeft}px`;
     shellEl.style.top = `${clampedTop}px`;
     shellEl.style.right = "auto";
     shellEl.style.bottom = "auto";
+  }
+
+  function clampFloatingElementToViewport(el) {
+    if (!el || el.style.display === "none") return;
+    if (!el.style.left && !el._orbSavedPos) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    const vw = window.innerWidth || 800;
+    const vh = window.innerHeight || 700;
+    const maxLeft = Math.max(8, vw - Math.round(rect.width) - 8);
+    const maxTop = Math.max(54, vh - Math.round(rect.height) - 10);
+    const nextLeft = Math.max(8, Math.min(maxLeft, Math.round(rect.left)));
+    const nextTop = Math.max(54, Math.min(maxTop, Math.round(rect.top)));
+    el.style.left = `${nextLeft}px`;
+    el.style.top = `${nextTop}px`;
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+    if (el.classList.contains("is-collapsed-orb") || el.id === "comp-pdf-floating-hud-pill") {
+      el._orbSavedPos = { left: nextLeft, top: nextTop };
+    }
   }
 
   function bindFloatingOrbDragController(triggerEl, moveContainerEl, opts = {}) {
@@ -5961,8 +5986,9 @@ Explanation: ${parentQ.explanation}`;
         e.preventDefault();
         const vw = window.innerWidth || 800;
         const vh = window.innerHeight || 700;
-        const elW = Math.min(moveContainerEl.offsetWidth || 52, vw - 16);
-        const elH = Math.min(moveContainerEl.offsetHeight || 52, vh - 66);
+        const rect = moveContainerEl.getBoundingClientRect();
+        const elW = Math.min(Math.round(rect.width || moveContainerEl.offsetWidth || 52), vw - 16);
+        const elH = Math.min(Math.round(rect.height || moveContainerEl.offsetHeight || 52), vh - 66);
         const maxLeft = Math.max(8, vw - elW - 8);
         const maxTop = Math.max(54, vh - elH - 10);
         const nextLeft = Math.max(8, Math.min(maxLeft, Math.round(startLeft + dx)));
@@ -6014,6 +6040,8 @@ Explanation: ${parentQ.explanation}`;
     triggerEl.addEventListener("pointercancel", endDrag);
   }
 
+  let floatingOrbsResizeBound = false;
+
   function initAllDraggableFloatingOrbs() {
     const pdfOrb = document.getElementById("comp-pdf-floating-hud-pill");
     const pdfDrawer = document.getElementById("comp-pdf-tools-drawer");
@@ -6037,6 +6065,22 @@ Explanation: ${parentQ.explanation}`;
       bindFloatingOrbDragController(scratchOrbBtn, scratchShell);
       const scratchHeader = scratchShell.querySelector(".ink-studio-card-header");
       if (scratchHeader) bindFloatingOrbDragController(scratchHeader, scratchShell, { isHeaderDrag: true });
+    }
+
+    if (!floatingOrbsResizeBound) {
+      floatingOrbsResizeBound = true;
+      window.addEventListener("resize", () => {
+        clampFloatingElementToViewport(document.getElementById("comp-pdf-floating-hud-pill"));
+        const pDrawer = document.getElementById("comp-pdf-tools-drawer");
+        const pOrb = document.getElementById("comp-pdf-floating-hud-pill");
+        if (pDrawer && (pDrawer.classList.contains("open") || pDrawer.style.display === "flex") && pOrb) {
+          positionFloatingCardRelativeToOrb(pOrb.getBoundingClientRect(), pDrawer);
+        } else {
+          clampFloatingElementToViewport(pDrawer);
+        }
+        clampFloatingElementToViewport(document.getElementById("comp-folio-ink-toolbar"));
+        clampFloatingElementToViewport(document.getElementById("scratchpad-toolbar-pill"));
+      });
     }
   }
 
@@ -11356,7 +11400,7 @@ Explanation: ${parentQ.explanation}`;
     }
   }
 
-  function syncSheetInkCanvasGeometry() {
+  function syncSheetInkCanvasGeometry(fastCssOnly = false) {
     const pageEl = document.getElementById("comp-folio-page");
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     if (!pageEl || !inkCanvas) return;
@@ -11377,6 +11421,10 @@ Explanation: ${parentQ.explanation}`;
         inkCanvas.style.top = `${relTop}px`;
         inkCanvas.style.width = `${w}px`;
         inkCanvas.style.height = `${h}px`;
+
+        if (fastCssOnly === true) {
+          return;
+        }
 
         const targetW = Math.round(w * dpr);
         const targetH = Math.round(h * dpr);
@@ -11399,6 +11447,12 @@ Explanation: ${parentQ.explanation}`;
     const w = Math.max(pageEl.scrollWidth, pageEl.clientWidth, 320);
     const h = Math.max(pageEl.scrollHeight, pageEl.clientHeight, 480);
     inkCanvas.style.height = prevStyleH;
+
+    if (fastCssOnly === true) {
+      inkCanvas.style.width = `${w}px`;
+      inkCanvas.style.height = `${h}px`;
+      return;
+    }
 
     const targetW = Math.round(w * dpr);
     const targetH = Math.round(h * dpr);
@@ -11425,9 +11479,14 @@ Explanation: ${parentQ.explanation}`;
     const toolType = String(stroke.tool || "pen").toLowerCase();
     if (toolType === "stroke_eraser") return;
 
+    const scaleFactor = Math.max(0.55, Math.min(3.2, (w || 780) / 780));
     const avgTilt = stroke.points.reduce((acc, p) => acc + (p.tilt || 0), 0) / Math.max(1, stroke.points.length);
+    const avgPressure = stroke.points.reduce((acc, p) => acc + (typeof p.p === "number" ? p.p : 0.5), 0) / Math.max(1, stroke.points.length);
     const tiltFactor = (avgTilt > 25 && (toolType === "marker" || toolType === "fountain"))
       ? Math.min(1.6, 1 + (avgTilt - 25) / 55)
+      : 1.0;
+    const pressureFactor = toolType === "fountain"
+      ? Math.max(0.75, Math.min(1.45, 0.65 + avgPressure * 0.85))
       : 1.0;
 
     ctx.save();
@@ -11436,43 +11495,43 @@ Explanation: ${parentQ.explanation}`;
     if (toolType === "eraser") {
       ctx.globalCompositeOperation = "destination-out";
       ctx.strokeStyle = "rgba(0,0,0,1)";
-      ctx.lineWidth = stroke.eraserWidth || getEffectiveEraserPixelWidth(stroke.size);
+      ctx.lineWidth = (stroke.eraserWidth || getEffectiveEraserPixelWidth(stroke.size)) * scaleFactor;
     } else if (toolType === "tape") {
       ctx.globalCompositeOperation = "source-over";
       ctx.lineCap = "butt";
       ctx.globalAlpha = stroke.revealed ? 0.14 : 0.96;
       ctx.strokeStyle = stroke.color || "#7c3aed";
-      ctx.lineWidth = 22;
+      ctx.lineWidth = 22 * scaleFactor;
     } else if (toolType === "marker") {
       ctx.globalCompositeOperation = "source-over";
       ctx.lineCap = "square";
       ctx.globalAlpha = 0.36;
       ctx.strokeStyle = stroke.color || "#facc15";
-      ctx.lineWidth = Math.max(16, (stroke.size || 3.0) * 6.8) * tiltFactor;
+      ctx.lineWidth = Math.max(16, (stroke.size || 3.0) * 6.8) * tiltFactor * scaleFactor;
     } else if (toolType === "fountain") {
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1.0;
       ctx.strokeStyle = stroke.color || "#38bdf8";
-      ctx.lineWidth = Math.max(1.4, (stroke.size || 3.0) * 1.25) * tiltFactor;
+      ctx.lineWidth = Math.max(1.4, (stroke.size || 3.0) * 1.25) * tiltFactor * pressureFactor * scaleFactor;
     } else if (toolType === "dashed") {
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1.0;
       ctx.strokeStyle = stroke.color || "#38bdf8";
-      const lw = stroke.size || 3.0;
+      const lw = (stroke.size || 3.0) * scaleFactor;
       ctx.lineWidth = lw;
       ctx.setLineDash([lw * 2.6, lw * 1.8]);
     } else if (toolType === "laser") {
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 0.95;
       ctx.strokeStyle = stroke.color || "#38bdf8";
-      ctx.lineWidth = Math.max(2.6, (stroke.size || 3.0) * 1.15);
+      ctx.lineWidth = Math.max(2.6, (stroke.size || 3.0) * 1.15) * scaleFactor;
       ctx.shadowColor = stroke.color || "#38bdf8";
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = 12 * scaleFactor;
     } else {
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1.0;
       ctx.strokeStyle = stroke.color || "#38bdf8";
-      ctx.lineWidth = stroke.size || 3.0;
+      ctx.lineWidth = (stroke.size || 3.0) * scaleFactor;
     }
 
     const pts = stroke.points.map(pt => ({
@@ -11692,9 +11751,11 @@ Explanation: ${parentQ.explanation}`;
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     const w = Math.max(inkCanvas.width / dpr, 1);
     const h = Math.max(inkCanvas.height / dpr, 1);
+    const scaleFactor = Math.max(0.55, Math.min(3.2, (w || 780) / 780));
     const px = nx * w;
     const py = ny * h;
-    const hitSq = 18 * 18;
+    const hitRadius = 18 * scaleFactor;
+    const hitSq = hitRadius * hitRadius;
 
     for (let sIdx = activeSheetInkStrokes.length - 1; sIdx >= 0; sIdx--) {
       const s = activeSheetInkStrokes[sIdx];
@@ -11719,6 +11780,8 @@ Explanation: ${parentQ.explanation}`;
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     const w = Math.max(inkCanvas.width / dpr, 1);
     const h = Math.max(inkCanvas.height / dpr, 1);
+    const scaleFactor = Math.max(0.55, Math.min(3.2, (w || 780) / 780));
+    const scaledHitRadius = hitRadiusPx * scaleFactor;
 
     const p0x = (prevNormPt ? prevNormPt.nx : currNormPt.nx) * w;
     const p0y = (prevNormPt ? prevNormPt.ny : currNormPt.ny) * h;
@@ -11741,10 +11804,10 @@ Explanation: ${parentQ.explanation}`;
       if (!stroke || !Array.isArray(stroke.points) || stroke.points.length === 0) return false;
       const tType = String(stroke.tool || "pen").toLowerCase();
       if (tType === "eraser") return true;
-      const strokeHalfW = tType === "marker"
+      const strokeHalfW = (tType === "marker"
         ? Math.max(16, (stroke.size || 3.0) * 6.8) / 2
-        : (tType === "tape" ? 11 : (stroke.size || 3.0) / 2);
-      const thresholdSq = (hitRadiusPx + strokeHalfW) * (hitRadiusPx + strokeHalfW);
+        : (tType === "tape" ? 11 : (stroke.size || 3.0) / 2)) * scaleFactor;
+      const thresholdSq = (scaledHitRadius + strokeHalfW) * (scaledHitRadius + strokeHalfW);
 
       const pts = stroke.points.map(pt => ({
         x: pt.nx !== undefined ? pt.nx * w : pt.x,
@@ -11829,10 +11892,10 @@ Explanation: ${parentQ.explanation}`;
     if (!inkCanvas) return;
     if (!compSheetInkMode || compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY") {
       inkCanvas.style.pointerEvents = "none";
-      inkCanvas.style.touchAction = "pan-x pan-y pinch-zoom";
+      inkCanvas.style.touchAction = "pan-x pan-y";
       if (pageEl) {
         pageEl.classList.toggle("stylus-only-scroll", compSheetInkMode && (compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY"));
-        pageEl.style.touchAction = "pan-x pan-y pinch-zoom";
+        pageEl.style.touchAction = "pan-x pan-y";
       }
       return;
     }
@@ -11845,10 +11908,10 @@ Explanation: ${parentQ.explanation}`;
       }
     } else {
       inkCanvas.style.pointerEvents = "none";
-      inkCanvas.style.touchAction = "pan-x pan-y pinch-zoom";
+      inkCanvas.style.touchAction = "pan-x pan-y";
       if (pageEl) {
         pageEl.classList.add("stylus-only-scroll");
-        pageEl.style.touchAction = "pan-x pan-y pinch-zoom";
+        pageEl.style.touchAction = "pan-x pan-y";
       }
     }
   }
@@ -12130,7 +12193,8 @@ Explanation: ${parentQ.explanation}`;
       scrollCompendiumBy(we.deltaX || 0, we.deltaY || 0);
     }, { passive: true });
 
-    // 2-Finger Natural Scroll (both X and Y, across mobile & desktop) on Folio Ink Canvas when 1-Finger Draw Mode is ON
+    // When a 2-finger gesture begins on the ink canvas, immediately cancel any in-progress 1-finger ink stroke
+    // and let #comp-studio-canvas handle all 2-finger pan + pinch-to-zoom without duplicate scroll mutations!
     inkCanvas.addEventListener("touchstart", (te) => {
       if (te.target && te.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       if (te.touches && te.touches.length >= 2) {
@@ -12138,27 +12202,9 @@ Explanation: ${parentQ.explanation}`;
         if (isDrawingSheetInk) {
           isDrawingSheetInk = false;
           currentSheetInkStroke = null;
+          activeEraserCursorPreview = null;
           redrawSheetInkCanvas();
         }
-        folioTwoFingerScrollY = (te.touches[0].clientY + te.touches[1].clientY) / 2;
-        folioTwoFingerScrollX = (te.touches[0].clientX + te.touches[1].clientX) / 2;
-      }
-    }, { passive: true });
-
-    inkCanvas.addEventListener("touchmove", (te) => {
-      if (te.touches && te.touches.length >= 2 && folioTwoFingerScrollY !== null) {
-        const midY = (te.touches[0].clientY + te.touches[1].clientY) / 2;
-        const midX = (te.touches[0].clientX + te.touches[1].clientX) / 2;
-        const dy = folioTwoFingerScrollY - midY;
-        const dx = folioTwoFingerScrollX !== null ? (folioTwoFingerScrollX - midX) : 0;
-        folioTwoFingerScrollY = midY;
-        folioTwoFingerScrollX = midX;
-        scrollCompendiumBy(dx, dy);
-      }
-    }, { passive: true });
-
-    inkCanvas.addEventListener("touchend", (te) => {
-      if (!te.touches || te.touches.length < 2) {
         folioTwoFingerScrollY = null;
         folioTwoFingerScrollX = null;
       }
@@ -12393,8 +12439,8 @@ Explanation: ${parentQ.explanation}`;
       if (e && e.pointerId !== undefined) {
         try { inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
       }
-      if (!compSheetInkFingerDraw && pageEl) {
-        pageEl.style.touchAction = "pan-y pinch-zoom";
+      if (!compSheetInkFingerDraw) {
+        syncSheetInkPointerPassthrough();
       }
 
       if (compSheetInkTool === "lasso") {
@@ -12528,7 +12574,7 @@ Explanation: ${parentQ.explanation}`;
         if (e.pointerType === "pen") {
           pageEl.style.touchAction = "none";
         } else if (e.pointerType === "touch") {
-          pageEl.style.touchAction = "pan-y pinch-zoom";
+          pageEl.style.touchAction = "pan-x pan-y";
         }
       }, { capture: true });
 
@@ -12565,6 +12611,7 @@ Explanation: ${parentQ.explanation}`;
             if (!getUnderlyingInteractiveControl(e.clientX, e.clientY)) {
               e.preventDefault();
               e.stopPropagation();
+              inkCanvas.style.pointerEvents = "auto";
               try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
               beginInkAtEvent(e);
               return;
@@ -12574,7 +12621,7 @@ Explanation: ${parentQ.explanation}`;
 
         if (!compSheetInkMode || compSheetInkFingerDraw || compSheetInkInputMode === "PAN_ONLY") return;
         if (e.pointerType === "touch") {
-          pageEl.style.touchAction = "pan-y pinch-zoom";
+          pageEl.style.touchAction = "pan-x pan-y";
           return;
         }
         if (e.pointerType !== "pen") return;
@@ -12582,8 +12629,10 @@ Explanation: ${parentQ.explanation}`;
           return;
         }
         pageEl.style.touchAction = "none";
+        inkCanvas.style.pointerEvents = "auto";
         e.preventDefault();
         e.stopPropagation();
+        try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
         beginInkAtEvent(e);
       }, { capture: true });
 
@@ -12964,6 +13013,11 @@ Explanation: ${parentQ.explanation}`;
     const key = getActiveMediaBlocksStorageKey();
     if (!key) return;
     const isPdf = isCompPdfActive();
+    const activeStage = isPdf ? getActivePdfPageStage(activeCompPdfPageNum) : null;
+    const stageW = activeStage ? Math.max(activeStage.clientWidth || activeStage.offsetWidth || 740, 240) : 740;
+    const stageH = activeStage ? Math.max(activeStage.clientHeight || activeStage.offsetHeight || 980, 320) : 980;
+    const initX = typeof blockSpec.x === "number" ? blockSpec.x : 32;
+    const initY = typeof blockSpec.y === "number" ? (isPdf && blockSpec.y > 400 ? 48 : blockSpec.y) : 64;
     const newBlock = {
       id: "media_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
       type: blockSpec.type || "image",
@@ -12973,8 +13027,10 @@ Explanation: ${parentQ.explanation}`;
       text: blockSpec.text || "",
       color: blockSpec.color || "amber",
       collapsed: !!blockSpec.collapsed,
-      x: typeof blockSpec.x === "number" ? blockSpec.x : 32,
-      y: typeof blockSpec.y === "number" ? (isPdf && blockSpec.y > 400 ? 48 : blockSpec.y) : 64,
+      x: initX,
+      y: initY,
+      nx: isPdf ? Math.max(0.01, Math.min(0.92, initX / stageW)) : undefined,
+      ny: isPdf ? Math.max(0.01, Math.min(0.95, initY / stageH)) : undefined,
       width: typeof blockSpec.width === "number" ? blockSpec.width : 250,
       height: typeof blockSpec.height === "number" ? blockSpec.height : (blockSpec.type === "sticky" ? 120 : 180)
     };
@@ -13072,6 +13128,18 @@ Explanation: ${parentQ.explanation}`;
     card.setAttribute("data-media-id", blk.id);
 
     if (isFloating) {
+      const refW = hostContainerEl ? Math.max(parseFloat(hostContainerEl.style.width) || hostContainerEl.clientWidth || hostContainerEl.offsetWidth || 0, 0) : 0;
+      const refH = hostContainerEl ? Math.max(parseFloat(hostContainerEl.style.height) || hostContainerEl.clientHeight || hostContainerEl.offsetHeight || 0, 0) : 0;
+      if (isPdf && refW > 80 && refH > 80) {
+        if (typeof blk.nx !== "number" || Number.isNaN(blk.nx)) {
+          blk.nx = Math.max(0.01, Math.min(0.92, (blk.x || 24) / refW));
+        }
+        if (typeof blk.ny !== "number" || Number.isNaN(blk.ny)) {
+          blk.ny = Math.max(0.01, Math.min(0.95, (blk.y || 40) / refH));
+        }
+        blk.x = Math.max(4, Math.round(blk.nx * refW));
+        blk.y = Math.max(8, Math.round(blk.ny * refH));
+      }
       card.style.left = `${Math.max(4, blk.x || 24)}px`;
       card.style.top = `${Math.max(8, blk.y || 40)}px`;
       card.style.width = `${Math.max(160, Math.min(640, blk.width || 245))}px`;
@@ -13218,12 +13286,16 @@ Explanation: ${parentQ.explanation}`;
         const onMove = (me) => {
           me.preventDefault();
           me.stopPropagation();
-          const containerW = boundsEl ? Math.max(boundsEl.clientWidth, boundsEl.scrollWidth, 320) : 740;
-          const containerH = boundsEl ? Math.max(boundsEl.clientHeight, boundsEl.scrollHeight, 480) : 1400;
+          const containerW = boundsEl ? Math.max(parseFloat(boundsEl.style.width) || boundsEl.clientWidth || boundsEl.scrollWidth || 320, 320) : 740;
+          const containerH = boundsEl ? Math.max(parseFloat(boundsEl.style.height) || boundsEl.clientHeight || boundsEl.scrollHeight || 480, 480) : 1400;
           const maxX = Math.max(12, containerW - (blk.width || 220) - 6);
           const maxY = Math.max(24, containerH - 44);
           blk.x = Math.max(4, Math.min(maxX, Math.round(origX + (me.clientX - startX))));
           blk.y = Math.max(6, Math.min(maxY, Math.round(origY + (me.clientY - startY))));
+          if (isPdf && containerW > 80 && containerH > 80) {
+            blk.nx = Math.max(0.005, Math.min(0.96, blk.x / containerW));
+            blk.ny = Math.max(0.005, Math.min(0.98, blk.y / containerH));
+          }
           card.style.left = `${blk.x}px`;
           card.style.top = `${blk.y}px`;
         };
@@ -13829,39 +13901,67 @@ Explanation: ${parentQ.explanation}`;
     return ws || canvas;
   }
 
-  function applyLivePdfZoomDimensions(nextScale, focalClientX = null, focalClientY = null) {
+  function repositionPdfMediaCardsInLayer(mediaLayerEl, blocksList, newCssW, newCssH) {
+    if (!mediaLayerEl || !Array.isArray(blocksList) || !blocksList.length) return;
+    blocksList.forEach(blk => {
+      if (!blk || !blk.id) return;
+      if (typeof blk.nx === "number" && !Number.isNaN(blk.nx)) {
+        blk.x = Math.max(4, Math.min(Math.max(12, newCssW - (blk.width || 220) - 6), Math.round(blk.nx * newCssW)));
+      }
+      if (typeof blk.ny === "number" && !Number.isNaN(blk.ny)) {
+        blk.y = Math.max(6, Math.min(Math.max(24, newCssH - 44), Math.round(blk.ny * newCssH)));
+      }
+      const cardEl = mediaLayerEl.querySelector(`.sheet-media-card[data-media-id="${blk.id}"]`);
+      if (cardEl) {
+        cardEl.style.left = `${blk.x || 24}px`;
+        cardEl.style.top = `${blk.y || 40}px`;
+      }
+    });
+  }
+
+  function applyLivePdfZoomDimensions(nextScale, prevFocalX = null, prevFocalY = null, currFocalX = null, currFocalY = null, isLivePinch = false) {
     if (!isCompPdfActive()) return;
     const zoomFactor = Math.max(0.65, Math.min(2.6, nextScale || compendiumZoomScale || 1.0));
     const baseFitWidth = Math.min(window.innerWidth - 16, 1180);
-    const newCssW = Math.max(240, Math.floor(baseFitWidth * zoomFactor));
+    const newCssW = Math.max(240, Math.round(baseFitWidth * zoomFactor));
 
     const scrollHost = getActivePdfScrollHost();
-    const hostRect = scrollHost ? scrollHost.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-    const fX = (typeof focalClientX === "number" && !Number.isNaN(focalClientX))
-      ? focalClientX
-      : (hostRect.left + hostRect.width * 0.5);
-    const fY = (typeof focalClientY === "number" && !Number.isNaN(focalClientY))
-      ? focalClientY
-      : (hostRect.top + hostRect.height * 0.5);
+    const hostRect = scrollHost
+      ? scrollHost.getBoundingClientRect()
+      : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
 
-    const sampleCanvas = activeCompPdfScrollMode === "continuous"
-      ? (document.getElementById(`comp-pdf-page-canvas-${activeCompPdfPageNum}`) || document.querySelector("#comp-pdf-continuous-container .comp-pdf-page-canvas"))
-      : document.getElementById("comp-pdf-render-canvas");
+    const hasPrevFocal = typeof prevFocalX === "number" && !Number.isNaN(prevFocalX) && typeof prevFocalY === "number" && !Number.isNaN(prevFocalY);
+    const startFocalX = hasPrevFocal ? prevFocalX : (hostRect.left + hostRect.width * 0.5);
+    const startFocalY = hasPrevFocal ? prevFocalY : (hostRect.top + hostRect.height * 0.5);
+    const endFocalX = (typeof currFocalX === "number" && !Number.isNaN(currFocalX)) ? currFocalX : startFocalX;
+    const endFocalY = (typeof currFocalY === "number" && !Number.isNaN(currFocalY)) ? currFocalY : startFocalY;
 
-    const oldCssW = sampleCanvas
-      ? (parseFloat(sampleCanvas.style.width) || sampleCanvas.getBoundingClientRect().width || newCssW)
-      : newCssW;
-    const scaleRatio = oldCssW > 1 ? (newCssW / oldCssW) : 1;
+    // Anchor focal point directly to the specific PDF page stage under the user's fingers (or active page stage)
+    // so multi-page headers/margins/gaps never accumulate vertical drift!
+    let anchorStage = null;
+    if (activeCompPdfScrollMode === "continuous") {
+      anchorStage = findPdfPageStageAtPoint(startFocalX, startFocalY)
+        || document.getElementById(`comp-pdf-page-stage-${activeCompPdfPageNum}`)
+        || document.querySelector("#comp-pdf-continuous-container .comp-pdf-page-stage");
+    } else {
+      anchorStage = document.getElementById("comp-pdf-single-stage")
+        || document.getElementById("comp-pdf-render-canvas");
+    }
 
-    const oldScrollLeft = scrollHost ? scrollHost.scrollLeft : 0;
-    const oldScrollTop = scrollHost ? scrollHost.scrollTop : 0;
-    const contentFocalX = oldScrollLeft + (fX - hostRect.left);
-    const contentFocalY = oldScrollTop + (fY - hostRect.top);
+    let relStageX = 0.5;
+    let relStageY = 0.5;
+    if (anchorStage) {
+      const beforeRect = anchorStage.getBoundingClientRect();
+      if (beforeRect.width > 1 && beforeRect.height > 1) {
+        relStageX = (startFocalX - beforeRect.left) / beforeRect.width;
+        relStageY = (startFocalY - beforeRect.top) / beforeRect.height;
+      }
+    }
 
     if (activeCompPdfScrollMode === "continuous") {
       const slots = document.querySelectorAll("#comp-pdf-continuous-container .comp-pdf-page-slot[data-page-num]");
       slots.forEach(slot => {
-        const pNum = slot.getAttribute("data-page-num");
+        const pNum = Number(slot.getAttribute("data-page-num"));
         const pCanvas = document.getElementById(`comp-pdf-page-canvas-${pNum}`);
         const pInk = document.getElementById(`comp-pdf-page-ink-${pNum}`);
         const pMedia = document.getElementById(`comp-pdf-stage-media-${pNum}`);
@@ -13869,7 +13969,7 @@ Explanation: ${parentQ.explanation}`;
         const aspect = (pCanvas && pCanvas.width > 0 && pCanvas.height > 0)
           ? (pCanvas.height / pCanvas.width)
           : activeCompPdfBasePageAspect;
-        const newCssH = Math.max(200, Math.floor(newCssW * aspect));
+        const newCssH = Math.max(200, Math.round(newCssW * aspect));
         if (pCanvas) {
           pCanvas.style.width = `${newCssW}px`;
           pCanvas.style.height = `${newCssH}px`;
@@ -13881,6 +13981,7 @@ Explanation: ${parentQ.explanation}`;
         if (pMedia) {
           pMedia.style.width = `${newCssW}px`;
           pMedia.style.height = `${newCssH}px`;
+          repositionPdfMediaCardsInLayer(pMedia, activeCompPdfPageMediaMap[pNum] || [], newCssW, newCssH);
         }
         if (slotBar) {
           slotBar.style.width = `${newCssW}px`;
@@ -13892,7 +13993,7 @@ Explanation: ${parentQ.explanation}`;
       const aspect = (pdfCanvas && pdfCanvas.width > 0 && pdfCanvas.height > 0)
         ? (pdfCanvas.height / pdfCanvas.width)
         : activeCompPdfBasePageAspect;
-      const newCssH = Math.max(200, Math.floor(newCssW * aspect));
+      const newCssH = Math.max(200, Math.round(newCssW * aspect));
       if (pdfCanvas) {
         pdfCanvas.style.width = `${newCssW}px`;
         pdfCanvas.style.height = `${newCssH}px`;
@@ -13900,46 +14001,71 @@ Explanation: ${parentQ.explanation}`;
       if (singleMediaLayer) {
         singleMediaLayer.style.width = `${newCssW}px`;
         singleMediaLayer.style.height = `${newCssH}px`;
+        repositionPdfMediaCardsInLayer(singleMediaLayer, activeSheetMediaBlocks || [], newCssW, newCssH);
       }
     }
 
-    if (scrollHost && Math.abs(scaleRatio - 1) > 0.0005) {
+    if (scrollHost && anchorStage) {
+      const afterRect = anchorStage.getBoundingClientRect();
+      const newPointClientX = afterRect.left + relStageX * afterRect.width;
+      const newPointClientY = afterRect.top + relStageY * afterRect.height;
+      const deltaScrollLeft = newPointClientX - endFocalX;
+      const deltaScrollTop = newPointClientY - endFocalY;
+
       pdfProgrammaticScrollUntil = Date.now() + 260;
-      scrollHost.scrollLeft = Math.max(0, contentFocalX * scaleRatio - (fX - hostRect.left));
-      scrollHost.scrollTop = Math.max(0, contentFocalY * scaleRatio - (fY - hostRect.top));
+      if (Math.abs(deltaScrollLeft) > 0.25) {
+        scrollHost.scrollLeft = Math.max(0, scrollHost.scrollLeft + deltaScrollLeft);
+      }
+      if (Math.abs(deltaScrollTop) > 0.25) {
+        scrollHost.scrollTop = Math.max(0, scrollHost.scrollTop + deltaScrollTop);
+      }
     }
 
     const pctText = `${Math.round(zoomFactor * 100)}%`;
     safeSetText("comp-zoom-pct-btn", pctText);
     safeSetText("comp-pdf-zoom-btn", pctText);
-    syncSheetInkCanvasGeometry();
+    syncSheetInkCanvasGeometry(isLivePinch);
   }
 
   function captureActivePdfAnchorOffset() {
     const anchorPage = activeCompPdfPageNum || 1;
     const scrollHost = getActivePdfScrollHost();
-    const slot = document.getElementById(`comp-pdf-page-slot-${anchorPage}`);
-    let offsetRatio = 0;
-    if (scrollHost && slot && activeCompPdfScrollMode === "continuous") {
+    const stage = activeCompPdfScrollMode === "continuous"
+      ? (document.getElementById(`comp-pdf-page-stage-${anchorPage}`) || document.getElementById(`comp-pdf-page-slot-${anchorPage}`))
+      : (document.getElementById("comp-pdf-single-stage") || document.getElementById("comp-pdf-render-canvas"));
+    let offsetRatioY = 0;
+    let offsetRatioX = 0.5;
+    if (scrollHost && stage) {
       const hostRect = scrollHost.getBoundingClientRect();
-      const slotRect = slot.getBoundingClientRect();
-      offsetRatio = (hostRect.top - slotRect.top) / Math.max(slotRect.height, 1);
+      const stageRect = stage.getBoundingClientRect();
+      offsetRatioY = ((hostRect.top + hostRect.height * 0.5) - stageRect.top) / Math.max(stageRect.height, 1);
+      offsetRatioX = ((hostRect.left + hostRect.width * 0.5) - stageRect.left) / Math.max(stageRect.width, 1);
     }
-    return { anchorPage, offsetRatio };
+    return { anchorPage, offsetRatioY, offsetRatioX };
   }
 
   function restoreActivePdfAnchorOffset(anchorSpec) {
-    if (!anchorSpec || !isCompPdfActive() || activeCompPdfScrollMode !== "continuous") return;
-    const { anchorPage, offsetRatio } = anchorSpec;
+    if (!anchorSpec || !isCompPdfActive()) return;
+    const { anchorPage, offsetRatioY, offsetRatioX } = anchorSpec;
     const scrollHost = getActivePdfScrollHost();
-    const slot = document.getElementById(`comp-pdf-page-slot-${anchorPage}`);
-    if (scrollHost && slot) {
+    const stage = activeCompPdfScrollMode === "continuous"
+      ? (document.getElementById(`comp-pdf-page-stage-${anchorPage}`) || document.getElementById(`comp-pdf-page-slot-${anchorPage}`))
+      : (document.getElementById("comp-pdf-single-stage") || document.getElementById("comp-pdf-render-canvas"));
+    if (scrollHost && stage) {
       pdfProgrammaticScrollUntil = Date.now() + 300;
       const hostRect = scrollHost.getBoundingClientRect();
-      const slotRect = slot.getBoundingClientRect();
-      const targetScrollTop = scrollHost.scrollTop + (slotRect.top - hostRect.top) + (offsetRatio * slotRect.height);
-      scrollHost.scrollTop = Math.max(0, Math.round(targetScrollTop));
-      if (activeCompPdfPageNum !== anchorPage) {
+      const stageRect = stage.getBoundingClientRect();
+      if (typeof offsetRatioY === "number" && !Number.isNaN(offsetRatioY)) {
+        const targetClientY = stageRect.top + offsetRatioY * stageRect.height;
+        const centerClientY = hostRect.top + hostRect.height * 0.5;
+        scrollHost.scrollTop = Math.max(0, Math.round(scrollHost.scrollTop + (targetClientY - centerClientY)));
+      }
+      if (typeof offsetRatioX === "number" && !Number.isNaN(offsetRatioX)) {
+        const targetClientX = stageRect.left + offsetRatioX * stageRect.width;
+        const centerClientX = hostRect.left + hostRect.width * 0.5;
+        scrollHost.scrollLeft = Math.max(0, Math.round(scrollHost.scrollLeft + (targetClientX - centerClientX)));
+      }
+      if (activeCompPdfScrollMode === "continuous" && activeCompPdfPageNum !== anchorPage) {
         setActiveCompPdfPageInScrollSync(anchorPage);
       }
     }
@@ -13959,22 +14085,24 @@ Explanation: ${parentQ.explanation}`;
       renderSingleContinuousPdfPageCanvas(savedAnchor.anchorPage).then(() => {
         restoreActivePdfAnchorOffset(savedAnchor);
         renderVisibleAndNearbyContinuousPdfPages();
-        syncSheetInkCanvasGeometry();
+        syncSheetInkCanvasGeometry(false);
       });
     } else {
-      renderPdfPage(activeCompPdfPageNum || 1);
+      renderPdfPage(activeCompPdfPageNum || 1).then(() => {
+        restoreActivePdfAnchorOffset(savedAnchor);
+        syncSheetInkCanvasGeometry(false);
+      });
     }
   }
 
   function adjustCompendiumZoom(delta) {
-    const savedAnchor = isCompPdfActive() ? captureActivePdfAnchorOffset() : null;
     compendiumZoomScale = Math.max(0.65, Math.min(2.6, Math.round((compendiumZoomScale + delta) * 100) / 100));
     readerFontScale = compendiumZoomScale;
     document.documentElement.style.setProperty("--reader-font-scale", String(readerFontScale));
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
-      applyLivePdfZoomDimensions(compendiumZoomScale);
-      restoreActivePdfAnchorOffset(savedAnchor);
+      applyLivePdfZoomDimensions(compendiumZoomScale, null, null, null, null, false);
+      const savedAnchor = captureActivePdfAnchorOffset();
       clearTimeout(pdfZoomDebounceTimer);
       pdfZoomDebounceTimer = setTimeout(() => {
         sharpenPdfPagesAtCurrentZoom(savedAnchor);
@@ -13984,15 +14112,14 @@ Explanation: ${parentQ.explanation}`;
 
   function resetCompendiumZoom() {
     clearTimeout(pdfZoomDebounceTimer);
-    const savedAnchor = isCompPdfActive() ? captureActivePdfAnchorOffset() : null;
     compendiumZoomScale = 1.0;
     readerFontScale = 1.0;
     document.documentElement.style.setProperty("--reader-font-scale", "1");
     putRecord("store_config", { key: "reader_font_scale", value: 1.0 });
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
-      applyLivePdfZoomDimensions(1.0);
-      restoreActivePdfAnchorOffset(savedAnchor);
+      applyLivePdfZoomDimensions(1.0, null, null, null, null, false);
+      const savedAnchor = captureActivePdfAnchorOffset();
       sharpenPdfPagesAtCurrentZoom(savedAnchor);
     }
   }
@@ -16135,7 +16262,7 @@ Explanation: ${parentQ.explanation}`;
       }
     });
 
-    // Touch Brush-Drag + 60fps Focal-Point Anchored 2-Finger Pinch-to-Zoom & 2-Finger Pan
+    // Touch Brush-Drag + 144Hz Atomic Stage-Anchored 2-Finger Pinch-to-Zoom & 2-Finger Pan
     let pinchStartDist = 0;
     let pinchBaseScale = 1.0;
     let pinchLastMidX = 0;
@@ -16147,6 +16274,7 @@ Explanation: ${parentQ.explanation}`;
         if (isDrawingSheetInk) {
           isDrawingSheetInk = false;
           currentSheetInkStroke = null;
+          activeEraserCursorPreview = null;
           redrawSheetInkCanvas();
         }
         brushSession = null;
@@ -16179,8 +16307,8 @@ Explanation: ${parentQ.explanation}`;
         if (e.cancelable) e.preventDefault();
         const midX = (e.touches[0].clientX + e.touches[1].clientX) * 0.5;
         const midY = (e.touches[0].clientY + e.touches[1].clientY) * 0.5;
-        const panDx = pinchLastMidX - midX;
-        const panDy = pinchLastMidY - midY;
+        const prevMidX = pinchLastMidX;
+        const prevMidY = pinchLastMidY;
         pinchLastMidX = midX;
         pinchLastMidY = midY;
 
@@ -16192,13 +16320,16 @@ Explanation: ${parentQ.explanation}`;
         compendiumZoomScale = nextScale;
 
         if (isCompPdfActive()) {
+          // Single atomic pass: anchors the PDF page stage point under (prevMidX, prevMidY) and places it at (midX, midY)
+          applyLivePdfZoomDimensions(nextScale, prevMidX, prevMidY, midX, midY, true);
+        } else {
           const scrollHost = getActivePdfScrollHost();
+          const panDx = prevMidX - midX;
+          const panDy = prevMidY - midY;
           if (scrollHost && (Math.abs(panDx) > 0.25 || Math.abs(panDy) > 0.25)) {
             scrollHost.scrollLeft += panDx;
             scrollHost.scrollTop += panDy;
           }
-          applyLivePdfZoomDimensions(nextScale, midX, midY);
-        } else {
           applyCompendiumZoomStyle();
         }
         return;
@@ -16216,6 +16347,7 @@ Explanation: ${parentQ.explanation}`;
         compendiumZoomScale = Math.max(0.65, Math.min(2.6, Math.round(compendiumZoomScale * 100) / 100));
         applyCompendiumZoomStyle();
         if (isCompPdfActive()) {
+          syncSheetInkCanvasGeometry(false);
           sharpenPdfPagesAtCurrentZoom();
         }
       }
@@ -16228,6 +16360,7 @@ Explanation: ${parentQ.explanation}`;
       if (pinchStartDist > 16) {
         pinchStartDist = 0;
         if (isCompPdfActive()) {
+          syncSheetInkCanvasGeometry(false);
           sharpenPdfPagesAtCurrentZoom();
         }
       }

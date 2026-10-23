@@ -3,15 +3,17 @@
    Supports GitHub Pages subdirectory hosting & full offline IndexedDB operation
    ========================================================================== */
 
-const CACHE_NAME = "cgl-os-webapk-v9.7";
+const CACHE_NAME = "cgl-os-webapk-v9.7.1";
 
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./style.css?v=9.6",
+  "./style.css?v=9.7",
   "./app.js",
   "./app.js?v=9.6",
+  "./app.js?v=9.7",
   "./manifest.json",
   "./pwa-192x192.png",
   "./pwa-512x512.png",
@@ -19,7 +21,10 @@ const CORE_ASSETS = [
   "./apple-touch-icon.png",
   "./icon.svg",
   "https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css",
-  "https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"
+  "https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
 ];
 
 self.addEventListener("install", (event) => {
