@@ -4745,7 +4745,11 @@ Return ONLY valid JSON.`;
       }
 
       // Cumulative Per-Question Timer: Immediately display existing cumulative timeSpentSec on revisit (never flicker to 00:00)
-      activeExam.currentVisitTimeSec = 0;
+      // Protect currentVisitTimeSec so clicking an option or starring the same question does not reset visit duration
+      if (activeExam.lastRenderedQuestionId !== q.id) {
+        activeExam.currentVisitTimeSec = 0;
+        activeExam.lastRenderedQuestionId = q.id;
+      }
       const cumulativeQSec = resp.timeSpentSec || 0;
       activeExam.currentQTimeSpentSec = cumulativeQSec;
       const qm = Math.floor(cumulativeQSec / 60);
@@ -6939,6 +6943,13 @@ Explanation: ${parentQ.explanation}`;
     if (!canvas || canvas.dataset.bound === "true") return;
     canvas.dataset.bound = "true";
 
+    // Block Android Chrome native contextmenu popup during Stylo 2 330ms Hold-to-Snap or barrel button press
+    canvas.addEventListener("contextmenu", (e) => {
+      if (scratchpadActive || compSheetInkMode) {
+        e.preventDefault();
+      }
+    });
+
     let scratchHoldSnapTimer = null;
     let scratchStrokeSnapped = false;
     let twoFingerScrolling = false;
@@ -7200,18 +7211,38 @@ Explanation: ${parentQ.explanation}`;
         return;
       }
 
-      const lastPt = currentStroke[currentStroke.length - 1];
-      currentStroke.push({
-        x: pos.x,
-        y: pos.y,
-        mode: activeMode,
-        color: activeCol,
-        size: activeSz,
-        eraserWidth: eraserW,
-        pressure: pressure,
-        tilt: tilt
-      });
-      if (!lastPt || Math.hypot(pos.x - lastPt.x, pos.y - lastPt.y) > 0.6) {
+      // 240Hz OnePlus Stylo 2 Coalesced Sub-Frame Stylus Sampling
+      const coalesced = (e.pointerType === "pen" && typeof e.getCoalescedEvents === "function")
+        ? e.getCoalescedEvents()
+        : [e];
+      const sampleList = (coalesced && coalesced.length > 0) ? coalesced : [e];
+      let movedEnoughForSnap = false;
+
+      for (let ci = 0; ci < sampleList.length; ci++) {
+        const ce = sampleList[ci];
+        const cPos = getWorldPos(ce);
+        const cPressure = (ce.pointerType === "pen" && ce.pressure > 0) ? ce.pressure : pressure;
+        const cTilt = Math.hypot(ce.tiltX || 0, ce.tiltY || 0) || tilt;
+        const lastPt = currentStroke[currentStroke.length - 1];
+        if (lastPt && Math.hypot(cPos.x - lastPt.x, cPos.y - lastPt.y) < 0.4) {
+          continue;
+        }
+        currentStroke.push({
+          x: cPos.x,
+          y: cPos.y,
+          mode: activeMode,
+          color: activeCol,
+          size: activeSz,
+          eraserWidth: eraserW,
+          pressure: cPressure,
+          tilt: cTilt
+        });
+        if (!lastPt || Math.hypot(cPos.x - lastPt.x, cPos.y - lastPt.y) > 0.6) {
+          movedEnoughForSnap = true;
+        }
+      }
+
+      if (movedEnoughForSnap) {
         scheduleScratchHoldSnap();
       }
       redrawScratchpad();
@@ -7375,7 +7406,7 @@ Explanation: ${parentQ.explanation}`;
   function redrawScratchpad() {
     const canvas = document.getElementById("scratchpad-canvas");
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { desynchronized: true }) || canvas.getContext("2d");
     if (!ctx) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -9700,13 +9731,15 @@ Explanation: ${parentQ.explanation}`;
   /* ==========================================================================
    * SECTION 23: UNTIMED DOJO PRACTICE, STOPWATCH SPLIT & SPLIT-SHEET PINS
    * ========================================================================== */
-  function startDojoStopwatch() {
+  function startDojoStopwatch(qId = null) {
     clearInterval(dojoStopwatchInterval);
     if (!dojoExam || !dojoExam.questions || dojoExam.questions.length === 0) return;
     const curQ = dojoExam.questions[dojoExam.currentIndex];
-    const curResp = curQ && dojoExam.userResponses ? dojoExam.userResponses[curQ.id] : null;
-    dojoStopwatchSec = (curResp && typeof curResp.timeSpentSec === "number") ? curResp.timeSpentSec : 0;
-    dojoSetupSplitSec = (curResp && curResp.setupSplitSec !== undefined) ? curResp.setupSplitSec : null;
+    const resolvedQId = qId || (curQ ? curQ.id : null);
+    const resp = (dojoExam && resolvedQId && dojoExam.userResponses[resolvedQId]) ? dojoExam.userResponses[resolvedQId] : null;
+    dojoStopwatchSec = resp ? (resp.timeSpentSec || 0) : 0;
+    dojoSetupSplitSec = resp && resp.setupSplitSec !== undefined ? resp.setupSplitSec : null;
+    const curResp = resp;
 
     const initM = Math.floor(dojoStopwatchSec / 60);
     const initS = dojoStopwatchSec % 60;
@@ -9894,7 +9927,7 @@ Explanation: ${parentQ.explanation}`;
 
     // Always restore or continue the cumulative per-question timer without resetting to 0
     if (resetStopwatch) {
-      startDojoStopwatch();
+      startDojoStopwatch(q.id);
     }
 
     safeSetText("dojo-arena-title", dojoExam.title);
@@ -11527,7 +11560,7 @@ Explanation: ${parentQ.explanation}`;
   function redrawSheetInkCanvas() {
     const inkCanvas = document.getElementById("comp-folio-ink-canvas");
     if (!inkCanvas) return;
-    const ctx = inkCanvas.getContext("2d");
+    const ctx = inkCanvas.getContext("2d", { desynchronized: true }) || inkCanvas.getContext("2d");
     if (!ctx) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -12053,6 +12086,17 @@ Explanation: ${parentQ.explanation}`;
     if (!inkCanvas || inkCanvas.dataset.inkBound === "true") return;
     inkCanvas.dataset.inkBound = "true";
 
+    // Block Android Chrome native contextmenu on Folio & PDF Ink surfaces during Stylo 2 330ms Hold-to-Snap
+    [inkCanvas, pageEl, document.getElementById("comp-pdf-canvas-wrap")].forEach(el => {
+      if (el) {
+        el.addEventListener("contextmenu", (e) => {
+          if (scratchpadActive || compSheetInkMode) {
+            e.preventDefault();
+          }
+        });
+      }
+    });
+
     let strokeEraserModified = false;
     let lastEraserNormPt = null;
     let folioTwoFingerScrollY = null;
@@ -12310,8 +12354,31 @@ Explanation: ${parentQ.explanation}`;
         return;
       }
 
-      currentSheetInkStroke.points.push(pt);
-      if (!prevPt || Math.hypot(pt.nx - prevPt.nx, pt.ny - prevPt.ny) > 0.0007) {
+      // 240Hz OnePlus Stylo 2 Coalesced Sub-Frame Stylus Sampling
+      const coalesced = (e.pointerType === "pen" && typeof e.getCoalescedEvents === "function")
+        ? e.getCoalescedEvents()
+        : [e];
+      const sampleList = (coalesced && coalesced.length > 0) ? coalesced : [e];
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const cssW = Math.max(inkCanvas.width / dpr, 1);
+      const cssH = Math.max(inkCanvas.height / dpr, 1);
+      let movedEnoughForSnap = false;
+
+      for (let ci = 0; ci < sampleList.length; ci++) {
+        const ce = sampleList[ci];
+        const cPt = getNormalizedPoint(ce);
+        const lastNormPt = currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1];
+        if (lastNormPt) {
+          const distPx = Math.hypot((cPt.nx - lastNormPt.nx) * cssW, (cPt.ny - lastNormPt.ny) * cssH);
+          if (distPx < 0.4) continue;
+        }
+        currentSheetInkStroke.points.push(cPt);
+        if (!lastNormPt || Math.hypot(cPt.nx - lastNormPt.nx, cPt.ny - lastNormPt.ny) > 0.0007) {
+          movedEnoughForSnap = true;
+        }
+      }
+
+      if (movedEnoughForSnap) {
         scheduleFolioShapeSnap();
       }
       redrawSheetInkCanvas();
@@ -13848,8 +13915,39 @@ Explanation: ${parentQ.explanation}`;
     syncSheetInkCanvasGeometry();
   }
 
-  function sharpenPdfPagesAtCurrentZoom() {
+  function captureActivePdfAnchorOffset() {
+    const anchorPage = activeCompPdfPageNum || 1;
+    const scrollHost = getActivePdfScrollHost();
+    const slot = document.getElementById(`comp-pdf-page-slot-${anchorPage}`);
+    let offsetRatio = 0;
+    if (scrollHost && slot && activeCompPdfScrollMode === "continuous") {
+      const hostRect = scrollHost.getBoundingClientRect();
+      const slotRect = slot.getBoundingClientRect();
+      offsetRatio = (hostRect.top - slotRect.top) / Math.max(slotRect.height, 1);
+    }
+    return { anchorPage, offsetRatio };
+  }
+
+  function restoreActivePdfAnchorOffset(anchorSpec) {
+    if (!anchorSpec || !isCompPdfActive() || activeCompPdfScrollMode !== "continuous") return;
+    const { anchorPage, offsetRatio } = anchorSpec;
+    const scrollHost = getActivePdfScrollHost();
+    const slot = document.getElementById(`comp-pdf-page-slot-${anchorPage}`);
+    if (scrollHost && slot) {
+      pdfProgrammaticScrollUntil = Date.now() + 300;
+      const hostRect = scrollHost.getBoundingClientRect();
+      const slotRect = slot.getBoundingClientRect();
+      const targetScrollTop = scrollHost.scrollTop + (slotRect.top - hostRect.top) + (offsetRatio * slotRect.height);
+      scrollHost.scrollTop = Math.max(0, Math.round(targetScrollTop));
+      if (activeCompPdfPageNum !== anchorPage) {
+        setActiveCompPdfPageInScrollSync(anchorPage);
+      }
+    }
+  }
+
+  function sharpenPdfPagesAtCurrentZoom(anchorSpec = null) {
     if (!isCompPdfActive() || !activeCompPdfDocProxy) return;
+    const savedAnchor = anchorSpec || captureActivePdfAnchorOffset();
     if (activeCompPdfScrollMode === "continuous") {
       activeCompPdfRenderedPagesSet.clear();
       Object.values(activeCompPdfRenderingPagesMap).forEach(t => {
@@ -13858,7 +13956,8 @@ Explanation: ${parentQ.explanation}`;
         }
       });
       activeCompPdfRenderingPagesMap = {};
-      renderSingleContinuousPdfPageCanvas(activeCompPdfPageNum).then(() => {
+      renderSingleContinuousPdfPageCanvas(savedAnchor.anchorPage).then(() => {
+        restoreActivePdfAnchorOffset(savedAnchor);
         renderVisibleAndNearbyContinuousPdfPages();
         syncSheetInkCanvasGeometry();
       });
@@ -13868,21 +13967,24 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function adjustCompendiumZoom(delta) {
+    const savedAnchor = isCompPdfActive() ? captureActivePdfAnchorOffset() : null;
     compendiumZoomScale = Math.max(0.65, Math.min(2.6, Math.round((compendiumZoomScale + delta) * 100) / 100));
     readerFontScale = compendiumZoomScale;
     document.documentElement.style.setProperty("--reader-font-scale", String(readerFontScale));
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
       applyLivePdfZoomDimensions(compendiumZoomScale);
+      restoreActivePdfAnchorOffset(savedAnchor);
       clearTimeout(pdfZoomDebounceTimer);
       pdfZoomDebounceTimer = setTimeout(() => {
-        sharpenPdfPagesAtCurrentZoom();
+        sharpenPdfPagesAtCurrentZoom(savedAnchor);
       }, 170);
     }
   }
 
   function resetCompendiumZoom() {
     clearTimeout(pdfZoomDebounceTimer);
+    const savedAnchor = isCompPdfActive() ? captureActivePdfAnchorOffset() : null;
     compendiumZoomScale = 1.0;
     readerFontScale = 1.0;
     document.documentElement.style.setProperty("--reader-font-scale", "1");
@@ -13890,7 +13992,8 @@ Explanation: ${parentQ.explanation}`;
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
       applyLivePdfZoomDimensions(1.0);
-      sharpenPdfPagesAtCurrentZoom();
+      restoreActivePdfAnchorOffset(savedAnchor);
+      sharpenPdfPagesAtCurrentZoom(savedAnchor);
     }
   }
 
@@ -14188,6 +14291,12 @@ Explanation: ${parentQ.explanation}`;
     const pdfWrap = document.getElementById("comp-pdf-canvas-wrap");
     if (pdfWrap && pdfWrap.dataset.panBound !== "true") {
       pdfWrap.dataset.panBound = "true";
+
+      pdfWrap.addEventListener("contextmenu", (e) => {
+        if (scratchpadActive || compSheetInkMode) {
+          e.preventDefault();
+        }
+      });
 
       let isGrabPanning = false;
       let grabStartX = 0;

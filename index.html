@@ -31,8 +31,8 @@
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js" crossorigin="anonymous"></script>
 
-  <!-- External Stylesheet with Cache-Buster v9.6 -->
-  <link rel="stylesheet" href="./style.css?v=9.6">
+  <!-- External Stylesheet with Cache-Buster v9.7 -->
+  <link rel="stylesheet" href="./style.css?v=9.7">
 </head>
 <body>
   <!-- NON-BLOCKING FLOATING GLASS TOAST HUD -->
@@ -54,7 +54,7 @@
       var box = document.getElementById("phone-debug-banner");
       if (window.CGL_OS && typeof window.CGL_OS.switchTab === "function") {
         box.style.background = "#10b981";
-        box.innerHTML = "✅ CGL_OS V9.3 loaded successfully! All systems active.";
+        box.innerHTML = "✅ CGL_OS V9.7 (OnePlus Pad + Stylo 2 Edition) loaded";
         setTimeout(function() { box.style.display = "none"; }, 2200);
       } else if (box && box.innerHTML.indexOf("JS ERROR") === -1) {
         box.style.background = "#d97706";
@@ -2684,7 +2684,7 @@
   <!-- ==================== PUBLISHING-GRADE TYPESET PRINT ROOT ==================== -->
   <div id="print-sheet-root" style="display:none;" class="print-page"></div>
 
-  <!-- Master JavaScript Controller with Cache-Buster Parameter v9.6 -->
-  <script src="./app.js?v=9.6"></script>
+  <!-- Master JavaScript Controller with Cache-Buster Parameter v9.7 -->
+  <script src="./app.js?v=9.7"></script>
 </body>
 </html>

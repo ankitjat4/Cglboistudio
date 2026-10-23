@@ -3012,11 +3012,11 @@ mark.user-hl-purple {
   z-index: 2300;
   flex-direction: column;
   box-shadow: 0 -10px 35px rgba(0, 0, 0, 0.85);
-  /* Portrait Mobile Default: Bottom Half-Sheet */
+  /* Portrait Mobile & 7:5 Tablet Portrait Default: Spacious Bottom Half-Sheet */
   left: 0;
   right: 0;
   bottom: 0;
-  height: 54vh;
+  height: 52vh;
 }
 #arena-split-sheet-drawer.open {
   display: flex;
@@ -3173,27 +3173,6 @@ mark.user-hl-purple {
     padding: 24px 28px 110px 28px;
   }
 
-  /* Docked Right-Side Split Sheet Drawer on Tablet / Landscape */
-  #arena-split-sheet-drawer {
-    top: 56px;
-    bottom: 64px;
-    right: 0;
-    left: auto;
-    width: 45%;
-    max-width: 560px;
-    height: auto;
-    border-top: none;
-    border-left: 2px solid var(--accent-cyan);
-  }
-
-  /* Shift Arena Body cleanly to the left when Split-Sheet is docked open on Tablet */
-  body.split-sheet-docked #exam-arena .arena-body,
-  body.split-sheet-docked #dojo-arena-view .arena-body {
-    width: 55%;
-    margin-left: 0;
-    margin-right: auto;
-  }
-
   /* 2-Pane Split Layout when a Reading Comprehension / Cloze / Caselet passage is active */
   .arena-body.has-passage {
     display: grid;
@@ -3225,6 +3204,28 @@ mark.user-hl-purple {
   .arena-body.has-passage #arena-concept-bridge-box,
   .arena-body.has-passage #arena-review-solution-block {
     grid-column: 2;
+  }
+}
+
+/* Docked Right-Side Split Sheet Drawer on Tablet Landscape & Wide Desktop (55% Question Left | 45% Sheet Right) */
+@media (min-width: 820px) and (orientation: landscape), (min-width: 1024px) {
+  #arena-split-sheet-drawer {
+    top: 56px;
+    bottom: 64px;
+    right: 0;
+    left: auto;
+    width: 45%;
+    max-width: 560px;
+    height: auto;
+    border-top: none;
+    border-left: 2px solid var(--accent-cyan);
+  }
+
+  body.split-sheet-docked #exam-arena .arena-body,
+  body.split-sheet-docked #dojo-arena-view .arena-body {
+    width: 55%;
+    margin-left: 0;
+    margin-right: auto;
   }
 }
 
