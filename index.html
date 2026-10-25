@@ -732,12 +732,15 @@
   <div id="scratchpad-overlay" class="scratchpad-canvas-overlay">
     <canvas id="scratchpad-canvas" class="scratchpad-canvas-el"></canvas>
     <div class="scratchpad-toolbar ink-floating-pill-shell is-collapsed-orb" id="scratchpad-toolbar-pill">
-      <!-- COLLAPSED CIRCULAR FLOATING PILL (ORB) -->
-      <button type="button" class="ink-circular-orb-btn" id="scratch-orb-trigger-btn" onclick="CGL_OS.setScratchpadPillExpanded(true, event)" title="Tap to expand Ink Studio Tools • Auto-collapses into circular pill while drawing">
-        <span class="ink-orb-color-ring" id="scratch-orb-color-ring" style="border-color:#38bdf8;"></span>
-        <span class="ink-orb-tool-icon" id="scratch-orb-tool-icon">🖊️</span>
-        <span class="ink-orb-mini-dot" id="scratch-orb-mini-dot" style="background:#38bdf8;"></span>
-      </button>
+      <!-- COLLAPSED CIRCULAR FLOATING PILL (ORB) & SATELLITE QUICK ERASER -->
+      <div class="ink-orb-satellite-group">
+        <button type="button" class="ink-circular-orb-btn" id="scratch-orb-trigger-btn" onclick="CGL_OS.setScratchpadPillExpanded(true, event)" title="Tap to expand Ink Studio Tools • Auto-collapses into circular pill while drawing">
+          <span class="ink-orb-color-ring" id="scratch-orb-color-ring" style="border-color:#38bdf8;"></span>
+          <span class="ink-orb-tool-icon" id="scratch-orb-tool-icon">🖊️</span>
+          <span class="ink-orb-mini-dot" id="scratch-orb-mini-dot" style="background:#38bdf8;"></span>
+        </button>
+        <button type="button" class="ink-quick-eraser-satellite-btn" id="scratch-quick-eraser-satellite" onclick="CGL_OS.toggleScratchpadQuickEraser(event)" title="⚡ 1-Tap Quick Eraser Switch (✏️ ⇄ 🧹)">🧹</button>
+      </div>
 
       <!-- EXPANDED FLOATING INK STUDIO POPOVER CARD -->
       <div class="ink-expanded-studio-card" id="scratch-expanded-studio-card" onclick="event.stopPropagation()">
@@ -747,7 +750,8 @@
             <span id="scratch-active-shape-badge" class="ink-shape-status-badge">Auto-Snap Ready</span>
             <span id="scratch-stylo-telemetry-badge" class="ink-shape-status-badge stylo-hardware-badge" style="display:none;">✒️ Stylo 2 Active</span>
           </div>
-          <div style="display:flex; align-items:center; gap:4px;">
+          <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-amber" style="padding:3px 9px; font-size:10.5px; border-radius:999px; font-weight:800;" onclick="CGL_OS.toggleScratchpadQuickEraser(event)" title="1-Tap Instant Toggle between Writing Pen and Eraser">⚡ Quick Eraser (✏️⇄🧹)</button>
             <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.undoScratchpadStroke()" title="Undo Last Stroke">↩ Undo</button>
             <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.redoScratchpadStroke()" title="Redo Stroke">↪ Redo</button>
             <button type="button" class="btn btn-cyan" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.setScratchpadPillExpanded(false, event)" title="Collapse into Circular Floating Pill">🗕 Orb</button>
@@ -1147,12 +1151,15 @@
 
     <!-- Unified Floating Ink / Scratchpad Circular Pill & Expanded Studio Card -->
     <div id="comp-folio-ink-toolbar" class="comp-folio-ink-toolbar ink-floating-pill-shell is-collapsed-orb" style="display:none; z-index:2245;">
-      <!-- COLLAPSED CIRCULAR FLOATING PILL (ORB) -->
-      <button type="button" class="ink-circular-orb-btn" id="folio-ink-orb-trigger-btn" onclick="CGL_OS.setInkStudioPillExpanded(true, event)" title="Tap to expand Ink &amp; Geometry Studio • Auto-collapses into circular pill while drawing">
-        <span class="ink-orb-color-ring" id="folio-orb-color-ring" style="border-color:#38bdf8;"></span>
-        <span class="ink-orb-tool-icon" id="folio-orb-tool-icon">🖊️</span>
-        <span class="ink-orb-mini-dot" id="folio-orb-mini-dot" style="background:#38bdf8;"></span>
-      </button>
+      <!-- COLLAPSED CIRCULAR FLOATING PILL (ORB) & SATELLITE QUICK ERASER -->
+      <div class="ink-orb-satellite-group">
+        <button type="button" class="ink-circular-orb-btn" id="folio-ink-orb-trigger-btn" onclick="CGL_OS.setInkStudioPillExpanded(true, event)" title="Tap to expand Ink &amp; Geometry Studio • Auto-collapses into circular pill while drawing">
+          <span class="ink-orb-color-ring" id="folio-orb-color-ring" style="border-color:#38bdf8;"></span>
+          <span class="ink-orb-tool-icon" id="folio-orb-tool-icon">🖊️</span>
+          <span class="ink-orb-mini-dot" id="folio-orb-mini-dot" style="background:#38bdf8;"></span>
+        </button>
+        <button type="button" class="ink-quick-eraser-satellite-btn" id="folio-quick-eraser-satellite" onclick="CGL_OS.toggleCompSheetQuickEraser(event)" title="⚡ 1-Tap Quick Eraser Switch (✏️ ⇄ 🧹)">🧹</button>
+      </div>
 
       <!-- EXPANDED FLOATING INK STUDIO POPOVER CARD -->
       <div class="ink-expanded-studio-card" id="folio-ink-expanded-card" onclick="event.stopPropagation()">
@@ -1162,7 +1169,8 @@
             <span id="folio-active-shape-badge" class="ink-shape-status-badge">Auto-Snap Ready</span>
             <span id="folio-stylo-telemetry-badge" class="ink-shape-status-badge stylo-hardware-badge" style="display:none;">✒️ Stylo 2 Active</span>
           </div>
-          <div style="display:flex; align-items:center; gap:4px;">
+          <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-amber" style="padding:3px 9px; font-size:10.5px; border-radius:999px; font-weight:800;" onclick="CGL_OS.toggleCompSheetQuickEraser(event)" title="1-Tap Instant Toggle between Writing Pen and Eraser">⚡ Quick Eraser (✏️⇄🧹)</button>
             <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.undoCompendiumFolioInkStroke()" title="Undo Last Stroke">↩ Undo</button>
             <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.redoCompendiumFolioInkStroke()" title="Redo Stroke">↪ Redo</button>
             <button type="button" class="btn btn-cyan" style="padding:3px 8px; font-size:10.5px; border-radius:999px;" onclick="CGL_OS.setInkStudioPillExpanded(false, event)" title="Collapse into Circular Floating Pill">🗕 Orb</button>

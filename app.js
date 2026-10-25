@@ -88,6 +88,19 @@ const CGL_OS = (() => {
     return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+  const escapeHTML = escapeHtml;
+  window.escapeHtml = escapeHtml;
+  window.escapeHTML = escapeHtml;
+
   function showToast(message, type = "cyan", durationMs = 2400) {
     const container = document.getElementById("cgl-toast-container");
     if (!container) return;
@@ -296,8 +309,8 @@ const CGL_OS = (() => {
 
   // Global Scroll-Synchronized OnePlus Stylo 2 / Tablet Ink State & Per-Item Memory
   let scratchpadActive = false;
-  let scratchpadScrollPassthrough = true;
-  let scratchpadFingerDraw = false; // Default false: Stylus draws, 1-Finger scrolls naturally
+  let scratchpadScrollPassthrough = false;
+  let scratchpadFingerDraw = true; // Default true: Both Stylus and Finger draw immediately, matching Sheets
   let scratchpadLaserMode = false;
   let scratchpadMode = "PEN";
   let scratchpadColor = "#38bdf8";
@@ -5868,7 +5881,15 @@ Explanation: ${parentQ.explanation}`;
   }
 
   function isStyloHardwareEraserEvent(e) {
-    return Boolean(e && e.pointerType === "pen" && (e.buttons === 32 || e.button === 5 || (e.buttons & 2) === 2));
+    if (!e || e.pointerType !== "pen") return false;
+    return Boolean(
+      e.buttons === 32 ||
+      (e.buttons & 32) === 32 ||
+      e.buttons === 2 ||
+      (e.buttons & 2) === 2 ||
+      e.button === 2 ||
+      e.button === 5
+    );
   }
 
   function positionFloatingCardRelativeToOrb(orbRect, cardEl) {
@@ -6067,6 +6088,26 @@ Explanation: ${parentQ.explanation}`;
       if (scratchHeader) bindFloatingOrbDragController(scratchHeader, scratchShell, { isHeaderDrag: true });
     }
 
+    // Bind zero-latency pointerdown on 1-Tap Quick Eraser Satellite buttons so stylus taps never miss
+    const scratchSatBtn = document.getElementById("scratch-quick-eraser-satellite");
+    if (scratchSatBtn && scratchSatBtn.dataset.quickBound !== "true") {
+      scratchSatBtn.dataset.quickBound = "true";
+      scratchSatBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleScratchpadQuickEraser(e);
+      });
+    }
+    const folioSatBtn = document.getElementById("folio-quick-eraser-satellite");
+    if (folioSatBtn && folioSatBtn.dataset.quickBound !== "true") {
+      folioSatBtn.dataset.quickBound = "true";
+      folioSatBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleCompSheetQuickEraser(e);
+      });
+    }
+
     if (!floatingOrbsResizeBound) {
       floatingOrbsResizeBound = true;
       window.addEventListener("resize", () => {
@@ -6121,18 +6162,36 @@ Explanation: ${parentQ.explanation}`;
     const folioRing = document.getElementById("folio-orb-color-ring");
     const folioDot = document.getElementById("folio-orb-mini-dot");
     const tKey = String(compSheetInkTool || "pen").toLowerCase();
+    const isFolioEraser = tKey === "stroke_eraser" || tKey === "eraser";
     if (folioIcon) folioIcon.innerText = INK_TOOL_ORB_ICONS[tKey] || "🖊️";
-    if (folioRing) folioRing.style.borderColor = compSheetInkColor || "#38bdf8";
-    if (folioDot) folioDot.style.background = compSheetInkColor || "#38bdf8";
+    if (folioRing) folioRing.style.borderColor = isFolioEraser ? "#fb7185" : (compSheetInkColor || "#38bdf8");
+    if (folioDot) folioDot.style.background = isFolioEraser ? "#fb7185" : (compSheetInkColor || "#38bdf8");
 
     // Scratchpad Ink Orb
     const scratchIcon = document.getElementById("scratch-orb-tool-icon");
     const scratchRing = document.getElementById("scratch-orb-color-ring");
     const scratchDot = document.getElementById("scratch-orb-mini-dot");
     const sKey = scratchpadLaserMode ? "laser" : String(scratchpadMode || "pen").toLowerCase();
+    const isScratchEraser = sKey === "stroke_eraser" || sKey === "eraser";
     if (scratchIcon) scratchIcon.innerText = INK_TOOL_ORB_ICONS[sKey] || "🖊️";
-    if (scratchRing) scratchRing.style.borderColor = scratchpadColor || "#38bdf8";
-    if (scratchDot) scratchDot.style.background = scratchpadColor || "#38bdf8";
+    if (scratchRing) scratchRing.style.borderColor = isScratchEraser ? "#fb7185" : (scratchpadColor || "#38bdf8");
+    if (scratchDot) scratchDot.style.background = isScratchEraser ? "#fb7185" : (scratchpadColor || "#38bdf8");
+
+    // Quick Eraser Satellite Buttons Sync
+    const scratchSat = document.getElementById("scratch-quick-eraser-satellite");
+    if (scratchSat) {
+      scratchSat.innerText = isScratchEraser ? "✏️" : "🧹";
+      scratchSat.title = isScratchEraser ? "⚡ Eraser Active — Tap to Restore Writing Pen" : "⚡ 1-Tap Quick Eraser";
+      scratchSat.style.borderColor = isScratchEraser ? "#38bdf8" : "#f59e0b";
+      scratchSat.classList.toggle("eraser-active", isScratchEraser);
+    }
+    const folioSat = document.getElementById("folio-quick-eraser-satellite");
+    if (folioSat) {
+      folioSat.innerText = isFolioEraser ? "✏️" : "🧹";
+      folioSat.title = isFolioEraser ? "⚡ Eraser Active — Tap to Restore Writing Pen" : "⚡ 1-Tap Quick Eraser";
+      folioSat.style.borderColor = isFolioEraser ? "#38bdf8" : "#f59e0b";
+      folioSat.classList.toggle("eraser-active", isFolioEraser);
+    }
   }
 
   function setInkStudioPillExpanded(expanded = false, evt = null) {
@@ -6865,6 +6924,7 @@ Explanation: ${parentQ.explanation}`;
 
   function syncScratchpadModeUI() {
     const overlay = document.getElementById("scratchpad-overlay");
+    const canvas = document.getElementById("scratchpad-canvas");
     const btn = document.getElementById("btn-scratch-finger-mode");
     const isPanTool = scratchpadMode === "PAN" || scratchpadInputMode === "PAN_ONLY";
     const isScrollMode = isPanTool || !scratchpadFingerDraw || scratchpadInputMode === "AUTO_STYLO";
@@ -6872,11 +6932,16 @@ Explanation: ${parentQ.explanation}`;
     scratchpadScrollPassthrough = isScrollMode;
 
     if (overlay) {
-      overlay.classList.toggle("finger-draw-enabled", !isScrollMode);
-      overlay.classList.toggle("scroll-passthrough", isScrollMode);
-      if (isScrollMode) {
+      overlay.classList.toggle("finger-draw-enabled", !isPanTool);
+      overlay.classList.toggle("pan-only-passthrough", isPanTool);
+      overlay.classList.remove("scroll-passthrough");
+      if (isPanTool) {
         overlay.classList.remove("pen-active-stroke");
       }
+    }
+    if (canvas) {
+      canvas.style.pointerEvents = isPanTool ? "none" : "auto";
+      canvas.style.touchAction = isPanTool ? "pan-x pan-y" : "none";
     }
 
     if (btn) {
@@ -7099,10 +7164,15 @@ Explanation: ${parentQ.explanation}`;
       }, 330);
     };
 
+    let activeScratchPointerId = null;
+    let scratchTouchScrollSession = null;
+
     const startStrokeFromEvent = (e) => {
       if (twoFingerScrolling) return;
       notifyStyloHardwareDetected(e);
       if (isPalmTouchRejected(e)) return;
+      if (!scratchpadFingerDraw && e.pointerType !== "pen") return;
+      if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
       setScratchpadPillExpanded(false);
       const isHardwareEraser = isStyloHardwareEraserEvent(e);
       const effectiveMode = isHardwareEraser ? "STROKE_ERASER" : (scratchpadLaserMode ? "LASER" : scratchpadMode);
@@ -7143,7 +7213,7 @@ Explanation: ${parentQ.explanation}`;
       clearTimeout(scratchHoldSnapTimer);
 
       if (effectiveMode === "STROKE_ERASER") {
-        const hitR = Math.max(20, Math.round(eraserW * 0.55));
+        const hitR = Math.max(24, Math.round(eraserW * 0.65));
         scratchpadEraserCursorPreview = { x: pos.x, y: pos.y, radiusPx: hitR };
         currentStroke = [{ x: pos.x, y: pos.y, mode: "STROKE_ERASER" }];
         if (eraseWholeScratchpadStrokesAlongSegment(pos, pos, hitR)) {
@@ -7211,13 +7281,22 @@ Explanation: ${parentQ.explanation}`;
       const pressure = (e.pointerType === "pen" && e.pressure > 0) ? e.pressure : 0.5;
       const tilt = Math.hypot(e.tiltX || 0, e.tiltY || 0);
 
+      // 240Hz OnePlus Stylo 2 Coalesced Sub-Frame Stylus Sampling
+      const coalesced = (e.pointerType === "pen" && typeof e.getCoalescedEvents === "function")
+        ? e.getCoalescedEvents()
+        : [e];
+      const sampleList = (coalesced && coalesced.length > 0) ? coalesced : [e];
+
       if (activeMode === "STROKE_ERASER") {
-        const hitR = Math.max(20, Math.round(eraserW * 0.55));
-        scratchpadEraserCursorPreview = { x: pos.x, y: pos.y, radiusPx: hitR };
-        if (eraseWholeScratchpadStrokesAlongSegment(lastScratchEraserPt || pos, pos, hitR)) {
-          scratchStrokeEraserModified = true;
+        const hitR = Math.max(24, Math.round(eraserW * 0.65));
+        for (let ci = 0; ci < sampleList.length; ci++) {
+          const cPos = getWorldPos(sampleList[ci]);
+          if (eraseWholeScratchpadStrokesAlongSegment(lastScratchEraserPt || cPos, cPos, hitR)) {
+            scratchStrokeEraserModified = true;
+          }
+          lastScratchEraserPt = cPos;
         }
-        lastScratchEraserPt = pos;
+        scratchpadEraserCursorPreview = { x: pos.x, y: pos.y, radiusPx: hitR };
         redrawScratchpad();
         return;
       }
@@ -7255,11 +7334,6 @@ Explanation: ${parentQ.explanation}`;
         return;
       }
 
-      // 240Hz OnePlus Stylo 2 Coalesced Sub-Frame Stylus Sampling
-      const coalesced = (e.pointerType === "pen" && typeof e.getCoalescedEvents === "function")
-        ? e.getCoalescedEvents()
-        : [e];
-      const sampleList = (coalesced && coalesced.length > 0) ? coalesced : [e];
       let movedEnoughForSnap = false;
 
       for (let ci = 0; ci < sampleList.length; ci++) {
@@ -7292,8 +7366,32 @@ Explanation: ${parentQ.explanation}`;
       redrawScratchpad();
     };
 
-    const finishStroke = () => {
+    const finishStroke = (e) => {
       clearTimeout(scratchHoldSnapTimer);
+      if (e && e.pointerId !== undefined) {
+        try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      activeScratchPointerId = null;
+
+      if (scratchTouchScrollSession) {
+        const sess = scratchTouchScrollSession;
+        scratchTouchScrollSession = null;
+        if (!sess.moved) {
+          const pos = { x: sess.worldX, y: sess.worldY };
+          if (!tryToggleScratchpadTapeAtPoint(pos.x, pos.y)) {
+            const prevPe = canvas.style.pointerEvents;
+            canvas.style.pointerEvents = "none";
+            const elUnder = document.elementFromPoint(sess.startX, sess.startY);
+            canvas.style.pointerEvents = prevPe;
+            if (elUnder) {
+              const clickable = elUnder.closest("button, a, input, select, textarea, .opt-card, .showcase-opt-pill, .matrix-chip, .anchor-pill") || elUnder;
+              if (clickable && typeof clickable.click === "function") clickable.click();
+            }
+          }
+        }
+        return;
+      }
+
       if (!scratchpadDrawing) return;
       scratchpadDrawing = false;
       scratchStrokeSnapped = false;
@@ -7374,20 +7472,46 @@ Explanation: ${parentQ.explanation}`;
       redrawScratchpad();
     };
 
-    // 1. Direct Canvas Pointer Listeners (Active when Draw Mode is ON)
+    // 1. Direct Canvas Pointer Listeners (Hardware Stylo 2 + Touch + Mouse)
     canvas.addEventListener("pointerdown", (e) => {
       if (!scratchpadActive || twoFingerScrolling) return;
       notifyStyloHardwareDetected(e);
       if (isPalmTouchRejected(e)) return;
-      if (!e.isPrimary) return;
+      if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
+      if (scratchpadMode === "PAN" || scratchpadInputMode === "PAN_ONLY") return;
 
-      const pos = getWorldPos(e);
-      if (scratchpadScrollPassthrough && e.pointerType !== "pen") {
-        tryToggleScratchpadTapeAtPoint(pos.x, pos.y);
+      // Allow tapping the Ink Toggle button itself to turn off Scratchpad
+      const prevPe = canvas.style.pointerEvents;
+      canvas.style.pointerEvents = "none";
+      const elUnder = document.elementFromPoint(e.clientX, e.clientY);
+      canvas.style.pointerEvents = prevPe;
+      if (elUnder) {
+        const toggleBtn = elUnder.closest("#btn-lab-scratchpad, #btn-dash-scratchpad, #btn-arena-scratchpad, #btn-dojo-scratchpad");
+        if (toggleBtn) {
+          toggleBtn.click();
+          return;
+        }
+      }
+
+      // In Stylo 2 Auto Mode (!scratchpadFingerDraw), 1-finger touch scrolls smoothly & taps underlying cards, while Stylus draws!
+      if (!scratchpadFingerDraw && e.pointerType !== "pen") {
+        const pos = getWorldPos(e);
+        scratchTouchScrollSession = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          lastX: e.clientX,
+          lastY: e.clientY,
+          worldX: pos.x,
+          worldY: pos.y,
+          moved: false
+        };
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
         return;
       }
 
       e.preventDefault();
+      activeScratchPointerId = e.pointerId;
       try {
         canvas.setPointerCapture(e.pointerId);
       } catch (_) {}
@@ -7395,7 +7519,26 @@ Explanation: ${parentQ.explanation}`;
     });
 
     canvas.addEventListener("pointermove", (e) => {
+      if (scratchTouchScrollSession && e.pointerId === scratchTouchScrollSession.pointerId) {
+        const dx = scratchTouchScrollSession.lastX - e.clientX;
+        const dy = scratchTouchScrollSession.lastY - e.clientY;
+        if (!scratchTouchScrollSession.moved && Math.hypot(e.clientX - scratchTouchScrollSession.startX, e.clientY - scratchTouchScrollSession.startY) > 6) {
+          scratchTouchScrollSession.moved = true;
+        }
+        if (scratchTouchScrollSession.moved) {
+          scratchTouchScrollSession.lastX = e.clientX;
+          scratchTouchScrollSession.lastY = e.clientY;
+          const sc = getActiveScrollContainerForInk();
+          if (sc) {
+            sc.scrollBy({ top: dy, left: dx, behavior: "auto" });
+            redrawScratchpad();
+          }
+        }
+        return;
+      }
+
       if (!scratchpadDrawing || !scratchpadActive || twoFingerScrolling) return;
+      if (activeScratchPointerId !== null && e.pointerId !== activeScratchPointerId) return;
       notifyStyloHardwareDetected(e);
       if (isPalmTouchRejected(e)) return;
       e.preventDefault();
@@ -7404,33 +7547,20 @@ Explanation: ${parentQ.explanation}`;
 
     canvas.addEventListener("pointerup", finishStroke);
     canvas.addEventListener("pointercancel", finishStroke);
+    canvas.addEventListener("lostpointercapture", finishStroke);
 
-    // 2. Global Stylo 2 / Active Stylus Auto-Ink Capture (Even when Scroll Mode is ON!)
-    window.addEventListener("pointerdown", (e) => {
-      if (e.pointerType === "pen") notifyStyloHardwareDetected(e);
-      if (!scratchpadActive || e.pointerType !== "pen") return;
-      if (!scratchpadScrollPassthrough) return; // Already handled by canvas when Draw Mode is ON
-      if (e.target && e.target.closest(".scratchpad-toolbar, button, input, select, textarea, a, .arena-header, .arena-footer")) {
-        return;
-      }
-      if (overlay) overlay.classList.add("pen-active-stroke");
-      e.preventDefault();
-      startStrokeFromEvent(e);
-    }, { capture: true });
-
-    window.addEventListener("pointermove", (e) => {
-      if (e.pointerType === "pen") notifyStyloHardwareDetected(e);
-      if (!scratchpadDrawing || !scratchpadActive || e.pointerType !== "pen") return;
-      if (!scratchpadScrollPassthrough) return;
-      e.preventDefault();
-      moveStrokeFromEvent(e);
-    }, { capture: true });
-
+    // Global safety fallbacks: ensure scratchpadDrawing is always terminated when stylus/finger lifts
     window.addEventListener("pointerup", (e) => {
-      if (scratchpadDrawing && e.pointerType === "pen") {
+      if (scratchpadDrawing || scratchTouchScrollSession) {
+        finishStroke(e);
+      }
+    }, { passive: true });
+
+    window.addEventListener("pointercancel", (e) => {
+      if (scratchpadDrawing) {
         finishStroke();
       }
-    }, { capture: true });
+    }, { passive: true });
   }
 
   function resizeScratchpadCanvas() {
@@ -7754,6 +7884,32 @@ Explanation: ${parentQ.explanation}`;
     });
     syncInkCircularOrbVisuals();
     redrawScratchpad();
+  }
+
+  let scratchLastWritingMode = "PEN";
+  let scratchLastWritingColor = "#38bdf8";
+  let lastScratchQuickEraserToggleAt = 0;
+
+  function toggleScratchpadQuickEraser(ev = null) {
+    if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+    const now = Date.now();
+    if (now - lastScratchQuickEraserToggleAt < 280) return;
+    lastScratchQuickEraserToggleAt = now;
+    if (scratchpadMode === "STROKE_ERASER" || scratchpadMode === "ERASER") {
+      const targetMode = (scratchLastWritingMode && scratchLastWritingMode !== "STROKE_ERASER" && scratchLastWritingMode !== "ERASER" && scratchLastWritingMode !== "PAN")
+        ? scratchLastWritingMode
+        : "PEN";
+      setScratchpadMode(targetMode);
+      if (scratchLastWritingColor) scratchpadColor = scratchLastWritingColor;
+      syncInkCircularOrbVisuals();
+      showToast(`✏️ Restored ${targetMode}`, "cyan", 1200);
+    } else {
+      scratchLastWritingMode = scratchpadMode;
+      scratchLastWritingColor = scratchpadColor;
+      setScratchpadMode("STROKE_ERASER");
+      syncInkCircularOrbVisuals();
+      showToast("🧹 Quick Eraser Active — Rub strokes to erase (Tap ✏️ to restore Pen)", "amber", 1400);
+    }
   }
 
   function undoScratchpadStroke() {
@@ -11890,7 +12046,7 @@ Explanation: ${parentQ.explanation}`;
       pdfPanBtn.classList.toggle("btn-secondary", !isPanMode);
     }
     if (!inkCanvas) return;
-    if (!compSheetInkMode || compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY") {
+    if (isPanMode) {
       inkCanvas.style.pointerEvents = "none";
       inkCanvas.style.touchAction = "pan-x pan-y";
       if (pageEl) {
@@ -11899,20 +12055,13 @@ Explanation: ${parentQ.explanation}`;
       }
       return;
     }
-    if (compSheetInkFingerDraw && compSheetInkInputMode === "FINGER_AND_STYLUS") {
-      inkCanvas.style.pointerEvents = "auto";
-      inkCanvas.style.touchAction = "none";
-      if (pageEl) {
-        pageEl.classList.remove("stylus-only-scroll");
-        pageEl.style.touchAction = "";
-      }
-    } else {
-      inkCanvas.style.pointerEvents = "none";
-      inkCanvas.style.touchAction = "pan-x pan-y";
-      if (pageEl) {
-        pageEl.classList.add("stylus-only-scroll");
-        pageEl.style.touchAction = "pan-x pan-y";
-      }
+    // Keep pointer-events: auto and touch-action: none on inkCanvas in BOTH Finger+Stylus and Stylo 2 Auto modes
+    // so Android Chrome never hijacks Stylo 2 pen strokes for native scrolling, while 1-finger touch scrolls via JS in Stylo 2 Auto mode!
+    inkCanvas.style.pointerEvents = "auto";
+    inkCanvas.style.touchAction = "none";
+    if (pageEl) {
+      pageEl.classList.remove("stylus-only-scroll");
+      pageEl.style.touchAction = "";
     }
   }
 
@@ -12016,6 +12165,32 @@ Explanation: ${parentQ.explanation}`;
     });
 
     syncInkCircularOrbVisuals();
+  }
+
+  let sheetLastWritingTool = "pen";
+  let sheetLastWritingColor = "#38bdf8";
+  let lastSheetQuickEraserToggleAt = 0;
+
+  function toggleCompSheetQuickEraser(ev = null) {
+    if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+    const now = Date.now();
+    if (now - lastSheetQuickEraserToggleAt < 280) return;
+    lastSheetQuickEraserToggleAt = now;
+    if (compSheetInkTool === "stroke_eraser" || compSheetInkTool === "eraser") {
+      const targetTool = (sheetLastWritingTool && sheetLastWritingTool !== "stroke_eraser" && sheetLastWritingTool !== "eraser" && sheetLastWritingTool !== "pan")
+        ? sheetLastWritingTool
+        : "pen";
+      setCompSheetInkTool(targetTool);
+      if (sheetLastWritingColor) compSheetInkColor = sheetLastWritingColor;
+      syncInkCircularOrbVisuals();
+      showToast(`✏️ Restored ${targetTool.toUpperCase()}`, "cyan", 1200);
+    } else {
+      sheetLastWritingTool = compSheetInkTool;
+      sheetLastWritingColor = compSheetInkColor;
+      setCompSheetInkTool("stroke_eraser");
+      syncInkCircularOrbVisuals();
+      showToast("🧹 Quick Eraser Active — Rub strokes to erase (Tap ✏️ to restore Pen)", "amber", 1400);
+    }
   }
 
   function setCompendiumFolioInkTool(tool = "PEN") {
@@ -12236,6 +12411,9 @@ Explanation: ${parentQ.explanation}`;
       }, 320);
     };
 
+    let activeSheetPointerId = null;
+    let folioTouchPanSession = null;
+
     const beginInkAtEvent = (e) => {
       notifyStyloHardwareDetected(e);
       // Auto-collapse expanded Ink Studio card back into small circular floating pill when drawing starts
@@ -12288,7 +12466,7 @@ Explanation: ${parentQ.explanation}`;
       lastEraserNormPt = pt;
 
       if (effectiveTool === "stroke_eraser") {
-        const hitRadius = Math.max(20, Math.round(eraserW * 0.55));
+        const hitRadius = Math.max(24, Math.round(eraserW * 0.65));
         activeEraserCursorPreview = { nx: pt.nx, ny: pt.ny, radiusPx: hitRadius };
         currentSheetInkStroke = { tool: "stroke_eraser", points: [pt] };
         pushSheetInkUndoSnapshot();
@@ -12358,13 +12536,22 @@ Explanation: ${parentQ.explanation}`;
       if (!currentSheetInkStroke) return;
       const eraserW = getEffectiveEraserPixelWidth(compSheetInkSize);
 
+      // 240Hz OnePlus Stylo 2 Coalesced Sub-Frame Stylus Sampling
+      const coalesced = (e.pointerType === "pen" && typeof e.getCoalescedEvents === "function")
+        ? e.getCoalescedEvents()
+        : [e];
+      const sampleList = (coalesced && coalesced.length > 0) ? coalesced : [e];
+
       if (currentSheetInkStroke.tool === "stroke_eraser") {
-        const hitRadius = Math.max(20, Math.round(eraserW * 0.55));
-        activeEraserCursorPreview = { nx: pt.nx, ny: pt.ny, radiusPx: hitRadius };
-        if (eraseWholeStrokesAlongSegment(lastEraserNormPt || pt, pt, hitRadius)) {
-          strokeEraserModified = true;
+        const hitRadius = Math.max(24, Math.round(eraserW * 0.65));
+        for (let ci = 0; ci < sampleList.length; ci++) {
+          const cPt = getNormalizedPoint(sampleList[ci]);
+          if (eraseWholeStrokesAlongSegment(lastEraserNormPt || cPt, cPt, hitRadius)) {
+            strokeEraserModified = true;
+          }
+          lastEraserNormPt = cPt;
         }
-        lastEraserNormPt = pt;
+        activeEraserCursorPreview = { nx: pt.nx, ny: pt.ny, radiusPx: hitRadius };
         redrawSheetInkCanvas();
         return;
       }
@@ -12391,7 +12578,6 @@ Explanation: ${parentQ.explanation}`;
         return;
       }
 
-      const prevPt = currentSheetInkStroke.points[currentSheetInkStroke.points.length - 1];
       if (currentSheetInkStroke.shapeSnap) {
         if (currentSheetInkStroke.points.length === 2) {
           currentSheetInkStroke.points[1] = pt;
@@ -12400,11 +12586,6 @@ Explanation: ${parentQ.explanation}`;
         return;
       }
 
-      // 240Hz OnePlus Stylo 2 Coalesced Sub-Frame Stylus Sampling
-      const coalesced = (e.pointerType === "pen" && typeof e.getCoalescedEvents === "function")
-        ? e.getCoalescedEvents()
-        : [e];
-      const sampleList = (coalesced && coalesced.length > 0) ? coalesced : [e];
       const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
       const cssW = Math.max(inkCanvas.width / dpr, 1);
       const cssH = Math.max(inkCanvas.height / dpr, 1);
@@ -12432,13 +12613,30 @@ Explanation: ${parentQ.explanation}`;
 
     const finishStroke = async (e) => {
       clearTimeout(folioShapeHoldTimer);
+      if (e && e.pointerId !== undefined) {
+        try { inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      activeSheetPointerId = null;
+
+      if (folioTouchPanSession) {
+        const sess = folioTouchPanSession;
+        folioTouchPanSession = null;
+        if (!sess.moved) {
+          if (!tryToggleRecallTapeAtNormPoint(sess.nx, sess.ny)) {
+            const interactiveEl = getUnderlyingInteractiveControl(sess.startX, sess.startY);
+            if (interactiveEl) {
+              const clickable = interactiveEl.closest("button, a, input, select, textarea") || interactiveEl;
+              if (typeof clickable.click === "function") clickable.click();
+            }
+          }
+        }
+        return;
+      }
+
       if (!isDrawingSheetInk) return;
       isDrawingSheetInk = false;
       activeEraserCursorPreview = null;
       lastEraserNormPt = null;
-      if (e && e.pointerId !== undefined) {
-        try { inkCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
-      }
       if (!compSheetInkFingerDraw) {
         syncSheetInkPointerPassthrough();
       }
@@ -12533,8 +12731,7 @@ Explanation: ${parentQ.explanation}`;
       if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
       notifyStyloHardwareDetected(e);
       if (isPalmTouchRejected(e)) return;
-      if (!compSheetInkMode || compSheetInkInputMode === "PAN_ONLY") return;
-      if (!compSheetInkFingerDraw && e.pointerType !== "pen") return;
+      if (!compSheetInkMode || compSheetInkInputMode === "PAN_ONLY" || compSheetInkTool === "pan") return;
       if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
 
       const interactiveEl = getUnderlyingInteractiveControl(e.clientX, e.clientY);
@@ -12547,17 +12744,54 @@ Explanation: ${parentQ.explanation}`;
         return;
       }
 
+      // In Stylo 2 Auto Mode (!compSheetInkFingerDraw), 1-finger touch scrolls in 2D (both X and Y) while Stylo 2 pen draws!
+      if (!compSheetInkFingerDraw && e.pointerType !== "pen") {
+        const pt = getNormalizedPoint(e);
+        folioTouchPanSession = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          lastX: e.clientX,
+          lastY: e.clientY,
+          nx: pt.nx,
+          ny: pt.ny,
+          moved: false
+        };
+        try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+        return;
+      }
+
       e.preventDefault();
       e.stopPropagation();
+      activeSheetPointerId = e.pointerId;
       try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
       beginInkAtEvent(e);
     });
 
     inkCanvas.addEventListener("pointermove", (e) => {
       if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
+      if (folioTouchPanSession && e.pointerId === folioTouchPanSession.pointerId) {
+        const dx = folioTouchPanSession.lastX - e.clientX;
+        const dy = folioTouchPanSession.lastY - e.clientY;
+        if (!folioTouchPanSession.moved && Math.hypot(e.clientX - folioTouchPanSession.startX, e.clientY - folioTouchPanSession.startY) > 6) {
+          folioTouchPanSession.moved = true;
+        }
+        if (folioTouchPanSession.moved) {
+          folioTouchPanSession.lastX = e.clientX;
+          folioTouchPanSession.lastY = e.clientY;
+          const scrollHost = getActivePdfScrollHost();
+          if (scrollHost) {
+            scrollHost.scrollLeft += dx;
+            scrollHost.scrollTop += dy;
+          }
+        }
+        return;
+      }
+
       notifyStyloHardwareDetected(e);
       if (isPalmTouchRejected(e)) return;
       if (!compSheetInkMode || !isDrawingSheetInk) return;
+      if (activeSheetPointerId !== null && e.pointerId !== activeSheetPointerId) return;
       e.preventDefault();
       e.stopPropagation();
       moveInkAtEvent(e);
@@ -12565,18 +12799,12 @@ Explanation: ${parentQ.explanation}`;
 
     inkCanvas.addEventListener("pointerup", finishStroke);
     inkCanvas.addEventListener("pointercancel", finishStroke);
+    inkCanvas.addEventListener("lostpointercapture", finishStroke);
 
     if (pageEl) {
-      pageEl.addEventListener("pointerover", (e) => {
-        if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
-        notifyStyloHardwareDetected(e);
-        if (!compSheetInkMode || compSheetInkFingerDraw) return;
-        if (e.pointerType === "pen") {
-          pageEl.style.touchAction = "none";
-        } else if (e.pointerType === "touch") {
-          pageEl.style.touchAction = "pan-x pan-y";
-        }
-      }, { capture: true });
+      let isSheetGrabPanning = false;
+      let sheetGrabLastX = 0;
+      let sheetGrabLastY = 0;
 
       pageEl.addEventListener("pointerdown", (e) => {
         if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
@@ -12611,6 +12839,7 @@ Explanation: ${parentQ.explanation}`;
             if (!getUnderlyingInteractiveControl(e.clientX, e.clientY)) {
               e.preventDefault();
               e.stopPropagation();
+              activeSheetPointerId = e.pointerId;
               inkCanvas.style.pointerEvents = "auto";
               try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
               beginInkAtEvent(e);
@@ -12619,31 +12848,35 @@ Explanation: ${parentQ.explanation}`;
           }
         }
 
-        if (!compSheetInkMode || compSheetInkFingerDraw || compSheetInkInputMode === "PAN_ONLY") return;
-        if (e.pointerType === "touch") {
-          pageEl.style.touchAction = "pan-x pan-y";
-          return;
+        // Mouse 2D Grab-to-Pan on zoomed Knowledge Sheet when Ink Mode is OFF or in Pan mode
+        if (!isCompPdfActive() && e.pointerType === "mouse" && e.button === 0) {
+          const canGrabPan = (!compSheetInkMode && !compendiumMaskEditMode && !compendiumHighlightMode && compendiumZoomScale > 1.02)
+            || (compSheetInkMode && (compSheetInkTool === "pan" || compSheetInkInputMode === "PAN_ONLY"));
+          if (canGrabPan && !getUnderlyingInteractiveControl(e.clientX, e.clientY)) {
+            isSheetGrabPanning = true;
+            sheetGrabLastX = e.clientX;
+            sheetGrabLastY = e.clientY;
+            e.preventDefault();
+          }
         }
-        if (e.pointerType !== "pen") return;
-        if (e.target && e.target.closest("button, a, input, select, textarea, .sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer, .comp-folio-ink-toolbar, .comp-pdf-studio-bar, .comp-pdf-thumb-scrubber, .comp-excerpt-action-bar, .folio-sheet-nav-footer, .folio-header-meta, .sheet-toc-pill-wrap")) {
-          return;
-        }
-        pageEl.style.touchAction = "none";
-        inkCanvas.style.pointerEvents = "auto";
-        e.preventDefault();
-        e.stopPropagation();
-        try { inkCanvas.setPointerCapture(e.pointerId); } catch (_) {}
-        beginInkAtEvent(e);
       }, { capture: true });
 
-      pageEl.addEventListener("pointermove", (e) => {
-        if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
-        if (!compSheetInkMode || compSheetInkFingerDraw || !isDrawingSheetInk) return;
-        if (e.pointerType !== "pen") return;
-        e.preventDefault();
-        e.stopPropagation();
-        moveInkAtEvent(e);
-      }, { capture: true });
+      window.addEventListener("pointermove", (e) => {
+        if (!isSheetGrabPanning) return;
+        const dx = sheetGrabLastX - e.clientX;
+        const dy = sheetGrabLastY - e.clientY;
+        sheetGrabLastX = e.clientX;
+        sheetGrabLastY = e.clientY;
+        const scrollHost = getActivePdfScrollHost();
+        if (scrollHost) {
+          scrollHost.scrollLeft += dx;
+          scrollHost.scrollTop += dy;
+        }
+      }, { passive: true });
+
+      window.addEventListener("pointerup", () => {
+        isSheetGrabPanning = false;
+      }, { passive: true });
 
       pageEl.addEventListener("touchmove", (e) => {
         if (e.target && e.target.closest(".sheet-media-card, .comp-pdf-floating-hud-pill, .comp-pdf-tools-drawer")) return;
@@ -12651,25 +12884,13 @@ Explanation: ${parentQ.explanation}`;
           e.preventDefault();
         }
       }, { passive: false });
-
-      pageEl.addEventListener("pointerup", (e) => {
-        if (isDrawingSheetInk && !compSheetInkFingerDraw && e.pointerType === "pen") {
-          finishStroke(e);
-        }
-      }, { capture: true });
-
-      pageEl.addEventListener("pointercancel", (e) => {
-        if (isDrawingSheetInk && !compSheetInkFingerDraw) {
-          finishStroke(e);
-        }
-      }, { capture: true });
     }
 
     window.addEventListener("pointerup", (e) => {
-      if (isDrawingSheetInk) finishStroke(e);
+      if (isDrawingSheetInk || folioTouchPanSession) finishStroke(e);
     });
     window.addEventListener("pointercancel", (e) => {
-      if (isDrawingSheetInk) finishStroke(e);
+      if (isDrawingSheetInk || folioTouchPanSession) finishStroke(e);
     });
   }
 
@@ -13867,7 +14088,82 @@ Explanation: ${parentQ.explanation}`;
 
   let pdfZoomDebounceTimer = null;
 
+  function applyLiveSheetZoomDimensions(nextScale, prevFocalX = null, prevFocalY = null, currFocalX = null, currFocalY = null, isLivePinch = false) {
+    const pageEl = document.getElementById("comp-folio-page");
+    if (!pageEl || isCompPdfActive()) return;
+    const zoomFactor = Math.max(0.65, Math.min(2.6, nextScale || compendiumZoomScale || 1.0));
+    const scrollHost = getActivePdfScrollHost();
+    const hostRect = scrollHost
+      ? scrollHost.getBoundingClientRect()
+      : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+
+    const hasPrevFocal = typeof prevFocalX === "number" && !Number.isNaN(prevFocalX) && typeof prevFocalY === "number" && !Number.isNaN(prevFocalY);
+    const startFocalX = hasPrevFocal ? prevFocalX : (hostRect.left + hostRect.width * 0.5);
+    const startFocalY = hasPrevFocal ? prevFocalY : (hostRect.top + hostRect.height * 0.5);
+    const endFocalX = (typeof currFocalX === "number" && !Number.isNaN(currFocalX)) ? currFocalX : startFocalX;
+    const endFocalY = (typeof currFocalY === "number" && !Number.isNaN(currFocalY)) ? currFocalY : startFocalY;
+
+    const beforeRect = pageEl.getBoundingClientRect();
+    const relX = beforeRect.width > 1 ? (startFocalX - beforeRect.left) / beforeRect.width : 0.5;
+    const relY = beforeRect.height > 1 ? (startFocalY - beforeRect.top) / beforeRect.height : 0.5;
+
+    const availHostW = Math.max(300, (scrollHost ? scrollHost.clientWidth : window.innerWidth) - 28);
+
+    if (Math.abs(zoomFactor - 1.0) < 0.015) {
+      pageEl.style.width = "";
+      pageEl.style.maxWidth = "";
+      pageEl.style.transform = "";
+      pageEl.style.transformOrigin = "";
+      pageEl.style.marginLeft = "";
+      pageEl.style.marginRight = "";
+      pageEl.style.marginBottom = "";
+      pageEl._baseUnzoomedWidth = pageEl.offsetWidth || Math.min(740, availHostW);
+    } else {
+      const baseW = (pageEl._baseUnzoomedWidth && pageEl._baseUnzoomedWidth >= 280)
+        ? pageEl._baseUnzoomedWidth
+        : (pageEl.offsetWidth || Math.min(740, availHostW));
+      pageEl._baseUnzoomedWidth = baseW;
+      pageEl.style.width = `${baseW}px`;
+      pageEl.style.maxWidth = `${baseW}px`;
+      pageEl.style.transformOrigin = "0 0";
+      pageEl.style.transform = `scale(${zoomFactor})`;
+
+      const baseH = Math.max(pageEl.offsetHeight || 480, 200);
+      const scaledW = Math.round(baseW * zoomFactor);
+      const scaledH = Math.round(baseH * zoomFactor);
+      const extraW = scaledW - baseW;
+      const extraH = scaledH - baseH;
+      const leftPad = scaledW < availHostW ? Math.max(0, Math.round((availHostW - scaledW) * 0.5)) : 0;
+
+      pageEl.style.marginLeft = `${leftPad}px`;
+      pageEl.style.marginRight = `${Math.max(0, extraW)}px`;
+      pageEl.style.marginBottom = `${Math.max(0, extraH)}px`;
+    }
+
+    if (scrollHost && (hasPrevFocal || Math.abs(zoomFactor - 1.0) >= 0.015)) {
+      const afterRect = pageEl.getBoundingClientRect();
+      const newPointClientX = afterRect.left + relX * afterRect.width;
+      const newPointClientY = afterRect.top + relY * afterRect.height;
+      const deltaScrollLeft = newPointClientX - endFocalX;
+      const deltaScrollTop = newPointClientY - endFocalY;
+      if (Math.abs(deltaScrollLeft) > 0.25) {
+        scrollHost.scrollLeft = Math.max(0, scrollHost.scrollLeft + deltaScrollLeft);
+      }
+      if (Math.abs(deltaScrollTop) > 0.25) {
+        scrollHost.scrollTop = Math.max(0, scrollHost.scrollTop + deltaScrollTop);
+      }
+    }
+
+    const pctText = `${Math.round(zoomFactor * 100)}%`;
+    safeSetText("comp-zoom-pct-btn", pctText);
+    safeSetText("comp-pdf-zoom-btn", pctText);
+    if (!isLivePinch) {
+      setTimeout(syncSheetInkCanvasGeometry, 30);
+    }
+  }
+
   function applyCompendiumZoomStyle() {
+    const pageEl = document.getElementById("comp-folio-page");
     const docEl = document.getElementById("comp-studio-doc-content");
     const pdfStage = document.getElementById("comp-pdf-canvas-wrap") || document.getElementById("comp-pdf-canvas-stage");
     const pctText = `${Math.round(compendiumZoomScale * 100)}%`;
@@ -13877,13 +14173,23 @@ Explanation: ${parentQ.explanation}`;
     if (pdfZoomBtn) pdfZoomBtn.innerText = pctText;
 
     if (docEl) {
-      if (Math.abs(compendiumZoomScale - 1.0) < 0.02) {
-        docEl.style.zoom = "";
-        docEl.style.transform = "";
-      } else {
-        docEl.style.zoom = String(compendiumZoomScale);
-      }
+      docEl.style.zoom = "";
+      docEl.style.transform = "";
     }
+
+    if (pageEl && !isCompPdfActive()) {
+      applyLiveSheetZoomDimensions(compendiumZoomScale, null, null, null, null, false);
+      return;
+    } else if (pageEl && isCompPdfActive()) {
+      pageEl.style.width = "";
+      pageEl.style.maxWidth = "";
+      pageEl.style.transform = "";
+      pageEl.style.transformOrigin = "";
+      pageEl.style.marginLeft = "";
+      pageEl.style.marginRight = "";
+      pageEl.style.marginBottom = "";
+    }
+
     if (pdfStage) {
       // PDF canvas scales natively via PDF.js viewport in renderPdfPage so glyphs stay crisp without double-zoom
       pdfStage.style.zoom = "";
@@ -13896,8 +14202,12 @@ Explanation: ${parentQ.explanation}`;
   function getActivePdfScrollHost() {
     const ws = document.getElementById("comp-studio-workspace") || document.querySelector("#compendium-fullscreen-view .comp-studio-workspace");
     const canvas = document.getElementById("comp-studio-canvas");
-    if (ws && (ws.scrollHeight > ws.clientHeight + 2 || ws.scrollWidth > ws.clientWidth + 2)) return ws;
-    if (canvas && (canvas.scrollHeight > canvas.clientHeight + 2 || canvas.scrollWidth > canvas.clientWidth + 2)) return canvas;
+    if (isCompPdfActive()) {
+      return ws || canvas;
+    }
+    if (ws && window.getComputedStyle(ws).display === "grid") {
+      return canvas || ws;
+    }
     return ws || canvas;
   }
 
@@ -14102,8 +14412,6 @@ Explanation: ${parentQ.explanation}`;
 
   function adjustCompendiumZoom(delta) {
     compendiumZoomScale = Math.max(0.65, Math.min(2.6, Math.round((compendiumZoomScale + delta) * 100) / 100));
-    readerFontScale = compendiumZoomScale;
-    document.documentElement.style.setProperty("--reader-font-scale", String(readerFontScale));
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
       applyLivePdfZoomDimensions(compendiumZoomScale, null, null, null, null, false);
@@ -14118,9 +14426,6 @@ Explanation: ${parentQ.explanation}`;
   function resetCompendiumZoom() {
     clearTimeout(pdfZoomDebounceTimer);
     compendiumZoomScale = 1.0;
-    readerFontScale = 1.0;
-    document.documentElement.style.setProperty("--reader-font-scale", "1");
-    putRecord("store_config", { key: "reader_font_scale", value: 1.0 });
     applyCompendiumZoomStyle();
     if (isCompPdfActive()) {
       applyLivePdfZoomDimensions(1.0, null, null, null, null, false);
@@ -16353,14 +16658,8 @@ Explanation: ${parentQ.explanation}`;
           // Single atomic pass: anchors the PDF page stage point under (prevMidX, prevMidY) and places it at (midX, midY)
           applyLivePdfZoomDimensions(nextScale, prevMidX, prevMidY, midX, midY, true);
         } else {
-          const scrollHost = getActivePdfScrollHost();
-          const panDx = prevMidX - midX;
-          const panDy = prevMidY - midY;
-          if (scrollHost && (Math.abs(panDx) > 0.25 || Math.abs(panDy) > 0.25)) {
-            scrollHost.scrollLeft += panDx;
-            scrollHost.scrollTop += panDy;
-          }
-          applyCompendiumZoomStyle();
+          // Single atomic pass for Knowledge Sheets: scales #comp-folio-page with 2D layout margins and pans around (prevMidX, prevMidY) -> (midX, midY)
+          applyLiveSheetZoomDimensions(nextScale, prevMidX, prevMidY, midX, midY, true);
         }
         return;
       }
@@ -17120,6 +17419,16 @@ Explanation: ${parentQ.explanation}`;
         applyDomMasksAndHighlights(bodyEl, activeSheetCustomMasks, activeSheetHighlights);
       }
       renderActiveSheetMediaBlocks();
+      const folioPageEl = document.getElementById("comp-folio-page");
+      if (folioPageEl) {
+        folioPageEl.style.width = "";
+        folioPageEl.style.maxWidth = "";
+        folioPageEl.style.transform = "";
+        folioPageEl.style.marginLeft = "";
+        folioPageEl.style.marginRight = "";
+        folioPageEl.style.marginBottom = "";
+        folioPageEl._baseUnzoomedWidth = folioPageEl.offsetWidth || 740;
+      }
       applyCompendiumZoomStyle();
       updateRecallProgressCounter();
       syncSheetInkPointerPassthrough();
@@ -19820,6 +20129,7 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     setScratchpadInputMode,
     toggleScratchpadScrollMode,
     setScratchpadMode,
+    toggleScratchpadQuickEraser,
     setScratchpadSize,
     setScratchpadColor,
     undoScratchpadStroke,
@@ -19828,6 +20138,9 @@ ${JSON.stringify(TAXONOMY, null, 2)}
     setScratchpadPillExpanded,
     setInkStudioPillExpanded,
     toggleInkAutoShapeSnap,
+    toggleCompSheetQuickEraser,
+    escapeHtml,
+    escapeHTML,
 
     openCompendiumStudio,
     closeCompendiumStudio,

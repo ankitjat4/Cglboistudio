@@ -796,38 +796,28 @@ body {
   top: 56px;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 64px;
   z-index: 2250;
   pointer-events: none;
   background: transparent !important;
 }
 .scratchpad-canvas-overlay.active {
   display: block;
+  pointer-events: auto;
   background: transparent !important;
 }
-/* Default / Scroll Mode: Overlay & Canvas let all 1-finger scrolls, swipes, and clicks pass straight through! */
+/* Direct canvas pointer capture with hardware stylus priority */
 .scratchpad-canvas-el {
   width: 100%;
   height: 100%;
-  pointer-events: none;
-  touch-action: auto;
+  pointer-events: auto;
+  touch-action: none;
   cursor: crosshair;
   background: transparent !important;
 }
-/* Active Draw Mode (Finger/Mouse Draw OR Active Stylus Pen Stroke): Captures strokes on canvas */
-.scratchpad-canvas-overlay.finger-draw-enabled,
-.scratchpad-canvas-overlay.pen-active-stroke {
-  pointer-events: auto;
-}
-.scratchpad-canvas-overlay.finger-draw-enabled .scratchpad-canvas-el,
-.scratchpad-canvas-overlay.pen-active-stroke .scratchpad-canvas-el {
-  pointer-events: auto;
-  touch-action: none;
-}
-.scratchpad-canvas-overlay.scroll-passthrough,
-.scratchpad-canvas-overlay.scroll-passthrough .scratchpad-canvas-el {
-  pointer-events: none !important;
-  touch-action: auto !important;
+.scratchpad-canvas-overlay.pan-only-passthrough .scratchpad-canvas-el {
+  pointer-events: none;
+  touch-action: pan-x pan-y;
 }
 .scratchpad-toolbar {
   position: fixed !important;
@@ -870,6 +860,41 @@ body {
   border-color: #ffffff;
   transform: scale(1.18);
   box-shadow: 0 0 8px currentColor;
+}
+
+/* Floating Orb Satellite Group & 1-Tap Quick Eraser Button */
+.ink-orb-satellite-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.is-expanded-card .ink-orb-satellite-group {
+  display: none !important;
+}
+.ink-quick-eraser-satellite-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.94);
+  border: 2px solid #f59e0b;
+  color: #fff;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65), 0 0 12px rgba(245, 158, 11, 0.35);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+}
+.ink-quick-eraser-satellite-btn:active {
+  transform: scale(0.92);
+}
+.ink-quick-eraser-satellite-btn.eraser-active {
+  border-color: #38bdf8;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65), 0 0 14px rgba(56, 189, 248, 0.5);
+  background: rgba(8, 51, 68, 0.94);
 }
 
 /* === ZONE 11: 3-TAB NAVIGATION, HUD & MINI-PLAYER === */
@@ -1413,20 +1438,26 @@ body {
 .comp-studio-workspace {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
 }
 
 .comp-document-canvas {
   flex: 1 0 auto;
+  min-width: 100%;
+  width: max-content;
+  box-sizing: border-box;
   padding: 20px 14px 30px 14px;
   background: transparent !important;
   line-height: 1.82;
   font-size: calc(15px * var(--reader-font-scale));
   color: var(--folio-ink, var(--text-reading));
+  overflow: visible;
   touch-action: pan-x pan-y;
 }
 
@@ -1886,8 +1917,8 @@ mark.user-hl-purple {
   cursor: crosshair;
 }
 .comp-folio-page.sheet-ink-mode-active.stylus-only-scroll .comp-folio-ink-canvas {
-  pointer-events: none !important;
-  touch-action: pan-x pan-y !important;
+  pointer-events: none;
+  touch-action: pan-x pan-y;
 }
 .folio-header-meta,
 .folio-sheet-nav-footer,
@@ -3233,42 +3264,61 @@ mark.user-hl-purple {
   }
 }
 
-/* True Landscape Orientation Split-Workspace & Docked Left Nav Rail */
+/* Tablet & Pad Landscape Bottom Nav: Full Visibility & Clean Placement */
 @media (min-width: 820px) and (orientation: landscape) {
   #bottom-nav {
-    top: 0;
+    position: fixed;
     bottom: 0;
     left: 0;
-    right: auto;
-    width: 72px;
-    height: 100vh;
-    flex-direction: column;
-    justify-content: flex-start;
-    padding: 18px 4px;
-    gap: 14px;
-    border-top: none;
-    border-right: 1px solid var(--border-color);
+    right: 0;
+    top: auto;
+    width: 100%;
+    height: var(--bottom-nav-height);
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 20px;
+    background: rgba(4, 6, 12, 0.96);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-right: none;
+    z-index: 1000;
   }
 
   #bottom-nav .nav-btn {
-    flex: 0 0 auto;
-    width: 100%;
-    padding: 12px 4px;
-    border-radius: 10px;
-    font-size: 10px;
+    flex: 1 1 0;
+    width: auto;
+    height: 100%;
+    min-height: 0;
+    padding: 8px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+
+  #bottom-nav .nav-btn.active {
+    color: var(--accent-cyan);
+    text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
   }
 
   #app-viewport-root {
-    padding-left: 72px;
+    padding-left: 0;
   }
 
   .view-container {
-    padding-bottom: 36px;
+    padding-bottom: calc(var(--bottom-nav-height) + 36px);
   }
 
   #mini-player-dock {
-    left: 88px;
-    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    bottom: calc(var(--bottom-nav-height) + 12px);
   }
 
   /* Universal 2-Column Side-by-Side Split Grid for ALL Questions in Landscape */
@@ -3315,8 +3365,13 @@ mark.user-hl-purple {
     overflow: hidden;
   }
   .comp-document-canvas {
+    width: 100%;
     height: 100%;
+    min-width: 0;
+    overflow-x: auto;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
     padding: 24px 24px 104px 24px;
   }
   .comp-margin-rail {
